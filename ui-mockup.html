@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>switch-ime-term · UI Mockup</title>
+<style>
+:root{
+  --bg:#08080c; --bg-panel:#0c0c14; --bg-term:#06060a;
+  --fg:#c8c8d4; --fg-dim:#5a5a72; --fg-faint:#2e2e40;
+  --green:#4ade80; --blue:#4ab8e6; --red:#ff6b5a;
+  --yellow:#fbbf24; --purple:#a855f7; --cyan:#22d3ee;
+  --line:#1a1a26;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{
+  width:100%;height:100%;background:#000;
+  display:flex;align-items:center;justify-content:center;
+  font-family:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+  color:var(--fg);overflow:hidden;
+}
+.stage{width:1280px;height:720px;transform-origin:center}
+.screen{
+  width:1280px;height:720px;background:var(--bg);
+  display:flex;flex-direction:column;overflow:hidden;position:relative;
+}
+
+/* ================= 顶部状态栏 ================= */
+.statusbar{
+  height:32px;flex:0 0 32px;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;font-size:11px;letter-spacing:.5px;
+  border-bottom:1px solid var(--line);color:var(--fg-dim);
+}
+.statusbar .sys{color:var(--cyan);letter-spacing:1.5px}
+.statusbar .time{color:var(--fg);font-variant-numeric:tabular-nums}
+.statusbar .bat{color:var(--green)}
+.statusbar .sep{color:var(--fg-faint);margin:0 8px}
+
+/* ================= 主区域 ================= */
+.main{flex:1;display:flex;min-height:0}
+
+/* ---------- 手柄面板 ---------- */
+.panel{
+  width:220px;flex:0 0 220px;
+  background:var(--bg-panel);
+  display:flex;flex-direction:column;align-items:center;
+  padding:12px 10px 8px;gap:8px;overflow:hidden;
+}
+.panel.left{border-right:1px solid var(--line)}
+.panel.right{border-left:1px solid var(--line)}
+
+.ptitle{
+  font-size:10px;letter-spacing:1.5px;color:var(--fg-dim);
+  align-self:flex-start;text-transform:uppercase;
+}
+.panel.left .ptitle{color:var(--cyan)}
+.panel.right .ptitle{color:var(--red)}
+
+/* 摇杆容器：纯字符矩阵，无边框无圆圈 */
+.stick-wrap{
+  position:relative;width:180px;height:180px;flex:0 0 180px;
+  margin:8px 0;cursor:pointer;
+}
+/* 各个层绝对隔离，防止重叠 */
+.stick-layer{
+  position:absolute;inset:0;
+  display:none;
+  grid-template-columns:repeat(5, 1fr);
+  grid-template-rows:repeat(5, 1fr);
+  place-items:center;
+}
+/* 按模式显示对应层 */
+.screen.mode-alpha .panel.left .stick-layer.alpha {display:grid}
+.screen.mode-symbol .panel.left .stick-layer.punct {display:grid}
+.screen.mode-alpha .panel.right .stick-layer.alpha {display:grid}
+.screen.mode-symbol .panel.right .stick-layer.num {display:grid}
+
+/* 字符按键：只有字，没有块 */
+.key{
+  display:flex;align-items:center;justify-content:center;
+  width:32px;height:32px;font-size:16px;font-weight:700;
+  cursor:pointer;user-select:none;transition:all .15s;
+}
+
+/* 位置分布（5x5网格） */
+/* 第一层：3x3 九宫格 */
+.r1c3{grid-area:1/3} /* 上 */
+.r2c2{grid-area:2/2} .r2c3{grid-area:2/3} .r2c4{grid-area:2/4}
+.r3c2{grid-area:3/2} .r3c3{grid-area:3/3} .r3c4{grid-area:3/4}
+.r4c2{grid-area:4/2} .r4c3{grid-area:4/3} .r4c4{grid-area:4/4}
+/* 第二层：十字外围 */
+.r3c1{grid-area:3/1} .r3c5{grid-area:3/5} .r5c3{grid-area:5/3}
+
+/* --- 颜色状态逻辑 --- */
+/* 第一层正常颜色 */
+.panel.left .layer1{color:var(--cyan)}
+.panel.right .layer1{color:#ff9a8a}
+.panel.left .punct .layer1{color:var(--purple)}
+.panel.right .num .layer1{color:var(--yellow)}
+
+/* 中心键反色高亮 */
+.center-key{background:var(--blue);color:#000 !important;box-shadow:0 0 10px rgba(74,184,230,.3)}
+.panel.right .alpha .center-key{background:var(--red);box-shadow:0 0 10px rgba(255,107,90,.3)}
+.panel.left .punct .center-key{background:var(--purple);box-shadow:0 0 10px rgba(168,85,247,.3)}
+.panel.right .num .center-key{background:var(--yellow);box-shadow:0 0 10px rgba(251,191,36,.3)}
+
+/* 第二层默认暗色（不可触发） */
+.layer2{color:var(--fg-faint);font-size:14px}
+
+/* === 摇杆按下后（第二层激活） === */
+/* 第一层全部变暗，取消高亮 */
+.screen.stick-pressed .layer1{
+  color:var(--fg-faint) !important;
+  background:transparent !important;
+  box-shadow:none !important;
+}
+/* 第二层亮起，呈现对应颜色（第一层激活时的样子） */
+.screen.stick-pressed .panel.left .alpha .layer2{color:var(--cyan);font-size:16px}
+.screen.stick-pressed .panel.right .alpha .layer2{color:#ff9a8a;font-size:16px}
+.screen.stick-pressed .panel.left .punct .layer2{color:var(--purple);font-size:16px}
+.screen.stick-pressed .panel.right .num .layer2{color:var(--yellow);font-size:16px}
+
+/* 数字层中心 5/0 特例：按下后中心 0 仍保持高亮 */
+.screen.stick-pressed.mode-symbol .panel.right .num .layer1.center-key{
+  color:var(--yellow) !important;
+  background:rgba(251,191,36,.15) !important;
+  box-shadow:0 0 8px rgba(251,191,36,.3) !important;
+}
+
+/* 点击反馈 */
+.key.pressed{background:var(--fg) !important;color:var(--bg) !important;transform:scale(1.1)}
+.shoulder.pressed{background:var(--fg) !important;color:var(--bg) !important}
+.abxy .b.pressed,.dpad .d.pressed{background:var(--fg) !important;color:var(--bg) !important}
+
+/* 肩键 */
+.shoulder-row{width:100%;display:flex;gap:6px;margin-bottom:2px}
+.panel.left .shoulder-row{justify-content:flex-start}
+.panel.right .shoulder-row{justify-content:flex-end}
+.shoulder{
+  height:18px;padding:0 8px;display:flex;align-items:center;
+  font-size:9px;font-weight:700;letter-spacing:.5px;
+  cursor:pointer;user-select:none;transition:all .12s;
+  background:#14141e;color:var(--fg-dim);
+}
+.shoulder.L{color:var(--purple);background:#1a1226}
+.shoulder.ZL{color:#8a6ab0;background:#14101e}
+.shoulder.R{color:var(--cyan);background:#0e1e26}
+.shoulder.ZR{color:#3a8aa8;background:#0a1620}
+.screen.mode-symbol .panel.left .shoulder.L{background:var(--purple);color:#000}
+
+/* 十字键 */
+.dpad{
+  display:grid;grid-template-columns:repeat(3,26px);grid-template-rows:repeat(3,26px);
+  gap:0;margin-top:2px;text-align:center;font-size:8px;color:var(--fg-dim);
+}
+.dpad .d{display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none}
+.dpad .d.blank{pointer-events:none}
+.dpad .d.center{color:var(--fg-faint);pointer-events:none}
+.dpad .d.tab{color:var(--green)}
+.dpad .d.shift{color:var(--yellow)}
+.dpad .d.ctrl{color:var(--purple)}
+.dpad .d.alt{color:var(--blue)}
+.screen.caps-on .dpad .d.shift{background:var(--yellow);color:#000}
+
+/* ABXY */
+.abxy{
+  display:grid;grid-template-columns:repeat(3,28px);grid-template-rows:repeat(3,28px);
+  gap:0;margin-top:2px;text-align:center;font-size:12px;font-weight:700;
+}
+.abxy .b{display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none}
+.abxy .b.blank{pointer-events:none}
+.abxy .b.a{color:var(--green)}
+.abxy .b.b{color:var(--red)}
+.abxy .b.x{color:var(--blue)}
+.abxy .b.y{color:var(--yellow)}
+.abxy .b.y.en{background:var(--green);color:#000}
+
+/* 功能键列表 */
+.klist{width:100%;margin-top:auto;display:flex;flex-direction:column;gap:3px}
+.krow{display:flex;align-items:center;gap:6px;font-size:9px;line-height:1.3}
+.kk{flex:0 0 auto;min-width:24px;height:16px;display:flex;align-items:center;justify-content:center;font-weight:700;background:#14141e}
+.kk.cyan{color:var(--cyan);background:#0e1e26}
+.kk.purple{color:var(--purple);background:#1a1226}
+.kk.green{color:var(--green);background:#0e1e12}
+.kk.dim{color:var(--fg-dim)}
+.kd{color:var(--fg-dim);font-size:8.5px}
+.kd b{color:var(--fg);font-weight:600}
+
+/* ================= 终端 ================= */
+.terminal{
+  flex:1;display:flex;flex-direction:column;
+  background:var(--bg-term);min-width:0;position:relative;
+  padding:10px 14px 8px;
+}
+.term-lines{flex:1;font-size:12.5px;line-height:1.65;white-space:pre-wrap;overflow:hidden}
+.prompt{color:var(--green)}
+.prompt-path{color:var(--blue)}
+.cmd{color:#fff}
+.out{color:#7a7a90}
+.warn{color:var(--yellow)}
+
+.input-line{
+  white-space:pre-wrap;display:flex;align-items:baseline;flex-wrap:wrap;
+  font-size:12.5px;line-height:1.65;
+}
+.compose-str{color:var(--blue);text-decoration:underline;text-underline-offset:3px;letter-spacing:1px}
+.cursor{display:inline-block;width:7px;height:14px;background:var(--blue);vertical-align:-2px;margin:0 1px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* 候选行 */
+.cand-line{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  font-size:12.5px;line-height:1.65;margin-top:2px;padding:2px 0;border-top:1px solid var(--line);
+}
+.cand-item{display:flex;align-items:baseline;gap:4px;padding:1px 6px;cursor:pointer;user-select:none;transition:all .1s}
+.cand-item .idx{font-size:9px;color:var(--fg-faint)}
+.cand-item .txt{color:#a8a8bc}
+.cand-item .ann{font-size:10px;color:var(--fg-dim);font-style:italic}
+.cand-item.active{background:rgba(74,184,230,.15);box-shadow:inset 0 0 0 1px var(--blue)}
+.cand-item.active .idx{color:var(--blue)}
+.cand-item.active .txt{color:#fff}
+.cand-item.active .ann{color:#6ab8d8}
+.cand-sep{color:var(--fg-faint);margin:0 2px}
+
+.cand-meta{display:flex;align-items:center;gap:10px;font-size:9px;color:var(--fg-faint);padding:2px 0 0;font-family:monospace}
+.cand-meta .k{color:var(--fg-dim)}
+.cand-meta .k.hl-green{color:var(--green)}
+.cand-meta .k.hl-blue{color:var(--blue)}
+.cand-meta .pg{margin-left:auto}
+
+/* ================= 底部状态栏 ================= */
+.footer{
+  height:26px;flex:0 0 26px;display:flex;align-items:center;gap:14px;
+  padding:0 16px;font-size:10px;letter-spacing:.5px;
+  border-top:1px solid var(--line);color:var(--fg-faint);
+}
+.footer .item{display:flex;align-items:center;gap:4px}
+.footer .val{color:var(--fg-dim)}
+.footer .val.alpha{color:var(--cyan)}
+.footer .val.symbol{color:var(--purple)}
+.footer .val.zh{color:var(--yellow)}
+.footer .val.en{color:var(--green)}
+.footer .right{margin-left:auto;display:flex;gap:14px}
+
+/* ================= 控件 ================= */
+.controls{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;z-index:100}
+.mode-buttons{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;max-width:520px}
+.mode-btn{padding:5px 10px;background:#0e0e16;border:1px solid var(--line);color:var(--fg-dim);font-size:10px;font-family:inherit;cursor:pointer;transition:all .15s}
+.mode-btn.active{background:rgba(74,184,230,.12);border-color:var(--blue);color:var(--blue)}
+.mode-btn.symbol.active{background:rgba(168,85,247,.12);border-color:var(--purple);color:var(--purple)}
+.mode-btn.pressed.active{background:rgba(74,222,128,.12);border-color:var(--green);color:var(--green)}
+.mode-btn.nocand.active{background:rgba(251,191,36,.12);border-color:var(--yellow);color:var(--yellow)}
+.mode-btn.caps.active{background:rgba(251,191,36,.18);border-color:var(--yellow);color:var(--yellow)}
+.legend{display:flex;gap:10px;padding:4px 10px;background:#0e0e16;border:1px solid var(--line);font-size:9px;color:var(--fg-faint)}
+.sw{display:inline-block;width:8px;height:8px;margin-right:4px;vertical-align:0}
+.sw.on{background:var(--cyan)}.sw.off{background:#14141e;box-shadow:inset 0 0 0 1px var(--fg-faint)}
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+  <div class="screen mode-alpha" id="screen">
+
+    <div class="statusbar">
+      <span class="sys">SYS.TERM</span>
+      <span><span class="time" id="clock">20:20</span><span class="sep">·</span><span class="bat">BAT 100%</span></span>
+    </div>
+
+    <div class="main">
+      <!-- 左手柄 -->
+      <div class="panel left">
+        <div class="shoulder-row">
+          <div class="shoulder L" id="btnL">L</div>
+          <div class="shoulder ZL" id="btnZL">ZL</div>
+        </div>
+        <div class="ptitle">// LEFT_STICK</div>
+
+        <div class="stick-wrap" data-stick="left">
+          <!-- alpha 层 -->
+          <div class="stick-layer alpha">
+            <div class="key layer1 r2c2">e</div>
+            <div class="key layer1 r2c3">i</div>
+            <div class="key layer1 r2c4">h</div>
+            <div class="key layer1 r3c2">a</div>
+            <div class="key layer1 center-key r3c3">o</div>
+            <div class="key layer1 r3c4">n</div>
+            <div class="key layer1 r4c2">u</div>
+            <div class="key layer1 r4c3">g</div>
+            <div class="key layer1 r4c4">z</div>
+            <!-- 外围 -->
+            <div class="key layer2 r1c3">m</div>
+            <div class="key layer2 r3c1">r</div>
+            <div class="key layer2 r3c5">t</div>
+            <div class="key layer2 r5c3">l</div>
+          </div>
+          <!-- punct 层 -->
+          <div class="stick-layer punct">
+            <div class="key layer1 r2c2">；</div>
+            <div class="key layer1 r2c3">，</div>
+            <div class="key layer1 r2c4">：</div>
+            <div class="key layer1 r3c2">？</div>
+            <div class="key layer1 center-key r3c3">！</div>
+            <div class="key layer1 r3c4">。</div>
+            <div class="key layer1 r4c2">、</div>
+            <div class="key layer1 r4c3">“</div>
+            <div class="key layer1 r4c4">”</div>
+            <!-- 外围 -->
+            <div class="key layer2 r1c3">—</div>
+            <div class="key layer2 r3c1">（</div>
+            <div class="key layer2 r3c5">）</div>
+            <div class="key layer2 r5c3">…</div>
+          </div>
+        </div>
+
+        <div class="ptitle">// DPAD</div>
+        <div class="dpad">
+          <div class="d blank"></div><div class="d tab" id="btnTab">Tab</div><div class="d blank"></div>
+          <div class="d ctrl" id="btnCtrl">Ctrl</div><div class="d center">·</div><div class="d shift" id="btnShift">Shift</div>
+          <div class="d blank"></div><div class="d alt" id="btnAlt">Alt</div><div class="d blank"></div>
+        </div>
+
+        <div class="klist">
+          <div class="krow"><span class="kk purple">L</span><span class="kd"><b>切换</b> 字母/符号</span></div>
+          <div class="krow"><span class="kk green">Tab</span><span class="kd"><b>翻页</b> 候选</span></div>
+          <div class="krow"><span class="kk purple">ZL</span><span class="kd"><b>光标</b> 左移</span></div>
+          <div class="krow"><span class="kk dim">L3</span><span class="kd">按下摇杆 · 第二层</span></div>
+        </div>
+      </div>
+
+      <!-- 终端 -->
+      <div class="terminal">
+        <div class="term-lines"><span class="prompt">switch@arch</span>:<span class="prompt-path">~</span>$ <span class="cmd">uname -a</span>
+<span class="out">Linux switch 4.9.140-l4t aarch64 GNU/Linux</span>
+<span class="prompt">switch@arch</span>:<span class="prompt-path">~</span>$ <span class="cmd">echo "你好，Switch"</span>
+<span class="out">你好，Switch</span>
+<span class="prompt">switch@arch</span>:<span class="prompt-path">~</span>$ <span class="cmd">sudo pacman -S --needed fcitx5</span>
+<span class="out">:: 正在解析依赖关系...</span>
+<span class="warn">:: 注意：Switch 内核未加载动态模块</span>
+<span class="out">完成。</span></div>
+
+        <div class="input-line"><span class="prompt">switch@arch</span>:<span class="prompt-path">~</span>$ <span id="composeArea"></span></div>
+
+        <div class="cand-line" id="candLine"></div>
+        <div class="cand-meta" id="candMeta">
+          <span class="k hl-green">Tab</span><span>翻页</span>
+          <span class="k">A</span><span>确认</span>
+          <span class="k">B</span><span>退格</span>
+          <span class="k">X</span><span>Del</span>
+          <span class="pg" id="pageText">1/3</span>
+        </div>
+      </div>
+
+      <!-- 右手柄 -->
+      <div class="panel right">
+        <div class="shoulder-row">
+          <div class="shoulder R" id="btnR">R</div>
+          <div class="shoulder ZR" id="btnZR">ZR</div>
+        </div>
+        <div class="ptitle">// RIGHT_STICK</div>
+
+        <div class="stick-wrap" data-stick="right">
+          <!-- alpha 层 -->
+          <div class="stick-layer alpha">
+            <div class="key layer1 r2c2">q</div>
+            <div class="key layer1 r2c3">s</div>
+            <div class="key layer1 r2c4">x</div>
+            <div class="key layer1 r3c2">d</div>
+            <div class="key layer1 center-key r3c3">b</div>
+            <div class="key layer1 r3c4">y</div>
+            <div class="key layer1 r4c2">c</div>
+            <div class="key layer1 r4c3">j</div>
+            <div class="key layer1 r4c4">v</div>
+            <!-- 外围 -->
+            <div class="key layer2 r1c3">k</div>
+            <div class="key layer2 r3c1">f</div>
+            <div class="key layer2 r3c5">w</div>
+            <div class="key layer2 r5c3">p</div>
+          </div>
+          <!-- num 层 -->
+          <div class="stick-layer num">
+            <div class="key layer1 r2c2">7</div>
+            <div class="key layer1 r2c3">8</div>
+            <div class="key layer1 r2c4">9</div>
+            <div class="key layer1 r3c2">4</div>
+            <div class="key layer1 center-key r3c3"><span class="num-l1">5</span><span class="num-l2">0</span></div>
+            <div class="key layer1 r3c4">6</div>
+            <div class="key layer1 r4c2">1</div>
+            <div class="key layer1 r4c3">2</div>
+            <div class="key layer1 r4c4">3</div>
+            <!-- 外围 -->
+            <div class="key layer2 r1c3">÷</div>
+            <div class="key layer2 r3c1">+</div>
+            <div class="key layer2 r3c5">−</div>
+            <div class="key layer2 r5c3">×</div>
+          </div>
+        </div>
+
+        <div class="ptitle">// ABXY</div>
+        <div class="abxy">
+          <div class="b blank"></div><div class="b y" id="btnY">中</div><div class="b blank"></div>
+          <div class="b x" id="btnX">X</div><div class="b blank"></div><div class="b a" id="btnA">A</div>
+          <div class="b blank"></div><div class="b b" id="btnB">B</div><div class="b blank"></div>
+        </div>
+
+        <div class="klist">
+          <div class="krow"><span class="kk green">Y</span><span class="kd"><b>中英</b> 切换</span></div>
+          <div class="krow"><span class="kk cyan">R</span><span class="kd"><b>空格</b></span></div>
+          <div class="krow"><span class="kk cyan">ZR</span><span class="kd"><b>光标</b> 右移</span></div>
+          <div class="krow"><span class="kk dim">R3</span><span class="kd">按下摇杆 · 第二层</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="item"><span class="lbl">LAYER</span><span class="val alpha" id="fLayer">ALPHA</span></div>
+      <div class="item"><span class="lbl">LANG</span><span class="val zh" id="fLang">ZH</span></div>
+      <div class="item"><span class="lbl">IME</span><span class="val">BUILTIN</span></div>
+      <div class="item"><span class="lbl">INPUT</span><span class="val">GAMEPAD</span></div>
+      <div class="right">
+        <span class="lbl" id="fCaps" style="color:var(--fg-faint)">CAPS —</span>
+        <span class="lbl">SYS.TERM v0.1.0</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="controls">
+  <div class="legend">
+    <span><span class="sw on"></span>可触发</span><span><span class="sw off"></span>不可触发</span>
+  </div>
+  <div class="mode-buttons">
+    <button class="mode-btn active" data-mode="alpha">字母层</button>
+    <button class="mode-btn symbol" data-mode="symbol">符号层</button>
+    <button class="mode-btn pressed" data-mode="pressed">摇杆按下</button>
+    <button class="mode-btn nocand" data-mode="nocand">无候选</button>
+    <button class="mode-btn caps" data-mode="caps">Caps</button>
+  </div>
+</div>
+
+<script>
+const stage=document.getElementById('stage');
+function fit(){const s=Math.min(innerWidth/1280,innerHeight/720);stage.style.transform=`scale(${s})`;}
+addEventListener('resize',fit);fit();
+
+setInterval(()=>{
+  const d=new Date();
+  document.getElementById('clock').textContent=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+},1000);
+
+const screen=document.getElementById('screen');
+const candLine=document.getElementById('candLine');
+const pageText=document.getElementById('pageText');
+const composeArea=document.getElementById('composeArea');
+const modeBtns=document.querySelectorAll('.mode-btn');
+const fLayer=document.getElementById('fLayer');
+const fLang=document.getElementById('fLang');
+const fCaps=document.getElementById('fCaps');
+const yBtn=document.getElementById('btnY');
+
+let currentMode='alpha',stickPressed=false,noCand=false,langMode='zh',capsOn=false,candPage=0;
+let composeText='nihao',cursorPos=composeText.length;
+
+const candPages=[
+  [{t:'你好',a:'hello'},{t:'你',a:'you'},{t:'尼',a:'ni'},{t:'呢',a:'ne'},{t:'泥',a:'mud'},{t:'拟',a:'draft'},{t:'逆',a:'reverse'}],
+  [{t:'妮',a:'girl'},{t:'倪',a:'ni'},{t:'霓',a:'rainbow'},{t:'昵',a:'intimate'},{t:'溺',a:'drown'},{t:'腻',a:'greasy'},{t:'匿',a:'hide'}],
+  [{t:'您',a:'formal'},{t:'柠',a:'lemon'},{t:'凝',a:'condense'},{t:'宁',a:'peaceful'},{t:'拧',a:'twist'},{t:'泞',a:'muddy'},{t:'佞',a:'flatter'}]
+];
+
+function renderCompose(){
+  const b=composeText.slice(0,cursorPos);
+  const a=composeText.slice(cursorPos);
+  composeArea.innerHTML=`<span class="compose-str">${b}</span><span class="cursor"></span><span class="compose-str">${a}</span>`;
+}
+
+function renderCandidates(){
+  const words=candPages[candPage];
+  let html='';
+  words.forEach((w,i)=>{
+    const active=i===0?' active':'';
+    html+=`<span class="cand-item${active}"><span class="idx">${i+1}</span><span class="txt">${w.t}</span><span class="ann">${w.a}</span></span>`;
+    if(i===4)html+=`<span class="cand-sep">│</span>`;
+  });
+  candLine.innerHTML=html;
+  pageText.textContent=`${candPage+1}/${candPages.length}`;
+}
+
+function applyState(){
+  screen.classList.remove('mode-alpha','mode-symbol');
+  screen.classList.add('mode-'+currentMode);
+  screen.classList.toggle('stick-pressed',stickPressed);
+  screen.classList.toggle('no-cand',noCand);
+  screen.classList.toggle('caps-on',capsOn);
+
+  candLine.style.display=noCand?'none':'';
+  document.getElementById('candMeta').style.display=noCand?'none':'';
+
+  fLayer.textContent=currentMode==='alpha'?'ALPHA':'SYMBOL';
+  fLayer.className='val '+(currentMode==='alpha'?'alpha':'symbol');
+  fLang.textContent=langMode==='zh'?'ZH':'EN';
+  fLang.className='val '+langMode;
+  fCaps.textContent=capsOn?'CAPS ON':'CAPS —';
+  fCaps.style.color=capsOn?'var(--yellow)':'var(--fg-faint)';
+
+  if(langMode==='zh'){
+    yBtn.textContent='中';yBtn.classList.remove('en');
+  }else{
+    yBtn.textContent='EN';yBtn.classList.add('en');
+  }
+
+  modeBtns.forEach(b=>{
+    const m=b.dataset.mode;
+    if(m==='pressed')b.classList.toggle('active',stickPressed);
+    else if(m==='nocand')b.classList.toggle('active',noCand);
+    else if(m==='caps')b.classList.toggle('active',capsOn);
+    else b.classList.toggle('active',m===currentMode&&!stickPressed&&!noCand);
+  });
+}
+
+function pressFeedback(el,dur=150){
+  if(!el)return;
+  el.classList.add('pressed');
+  setTimeout(()=>el.classList.remove('pressed'),dur);
+}
+
+document.querySelectorAll('.key,.dpad .d,.abxy .b').forEach(el=>{
+  if(el.classList.contains('blank')||el.classList.contains('center'))return;
+  el.addEventListener('click',e=>{e.stopPropagation();pressFeedback(el);});
+});
+
+document.querySelectorAll('.stick-wrap').forEach(stick=>{
+  stick.addEventListener('click',e=>{
+    if(e.target.closest('.key'))return;
+    stickPressed=!stickPressed;applyState();
+  });
+});
+
+candLine.addEventListener('click',e=>{
+  const item=e.target.closest('.cand-item');
+  if(!item)return;
+  document.querySelectorAll('.cand-item').forEach(x=>x.classList.remove('active'));
+  item.classList.add('active');
+});
+
+document.getElementById('btnL').addEventListener('click',e=>{
+  pressFeedback(e.currentTarget);
+  currentMode=currentMode==='alpha'?'symbol':'alpha';
+  stickPressed=false;noCand=false;applyState();
+});
+document.getElementById('btnZL').addEventListener('click',e=>{
+  pressFeedback(e.currentTarget,100);
+  if(cursorPos>0){cursorPos--;renderCompose();}
+});
+document.getElementById('btnZR').addEventListener('click',e=>{
+  pressFeedback(e.currentTarget,100);
+  if(cursorPos<composeText.length){cursorPos++;renderCompose();}
+});
+document.getElementById('btnR').addEventListener('click',e=>{
+  pressFeedback(e.currentTarget);
+  const sp=document.createElement('span');
+  sp.style.cssText='display:inline-block;width:5px;height:13px;background:var(--blue);margin-left:1px;opacity:.6;';
+  composeArea.parentNode.appendChild(sp);
+  setTimeout(()=>sp.remove(),500);
+});
+document.getElementById('btnTab').addEventListener('click',e=>{
+  pressFeedback(e.currentTarget);
+  if(noCand)return;
+  candPage=(candPage+1)%candPages.length;
+  renderCandidates();
+});
+document.getElementById('btnA').addEventListener('click',e=>{
+  pressFeedback(e.currentTarget);
+  noCand=true;applyState();
+  setTimeout(()=>{noCand=false;applyState();},1400);
+});
+document.getElementById('btnB').addEventListener('click',e=>{
+  pressFeedback(e.currentTarget);
+  if(cursorPos>0){
+    composeText=composeText.slice(0,cursorPos-1)+composeText.slice(cursorPos);
+    cursorPos--;renderCompose();
+    if(composeText.length===0){noCand=true;applyState();}
+  }
+});
+document.getElementById('btnX').addEventListener('click',e=>{
+  pressFeedback(e.currentTarget);
+  if(cursorPos<composeText.length){
+    composeText=composeText.slice(0,cursorPos)+composeText.slice(cursorPos+1);
+    renderCompose();
+  }
+});
+yBtn.addEventListener('click',e=>{
+  pressFeedback(e.currentTarget);
+  langMode=langMode==='zh'?'en':'zh';applyState();
+});
+let shiftTimer=null;
+document.getElementById('btnShift').addEventListener('click',e=>{
+  pressFeedback(e.currentTarget);
+  if(shiftTimer){clearTimeout(shiftTimer);shiftTimer=null;capsOn=!capsOn;applyState();}
+  else shiftTimer=setTimeout(()=>{shiftTimer=null;},280);
+});
+document.getElementById('btnCtrl').addEventListener('click',e=>pressFeedback(e.currentTarget));
+document.getElementById('btnAlt').addEventListener('click',e=>pressFeedback(e.currentTarget));
+
+modeBtns.forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const m=btn.dataset.mode;
+    if(m==='pressed')stickPressed=!stickPressed;
+    else if(m==='nocand')noCand=!noCand;
+    else if(m==='caps')capsOn=!capsOn;
+    else{currentMode=m;stickPressed=false;noCand=false;}
+    applyState();
+  });
+});
+
+renderCompose();renderCandidates();applyState();
+</script>
+</body>
+</html>
