@@ -412,18 +412,30 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         }
         for (const disp::ClickEvent& ck : clicks) {
             int hit = t9Hit(ck.x, ck.y);
-            if (hit < 0) continue;  // 九宫格以外忽略
             if (!t9.popup()) {
+                if (hit < 0) continue;  // 网格态：九宫格以外忽略
                 if (ck.button == 1) t9.setFocus(hit);              // 左键选格，不弹窗
                 else if (ck.button == 2) doAction(cfg::kMagic);    // 右键 = 魔法键
                 continue;
             }
-            int li = -1;  // 弹窗中：左键点字符键 / 右键触发当前选中
-            if (ck.button == 1) li = ui::popupLetterIdx(t9.focus(), hit);
+            // —— 弹窗态 ——
+            if (hit < 0) {  // 点九宫格以外（终端区/空白）= 退出弹窗
+                t9.leavePopup();
+                continue;
+            }
+            int li = ui::popupLetterIdx(t9.focus(), hit);
+            if (li < 0 || li >= t9.letterCount()) {
+                // 点的不是当前字符键（含符号层被截断的格）→ 改锁到这格，弹窗保持打开
+                t9.leavePopup();
+                t9.setFocus(hit);
+                doAction(cfg::kMagic);
+                continue;
+            }
+            // 字符键：左键点选 / 右键（魔法键）触发当前选中
+            if (ck.button == 1) t9.setLetter(li);
             else if (ck.button == 2) li = t9.letterIdx();
             else continue;
-            if (li < 0 || li >= t9.letterCount()) continue;  // 不是字符键（或符号层截断）
-            t9.setLetter(li);
+            if (li < 0 || li >= t9.letterCount()) continue;
             st.pressedCell = ui::popupCellFor(t9.focus(), li);
             st.pressedMs = nowMs;
         }
