@@ -1,6 +1,8 @@
-# STATUS（v4.2：T9 九键 + 修饰键规则已落地）
+# STATUS（v4.3：T9 弹窗布局 + 鼠标/指针交互已落地，待上真机）
 
-设计准则：`docs/DESIGN.md`（v4.2：§3.1 空格双含义 / §3.2 鼠标暂缓 / §3.3 修饰键规则），设计稿 `docs/ui-mockup.html`。
+> 最后更新：2026-11-02 夜。下次从「下一步」一节接着干。
+> 设计准则：`docs/DESIGN.md`（§3.1 弹窗布局表 + 虚无语义 / §4 配置 / §4.4.1 桌面模式），
+> 上机流程：`docs/SWITCHROOT.md`。
 
 ## 已完成（重构）
 - **配置分层 + 热切换**：配置分三类文件（`config/ui.lua` 尺寸/键表/标签、`config/keymap.lua`
@@ -48,14 +50,53 @@
   无指针后端（fbdev/headless）`mouseX = -1` 时跳过悬停判定，纯手柄路径不受影响。
 - **右摇杆模拟鼠标按用户要求暂缓**（用鼠标点"摇杆模拟鼠标"没意义）。
 
-## 待做（按 DESIGN 里程碑）
-- M0 渲染、M1 终端、M2 输入（左摇杆 3×3 + LB 魔法键 Grid/Popup）**已完成**
-  （`ui/screen.cpp` 画三分区，`app/app.cpp` 走 `TerminalParser`，`--audit-t9` 全绿，
-  `--ui-preview x.png` 出图正常）。右摇杆 uinput 鼠标仍按用户要求暂缓。
-1. 删旧 UI：`src/ui/panels.cpp` / `src/ui/layout_lua.cpp` / 根 `layout.lua` 现在只服务 `--legacy`，
-   新架构无回归后连同 `main.cpp` 的 `--legacy` 分支一起删。
-2. 词级候选（`nihao` 第 2 候选是「你号」）。
-3. evdev `input` 组/udev、Switch 交叉编译（M4）。
+## 下一步（2026-11-03 起，按这个顺序）
+
+### A. Switch 上机（硬件先于代码）
+
+镜像已就绪：`~/Downloads/switchroot/theofficialgman-kubuntu-noble-5.1.2-2026-05-13.7z`
+（SHA1 `66e6d4990df4d671e64615b7ec6276299fdebc21`，已解压到同级 `noble/`）。
+完整步骤见 **`docs/SWITCHROOT.md`**，顺序不能反：
+
+1. 灌卡 → hekate `Partition SD Card` + `Flash Linux` → 首次启动（hekate ≥ 6.0.6）
+2. **先配网 + SSH**（§0：多 WiFi profile、手机热点 priority 100、关省电、avahi）
+3. `--list-gamepad` 确认 Joy-Con 被枚举（滑轨直连默认开，`jc_rail_disable=0`）
+4. `--selftest` → `--backend fbdev`
+5. **SSH 确认可用之后**才 `set-default multi-user.target` + purge 桌面（§6，先跑 §0.3 的模拟检查）
+
+没有可用路由器时走 **PC↔Switch 网线直连**：`sudo ./tools/pc-host-switch.sh`
+（本机 RTL8153 走原生 `r8152` 免驱；双口直连实测协商 1000Mbps）。Switch 侧要 dock 的 USB 口或 OTG，
+掌机直插 USB-C 是设备模式不会被枚举。
+
+### B. 摇杆统一指针（设计已定，未实现）
+
+结论：**hover 的本质是「指针落在哪个字符键上」**，鼠标/触摸/摇杆共用同一套命中逻辑。
+
+* 唯一指针 = `bd->mouseX/mouseY`（-1 = 虚无）。三个输入源都往这里写。
+* 摇杆**弹窗态**：扇区 → 目标 cell（需在 `T9Ime` 加只读的 `stickTargetCell(sector)`，
+  现在 `stick()` 是直接改 `letterIdx_`）；是字符键就把指针指向该格中心，否则 -1。
+  于是「推到虚无处 + LB」自动等价于退出弹窗，UI 代码一行不用改。
+* 摇杆**网格态**：维持现在的离散焦点移动（`t9.stick`）。
+* 触摸：SDL 用 `SDL_FINGER*` 写 `mouseX/Y` + `ClickEvent`（约 20 行）；
+  fbdev 用 `/dev/input/event*` 的 `ABS_MT_POSITION_X/Y`（复用 evdev 那套读取）。
+* 配套可调参数（尚未加）：`engine.input.stick = { deadzone, hysteresis_deg, repeat_ms, repeat_delay_ms }`。
+  纯映射层（`StickNormalizer`/`PadState`）保持无时间，重复逻辑放 app 层。
+
+### C. 其他排队项
+
+1. **九键 T9 输入法**：字母流与布局无关这条已经成立（拼音层只吃字母）；真正的九键 =
+   数字串 + 词表 + 组合展开。缺的是中文词表（`data/` 只有单字表 + bigram）。
+2. 删 legacy UI：`src/ui/panels.*` / `layout_lua.*` / 根 `layout.lua` / `main.cpp` 的 `--legacy` 分支。
+   删之前要先把 legacy 独有能力（点击 HitTest、选区、剪贴板、滚轮回看、SDL 写 `sticky`）搬进新路径。
+3. 符号层专属弹窗布局（现在按字符数截断同一张表）。
+4. 弹窗布局搬 Lua（`config/ui.lua` 的 `t9_popup`），改版式不用重编译。
+5. `engine.log` / `engine.ime.ngram` / `engine.ime.t9` 仍只解析不生效。
+
+## 里程碑现状（一句话）
+
+M0 骨架（无日志/无 `--list-gamepad`→已补）/ M1 终端 / M2 中文渲染 / M3 手柄 / M4 内置 IME /
+M5 n-gram 重排 **已完成**；M3.5 只差指针源接线（见 B）；M7 打字模式只有 uinput 骨架；
+M6 fcitx5 / M8 DRM·EGL / M9 交叉编译 / M10 Overlay **零代码**。
 
 ---
 

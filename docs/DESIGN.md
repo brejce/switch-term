@@ -126,6 +126,35 @@
 所以纯手柄路径的选中不会被清掉。
 150ms 动画由主循环按 `steady_clock` 毫秒判断：`pressedCell/pressedMs` 超时自动清成 -1。
 
+#### 指针模型（三源统一，摇杆待接）
+
+`hover` 的本质是「指针落在哪个字符键上」，不是鼠标专用。三源共用同一套命中逻辑：
+
+```
+鼠标 (x,y) ─┐
+触摸 (x,y) ─┼→ bd->mouseX/mouseY → t9Hit → popupLetterIdx → 选中/虚无
+摇杆 扇区 ─┘   （-1,-1 = 虚无）
+```
+
+* **弹窗态**：摇杆扇区 → 目标 cell；该格是字符键就把指针指向格中心，否则写 -1。
+  于是「推到虚无处 + 魔法键」自动等于退出弹窗，UI 不用改。
+* **网格态**：摇杆仍走离散焦点移动（`t9.stick`），不碰指针。
+* **触摸**：SDL 用 `SDL_FINGER*`；fbdev 用 `/dev/input/event*` 的 `ABS_MT_POSITION_X/Y`。
+  触摸点按 = 鼠标左键，整套弹窗交互直接可用。
+* **可调参数**（未接）：`engine.input.stick.{deadzone,hysteresis_deg,repeat_ms,repeat_delay_ms}`。
+  纯映射层保持无时间；`repeat_*` 放 app 层判定。
+
+#### 与输入法的分层
+
+T9 面板只负责产生**字母流**，拼音/分词层（`ime::BuiltinIme`）不知道布局是 9 键还是 26 键：
+
+```
+T9 九键（弹窗选字母）→ push('n') → 拼音引擎 → 候选 → PTY
+```
+
+真正的**九键 T9 输入法**是另一条路：数字串（`digitsBuffer` / `queryDigits`）→ 词表 + 组合展开 → 候选。
+骨架已有，缺中文词表和组合搜索，两者都不需要改 UI 和映射。
+
 ### 3.2 右手区：鼠标与全局控制
 *   **RB (右肩键) = 鼠标左键 / RT (右扳机) = 鼠标右键**：已实现。走 `/dev/uinput` 建一个
     "switch-ime-term virtual mouse" 虚拟设备，只发 `BTN_LEFT`/`BTN_RIGHT` 的按下+抬起，
