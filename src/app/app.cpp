@@ -406,9 +406,15 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         const long long nowMs = msNow();
         if (st.pressedCell >= 0 && nowMs - st.pressedMs >= kPopupFlashMs) st.pressedCell = -1;
         st.hoverCell = t9Hit(bd->mouseX, bd->mouseY);
-        if (t9.popup() && st.hoverCell >= 0) {  // 悬停即选中
-            int li = ui::popupLetterIdx(t9.focus(), st.hoverCell);
-            if (li >= 0 && li < t9.letterCount()) t9.setLetter(li);
+        // 只有指针真在画面里才做悬停判定（无鼠标后端读到 -1，手柄的选中不能被清掉）
+        if (t9.popup() && bd->mouseX >= 0 && bd->mouseY >= 0) {
+            // 弹窗里只有字符键是实体：在虚无（含九宫格外）= 无选中
+            int hoverLi = -1;
+            if (st.hoverCell >= 0) {
+                hoverLi = ui::popupLetterIdx(t9.focus(), st.hoverCell);
+                if (hoverLi >= t9.letterCount()) hoverLi = -1;  // 符号层截断
+            }
+            t9.setLetter(hoverLi);
         }
         for (const disp::ClickEvent& ck : clicks) {
             int hit = t9Hit(ck.x, ck.y);
@@ -418,26 +424,19 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 else if (ck.button == 2) doAction(cfg::kMagic);    // 右键 = 魔法键
                 continue;
             }
-            // —— 弹窗态 ——
-            if (hit < 0) {  // 点九宫格以外（终端区/空白）= 退出弹窗
-                t9.leavePopup();
+            // —— 弹窗态：字符键之外一切皆虚无 ——
+            int li = hit < 0 ? -1 : ui::popupLetterIdx(t9.focus(), hit);
+            if (li >= t9.letterCount()) li = -1;  // 符号层截断的格也是虚无
+            if (li < 0) {  // 虚无：魔法键 = 退出弹窗；左键 = 真的什么都不做
+                if (ck.button == 2) t9.leavePopup();
                 continue;
             }
-            int li = ui::popupLetterIdx(t9.focus(), hit);
-            if (li < 0 || li >= t9.letterCount()) {
-                // 点的不是当前字符键（含符号层被截断的格）→ 改锁到这格，弹窗保持打开
-                t9.leavePopup();
-                t9.setFocus(hit);
-                doAction(cfg::kMagic);
-                continue;
+            // 字符键：左键点选 / 右键（魔法键）触发，都选中它并闪一下
+            if (ck.button == 1 || ck.button == 2) {
+                t9.setLetter(li);
+                st.pressedCell = ui::popupCellFor(t9.focus(), li);
+                st.pressedMs = nowMs;
             }
-            // 字符键：左键点选 / 右键（魔法键）触发当前选中
-            if (ck.button == 1) t9.setLetter(li);
-            else if (ck.button == 2) li = t9.letterIdx();
-            else continue;
-            if (li < 0 || li >= t9.letterCount()) continue;
-            st.pressedCell = ui::popupCellFor(t9.focus(), li);
-            st.pressedMs = nowMs;
         }
 
         // ⑥ 画

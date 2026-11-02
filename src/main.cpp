@@ -551,6 +551,16 @@ int main(int argc, char** argv) {
             std::string m4 = t9.magic();
             ck("摇杆左后回 J", m4 == "J", m4, "J");
             ck("连击不退出弹窗", t9.popup(), t9.popup() ? "popup" : "grid", "popup");
+            // 无选中（鼠标在虚无处 = letterIdx -1）：不上屏，摇杆左右从第一个字母起
+            t9.setLetter(-1);
+            ck("无选中 letterIdx=-1", t9.letterIdx() == -1, std::to_string(t9.letterIdx()), "-1");
+            ck("无选中 currentLetter=0", t9.currentLetter() == 0,
+               std::to_string(int(t9.currentLetter())), "0");
+            std::string m5 = t9.magic();
+            ck("无选中 LB 不上屏", m5.empty() && t9.popup(), m5.empty() ? "空" : m5, "空");
+            t9.stick(0);  // 无选中后右 → 从 J 起算 = K
+            std::string m6 = t9.magic();
+            ck("无选中后摇杆右→K", m6 == "K", m6, "K");
             t9.leavePopup();
             ck("Esc 类退出弹窗", !t9.popup(), "grid", "grid");
 
@@ -814,7 +824,7 @@ int main(int argc, char** argv) {
                     {"泥", "ní"},   {"拟", "nǐ"}, {"逆", "nì"}};
         st.candPageCount = 3;
         st.modsText = "CTRL";
-        // --preview-key k：弹窗态，默认选中落在锁定格自己上的那个字符（验布局表用）
+        // --preview-key k：弹窗态，选中落在锁定格自己上的那个字符（＝鼠标停在锁定格字符上）
         int pk = previewKey;
         if (pk < 0 && std::getenv("SIT_POPUP")) pk = 4;  // 旧的弹窗预览开关
         if (pk >= 0) {

@@ -89,8 +89,9 @@ public:
     }
     virtual const char* name() const = 0;
 
-    // 鼠标位置（帧缓冲坐标，-1 = 指针不在画面内）。后端写，主循环读来算悬停格。
-    int mouseX = 0, mouseY = 0;
+    // 鼠标位置（帧缓冲坐标，-1 = 指针不在画面内/从没动过）。后端写，主循环读来算悬停格。
+    // 默认 -1：无鼠标后端（fbdev/headless）+ 手柄时悬停不能把选中清掉。
+    int mouseX = -1, mouseY = -1;
 
     // 滚轮/翻页累计量（+ 向上看历史）。后端写，主循环取走后清零。
     int wheel = 0;

@@ -34,7 +34,7 @@ int T9Ime::letterCount() const {
 }
 
 char T9Ime::currentLetter() const {
-    if (!keys_ || focus_ < 0 || focus_ > 8) return 0;
+    if (!keys_ || focus_ < 0 || focus_ > 8 || letterIdx_ < 0) return 0;
     const std::string& s = keys_[focus_].letters;
     if (s.empty()) return 0;
     return s[size_t(std::clamp(letterIdx_, 0, int(s.size()) - 1))];
@@ -66,8 +66,9 @@ void T9Ime::stick(int sector) {
         if (n <= 1) return;
         bool left = (sector >= 3 && sector <= 5);   // NW/W/SW 算左
         bool right = (sector >= 0 && sector <= 1) || sector == 7;
-        if (left) letterIdx_ = (letterIdx_ + n - 1) % n;
-        else if (right) letterIdx_ = (letterIdx_ + 1) % n;
+        if (!left && !right) return;
+        int idx = letterIdx_ < 0 ? 0 : letterIdx_;  // 无选中（鼠标在虚无）时从第一个字母起
+        letterIdx_ = left ? (idx + n - 1) % n : (idx + 1) % n;
         return;
     }
     // Grid：焦点在九宫格里移动，越界不动（不循环，避免从边上一把跳到对面）
@@ -83,7 +84,8 @@ void T9Ime::setFocus(int idx) {
 }
 
 void T9Ime::setLetter(int idx) {
-    if (idx >= 0 && idx < letterCount()) letterIdx_ = idx;
+    if (idx == -1) letterIdx_ = -1;  // 无选中：magic() 不上屏，currentLetter() 返回 0
+    else if (idx >= 0 && idx < letterCount()) letterIdx_ = idx;
 }
 
 }  // namespace ime

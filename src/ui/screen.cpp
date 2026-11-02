@@ -54,7 +54,7 @@ void ptitle(render::Renderer& r, const FontBook& f, int x, int y, const std::str
 }
 
 // 9 张字符格：row-major 九宫格。弹窗时字符键按 t9_popup.h 的占位表铺开，
-// 锁定格自己承载的那个字符就是默认选中项，没被字符键占的格子变暗。
+// 没被字符键占的格子是「虚无」：缩小 0.82 + 字降一档 + 更淡，视觉上就不像可点的东西。
 void drawT9Grid(render::Renderer& r, const FontBook& f, const cfg::T9Key* keys, const Geometry& g,
                 const AppState& st, uint32_t accent, float s) {
     const int lock = st.popup ? (st.popupFocus >= 0 ? st.popupFocus : st.focusIdx) : -1;
@@ -65,11 +65,17 @@ void drawT9Grid(render::Renderer& r, const FontBook& f, const cfg::T9Key* keys, 
         int n = std::min(popupCellCount(lock), int(letters.size()));
         for (int k = 0; k < n; ++k) letterAt[popupCellFor(lock, k)] = letters[size_t(k)];
     }
-    const int sel = st.selCell >= 0 ? st.selCell : lock;  // 默认选中锁定格上的字符
+    // 选中只由悬停决定：鼠标在虚无处时 selCell = -1，任何字符键都不亮
+    const int sel = st.selCell;
     for (int i = 0; i < 9; ++i) {
-        disp::Rect box = t9CellRect(g, i);
-        const int x = box.x, y = box.y, cell = box.w;
         const bool isChar = letterAt[i] != 0;
+        const bool ghost = st.popup && !isChar;
+        disp::Rect box = t9CellRect(g, i);
+        if (ghost) {  // 虚无格：缩到 0.82 倍并居中
+            const int inset = int(std::lround(box.w * 0.09));
+            box = {box.x + inset, box.y + inset, box.w - 2 * inset, box.h - 2 * inset};
+        }
+        const int x = box.x, y = box.y, cell = box.w;
         uint32_t bg = 0;
         if (st.popup) {
             if (isChar && i == sel) bg = col::kBlue;             // 悬停/选中：反色底
@@ -77,17 +83,18 @@ void drawT9Grid(render::Renderer& r, const FontBook& f, const cfg::T9Key* keys, 
         } else if (i == st.focusIdx) {
             bg = accent;  // 网格态焦点格
         }
-        uint32_t fg = (st.popup && !isChar) ? col::kFaint : accent;
+        uint32_t fg = ghost ? col::kLine : accent;  // kLine 比 kFaint 更淡
         if (bg) {
             r.fill({x + S(2, s), y + S(2, s), cell - S(4, s), cell - S(4, s)}, c(bg));
             fg = col::kBg;  // 底色是反色，字用底色
         }
         // 数字（左上，小字）
         r.textInBox({x + S(4, s), y + S(2, s), 0, S(12, s)}, keys[i].num, f.dpad,
-                    c(bg ? (st.popup ? 0x001018 : 0x101018) : col::kDim), render::Align::Left);
-        // 字母（居中，大字）；弹窗时字符键一格一个字母
+                    c(bg ? (st.popup ? 0x001018 : 0x101018) : (ghost ? col::kLine : col::kDim)),
+                    render::Align::Left);
+        // 字母（居中）；弹窗时字符键一格一个字母，虚无格用降档字号的整串字母
         std::string letters = isChar ? std::string(1, letterAt[i]) : keys[i].letters;
-        r.textInBox({x, y + S(10, s), cell, S(30, s)}, letters, f.stick2, c(fg),
+        r.textInBox({x, y + S(10, s), cell, S(30, s)}, letters, ghost ? f.dpad : f.stick2, c(fg),
                     render::Align::Center, 0, 0, S(1, s));
     }
 }
@@ -229,13 +236,23 @@ void drawT9Panel(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     int dx = (g.panelW - 3 * g.dpadCell) / 2;
     drawDpad(r, f, dx, dy + S(16, s), g.dpadCell, st, s);
 
-    // 底部说明
-    static const KeyRow rows[] = {
+    // 底部说明：弹窗态九宫格里只有字符键是实体，换成「怎么退出」的提示
+    static const KeyRow gridRows[] = {
         {"LB", col::kPurple, "魔法键", " 弹出/连击"},
         {"LT", col::kCyan, "空格", ""},
         {"DPAD", col::kDim, "双击", " 锁定 Ctrl/Shift/Alt"},
     };
-    drawKeyList(r, f, padX, g.panelW - 2 * padX, g.contentY + g.contentH - S(10, s), rows, 3, s);
+    static const KeyRow popupRows[] = {
+        {"左键", col::kGreen, "选字", ""},
+        {"右键", col::kRed, "空处", " 退出"},
+        {"ESC", col::kDim, "退出", ""},
+    };
+    if (st.popup)
+        drawKeyList(r, f, padX, g.panelW - 2 * padX, g.contentY + g.contentH - S(10, s), popupRows,
+                    3, s);
+    else
+        drawKeyList(r, f, padX, g.panelW - 2 * padX, g.contentY + g.contentH - S(10, s), gridRows,
+                    3, s);
 }
 
 void drawMousePanel(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,

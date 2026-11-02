@@ -24,8 +24,8 @@ struct AppState {
     int focusIdx = 4;             // T9 焦点格 0..8
     bool popup = false;           // 魔法键弹窗状态
     int popupFocus = -1;          // 当前弹窗锁定的格子 0..8（-1 = 没弹窗）
-    int selCell = -1;             // 弹窗内选中的字符键 cell（默认 = 锁定格自己那个）
-    int hoverCell = -1;           // 鼠标悬停的九宫格 cell（弹窗内悬停即选中并锁存）
+    int selCell = -1;             // 弹窗内选中的字符键 cell（-1 = 无选中：鼠标在虚无）
+    int hoverCell = -1;           // 鼠标悬停的九宫格 cell（弹窗里只有字符键算实体）
     int pressedCell = -1;         // 刚触发的字符键 cell
     long long pressedMs = 0;      // 触发时间戳（steady_clock 毫秒），150ms 后失效
     std::string compose;          // 组字串
