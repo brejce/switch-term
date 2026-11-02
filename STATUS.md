@@ -33,10 +33,13 @@
 - **右摇杆模拟鼠标按用户要求暂缓**（用鼠标点"摇杆模拟鼠标"没意义）。
 
 ## 待做（按 DESIGN 里程碑）
-1. M0 渲染：新 UI（左 T9 九键面板 / 右鼠标面板 / 顶底状态栏）按 `cfg::Ui` 画出来。
-2. M2 输入：左摇杆 3×3 焦点 + LB 魔法键 Grid/Popup 状态机；右摇杆 uinput 鼠标 + RB/RT 点击。
-3. M1 终端：新 UI 接 `TerminalParser`，中文宽字符回归验证。
-4. 旧的 `src/ui/panels.cpp` / `layout.lua` 等在新 UI 到齐后删除。
+- M0 渲染、M1 终端、M2 输入（左摇杆 3×3 + LB 魔法键 Grid/Popup）**已完成**
+  （`ui/screen.cpp` 画三分区，`app/app.cpp` 走 `TerminalParser`，`--audit-t9` 全绿，
+  `--ui-preview x.png` 出图正常）。右摇杆 uinput 鼠标仍按用户要求暂缓。
+1. 删旧 UI：`src/ui/panels.cpp` / `src/ui/layout_lua.cpp` / 根 `layout.lua` 现在只服务 `--legacy`，
+   新架构无回归后连同 `main.cpp` 的 `--legacy` 分支一起删。
+2. 词级候选（`nihao` 第 2 候选是「你号」）。
+3. TOML 配置（PLAN §6）、evdev `input` 组/udev、Switch 交叉编译（M4）。
 
 ---
 
@@ -81,7 +84,7 @@ cmake -B build && cmake --build build -j$(nproc)
 4. uinput 打字模式（M7，桌面当通用手柄键盘用）
 5. fcitx5 D-Bus 后端（M6）、DRM/EGL 后端、Switch 交叉编译（M8/M9）
    - fbdev 已有：`--backend fbdev`；切到 TTY（Ctrl+Alt+F3）能看到，Ctrl+Q 退出
-6. 还没 `git init` —— 现在全靠文件系统，没有历史
+6. ~~还没 `git init`~~ —— 已建仓（分支 `main`），首个提交含全部源码与 `data/`
 
 ## 主题与滚动
 - 配色集中在 `src/theme/palette.cpp`（3 套预设），`--theme switch|light|gruvbox`、`--list-themes`；
