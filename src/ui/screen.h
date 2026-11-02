@@ -23,9 +23,11 @@ struct AppState {
     bool modCtrl = false, modShift = false, modAlt = false;  // 锁定态（底部状态栏显示）
     int focusIdx = 4;             // T9 焦点格 0..8
     bool popup = false;           // 魔法键弹窗状态
-    int popupIdx = 0;             // 弹窗内当前字母
-    int popupCount = 0;           // 当前格子有几个字母
-    char popupLetter = 0;         // 弹窗里当前选中的字母
+    int popupFocus = -1;          // 当前弹窗锁定的格子 0..8（-1 = 没弹窗）
+    int selCell = -1;             // 弹窗内选中的字符键 cell（默认 = 锁定格自己那个）
+    int hoverCell = -1;           // 鼠标悬停的九宫格 cell（弹窗内悬停即选中并锁存）
+    int pressedCell = -1;         // 刚触发的字符键 cell
+    long long pressedMs = 0;      // 触发时间戳（steady_clock 毫秒），150ms 后失效
     std::string compose;          // 组字串
     std::vector<CandView> cands;  // 候选（含注音）
     int candPage = 0, candPageCount = 1;
@@ -47,6 +49,9 @@ struct Geometry {
     int termCols = 101, termRows = 28;
     void fromConfig(const cfg::Ui& uic, float scale);
 };
+
+// 九宫格 cell 0..8 的矩形。drawT9Panel 和鼠标命中测试共用这一份几何，别各算一遍
+disp::Rect t9CellRect(const Geometry& g, int idx);
 
 void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                 const AppState& st);

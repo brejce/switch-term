@@ -31,6 +31,7 @@
 #include "term/vterm_bridge.h"
 #include "ui/layout.h"
 #include "ui/panels.h"
+#include "ui/t9_popup.h"
 #include "ui/terminal_view.h"
 #include "ui/theme.h"
 
@@ -56,6 +57,7 @@ void usage() {
         "  --audit-ime        逐条核对输入法行为（标准输入法对照表）\n"
         "  --audit-t9         核对 T9 状态机 + 手柄按键映射（合成事件）\n"
         "  --ui-preview <png> 只渲染新 UI（M0）到 PNG，不启 PTY\n"
+        "  --preview-key <0..8> 预览弹窗态：锁定该格并展开字符键（验布局表）\n"
         "  --legacy           走旧 UI（新架构调试用）\n"
         "  --scale <f>        预览用缩放（默认 1）\n"
         "  --selftest         PTY + 摇杆自检\n"
@@ -450,6 +452,7 @@ int main(int argc, char** argv) {
     bool legacy = false;
     std::string typeText;
     std::string uiPreview;
+    int previewKey = -1;  // --preview-key：预览哪个格子的弹窗（-1 = 不开弹窗）
     float previewScale = 1.0f;
     std::string out = "frame.png";
     std::string runCmd;
@@ -550,6 +553,20 @@ int main(int argc, char** argv) {
             ck("连击不退出弹窗", t9.popup(), t9.popup() ? "popup" : "grid", "popup");
             t9.leavePopup();
             ck("Esc 类退出弹窗", !t9.popup(), "grid", "grid");
+
+            // 弹窗布局表：占位数与字符数一致，且锁定格必然落在自己的占位表里
+            // （弹窗默认选中就是它，所以不用动就能直接上屏）
+            std::printf("弹窗布局（锁定格自身默认为选中）：\n");
+            for (int f = 0; f < 9; ++f) {
+                const std::string& ls = uic.t9Alpha[f].letters;
+                int cnt = ui::popupCellCount(f);
+                int self = ui::popupLetterIdx(f, f);
+                bool ok = cnt == int(ls.size()) && self >= 0 && ui::popupCellFor(f, self) == f;
+                if (!ok) ++bad;
+                std::printf("  %-3s 锁 %-4s → %d 格，默认 %c(cell %d)\n",
+                            ok ? "OK" : "FAIL", ls.c_str(), cnt, self >= 0 ? ls[size_t(self)] : '?',
+                            f);
+            }
 
             // 手柄事件 → PadButton/扇区（合成 evdev 事件）
             std::printf("手柄映射：\n");
@@ -737,6 +754,7 @@ int main(int argc, char** argv) {
         }
         if (a == "--type" && i + 1 < argc) { typeText = argv[++i]; continue; }
         if (a == "--ui-preview" && i + 1 < argc) { uiPreview = argv[++i]; continue; }
+        if (a == "--preview-key" && i + 1 < argc) { previewKey = std::atoi(argv[++i]); continue; }
         if (a == "--scale" && i + 1 < argc) { previewScale = std::atof(argv[++i]); continue; }
         if (a == "--list-themes") {
             for (const char* const* n = pal::names(); *n; ++n)
@@ -796,12 +814,14 @@ int main(int argc, char** argv) {
                     {"泥", "ní"},   {"拟", "nǐ"}, {"逆", "nì"}};
         st.candPageCount = 3;
         st.modsText = "CTRL";
-        if (std::getenv("SIT_POPUP")) {  // 预览弹窗态
+        // --preview-key k：弹窗态，默认选中落在锁定格自己上的那个字符（验布局表用）
+        int pk = previewKey;
+        if (pk < 0 && std::getenv("SIT_POPUP")) pk = 4;  // 旧的弹窗预览开关
+        if (pk >= 0) {
             st.popup = true;
-            st.focusIdx = 4;
-            st.popupLetter = 'K';
-            st.popupIdx = 1;
-            st.popupCount = 3;
+            st.popupFocus = pk;
+            st.focusIdx = pk;
+            st.selCell = pk;
         }
 
         pr.beginFrame();
@@ -1125,7 +1145,7 @@ int main(int argc, char** argv) {
 
     do {
         std::string keys;
-        std::vector<disp::Point> clicks;
+        std::vector<disp::ClickEvent> clicks;
         running = bd->pump(keys, clicks);  // 无窗口后端返回 false：只画一帧
         if (useGamepad && gamepad.count() > 0) gamepad.poll(gph);
         if (bd->uiDirty) {  // 窗口被瓦片/全屏改了尺寸 → 重排 + 补一帧
@@ -1182,6 +1202,7 @@ int main(int argc, char** argv) {
         }
         bd->dblClicks.clear();
         for (auto& c : clicks) {  // 鼠标/触摸：命中面板字符格 = 等同于按下该键
+            if (c.button != 1) continue;  // 旧 UI 只认左键（新增右键不动老行为）
             for (auto& h : hits) {
                 if (c.x >= h.rect.x && c.x < h.rect.right() && c.y >= h.rect.y &&
                     c.y < h.rect.bottom()) {

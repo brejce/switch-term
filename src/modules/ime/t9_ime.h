@@ -25,6 +25,10 @@ public:
     // 摇杆 8 扇区：Grid 里移动焦点；Popup 里左右换字母
     void stick(int sector);
 
+    // 直接选格/选字母（鼠标 demo 用，不走扇区）：只改状态，不上屏
+    void setFocus(int idx);
+    void setLetter(int idx);
+
     void leavePopup() { popup_ = false; }
 
 private:

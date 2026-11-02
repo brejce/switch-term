@@ -163,12 +163,18 @@ public:
 
     bool shiftDown_ = false, shiftUsed_ = false, ctrlDown_ = false;
 
-    bool pump(std::string& keys, std::vector<disp::Point>& clicks) override {
+    bool pump(std::string& keys, std::vector<disp::ClickEvent>& clicks) override {
         bool run = true;
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
                 case SDL_QUIT: run = false; break;
+                case SDL_MOUSEMOTION: {  // 悬停需要位置；在黑边上给 -1
+                    disp::Point p = toFb(e.motion.x, e.motion.y);
+                    mouseX = p.x;
+                    mouseY = p.y;
+                    break;
+                }
                 case SDL_TEXTINPUT:
                     keys += e.text.text;
                     preedit_.clear();  // 上屏后 preedit 归零
@@ -212,15 +218,21 @@ public:
                                             ctrlDown_ || (locks & 1) != 0,
                                             (e.key.keysym.mod & KMOD_ALT) || (locks & 4));
                     break;
-                case SDL_MOUSEBUTTONDOWN:
-                    if (e.button.button == SDL_BUTTON_LEFT) {  // 别用 clicks==1：双击第二下会被吞
-                        if (toFb(e.button.x, e.button.y).x < 0) break;  // 点在黑边上
-                        if (e.button.clicks >= 2)
-                            dblClicks.push_back(toFb(e.button.x, e.button.y));
-                        else
-                            clicks.push_back(toFb(e.button.x, e.button.y));
-                    }
+                case SDL_MOUSEBUTTONDOWN: {
+                    // 用 e.button.button 判键：左=1 右=3 中=2 → 我们的 1/2/3
+                    const int btn = e.button.button == SDL_BUTTON_LEFT     ? 1
+                                    : e.button.button == SDL_BUTTON_RIGHT ? 2
+                                    : e.button.button == SDL_BUTTON_MIDDLE ? 3
+                                                                           : 0;
+                    if (!btn) break;
+                    disp::Point p = toFb(e.button.x, e.button.y);
+                    if (p.x < 0) break;  // 点在黑边上
+                    if (btn == 1 && e.button.clicks >= 2)  // 双击单独走，不跟单击混
+                        dblClicks.push_back(p);
+                    else
+                        clicks.push_back({p.x, p.y, btn});
                     break;
+                }
                 case SDL_KEYUP:
                     if (std::getenv("SIT_DEBUG"))
                         std::fprintf(stderr, "[key] up sym=%d shiftDown=%d used=%d\n",
@@ -248,7 +260,7 @@ public:
                     wheel += e.wheel.y;
                     break;
                 case SDL_FINGERDOWN: {  // 触摸：归一化坐标
-                    clicks.push_back({int(e.tfinger.x * fbW_), int(e.tfinger.y * fbH_)});
+                    clicks.push_back({int(e.tfinger.x * fbW_), int(e.tfinger.y * fbH_), 1});
                     break;
                 }
                 default: break;

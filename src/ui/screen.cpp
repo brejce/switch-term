@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdio>
 
+#include "ui/t9_popup.h"
+
 namespace ui {
 namespace {
 
@@ -51,34 +53,40 @@ void ptitle(render::Renderer& r, const FontBook& f, int x, int y, const std::str
                 S(1, s));
 }
 
-// 9 张字符格：row-major 九宫格
-void drawT9Grid(render::Renderer& r, const FontBook& f, const cfg::T9Key* keys, int x0, int y0,
-                int cell, const AppState& st, uint32_t accent, bool dimOthers, float s) {
+// 9 张字符格：row-major 九宫格。弹窗时字符键按 t9_popup.h 的占位表铺开，
+// 锁定格自己承载的那个字符就是默认选中项，没被字符键占的格子变暗。
+void drawT9Grid(render::Renderer& r, const FontBook& f, const cfg::T9Key* keys, const Geometry& g,
+                const AppState& st, uint32_t accent, float s) {
+    const int lock = st.popup ? (st.popupFocus >= 0 ? st.popupFocus : st.focusIdx) : -1;
+    // 弹窗时每格上的字符（0 = 这格没有字符键）；符号层字符数少于占位数时按 letters 截断
+    char letterAt[9] = {};
+    if (lock >= 0) {
+        const std::string& letters = keys[lock].letters;
+        int n = std::min(popupCellCount(lock), int(letters.size()));
+        for (int k = 0; k < n; ++k) letterAt[popupCellFor(lock, k)] = letters[size_t(k)];
+    }
+    const int sel = st.selCell >= 0 ? st.selCell : lock;  // 默认选中锁定格上的字符
     for (int i = 0; i < 9; ++i) {
-        int col = i % 3, row = i / 3;
-        int x = x0 + col * cell, y = y0 + row * cell;
-        bool focus = (i == st.focusIdx);
-        bool activeLetter = focus && st.popup;
-        uint32_t fg = accent;
-        if (dimOthers && !focus) fg = col::kFaint;
-        if (focus) {  // 焦点格：反色底
-            r.fill({x + S(2, s), y + S(2, s), cell - S(4, s), cell - S(4, s)},
-                   c(activeLetter ? col::kBlue : accent));
-            fg = col::kBg;  // 焦点格底色是反色，字用底色
+        disp::Rect box = t9CellRect(g, i);
+        const int x = box.x, y = box.y, cell = box.w;
+        const bool isChar = letterAt[i] != 0;
+        uint32_t bg = 0;
+        if (st.popup) {
+            if (isChar && i == sel) bg = col::kBlue;             // 悬停/选中：反色底
+            if (isChar && i == st.pressedCell) bg = col::kText;  // 刚触发：闪一下
+        } else if (i == st.focusIdx) {
+            bg = accent;  // 网格态焦点格
+        }
+        uint32_t fg = (st.popup && !isChar) ? col::kFaint : accent;
+        if (bg) {
+            r.fill({x + S(2, s), y + S(2, s), cell - S(4, s), cell - S(4, s)}, c(bg));
+            fg = col::kBg;  // 底色是反色，字用底色
         }
         // 数字（左上，小字）
         r.textInBox({x + S(4, s), y + S(2, s), 0, S(12, s)}, keys[i].num, f.dpad,
-                    c(focus ? (activeLetter ? 0x001018 : 0x101018) : col::kDim),
-                    render::Align::Left);
-        // 字母（居中，大字）；弹窗时只显示当前选中的那个字母 + n/N
-        std::string letters = keys[i].letters;
-        if (focus && st.popup && st.popupCount > 0 && st.popupLetter) {
-            letters = std::string(1, st.popupLetter);
-            char cnt[16];
-            std::snprintf(cnt, sizeof cnt, "%d/%d", st.popupIdx + 1, st.popupCount);
-            r.textInBox({x, y + cell - S(16, s), cell, S(12, s)}, cnt, f.dpad, c(fg),
-                        render::Align::Center);
-        }
+                    c(bg ? (st.popup ? 0x001018 : 0x101018) : col::kDim), render::Align::Left);
+        // 字母（居中，大字）；弹窗时字符键一格一个字母
+        std::string letters = isChar ? std::string(1, letterAt[i]) : keys[i].letters;
         r.textInBox({x, y + S(10, s), cell, S(30, s)}, letters, f.stick2, c(fg),
                     render::Align::Center, 0, 0, S(1, s));
     }
@@ -140,6 +148,13 @@ void Geometry::fromConfig(const cfg::Ui& uic, float s) {
     termCols = std::max(1, (termW - 2 * termPadX) / termCellW);
     // 底部固定留 imeRows 行给组字串/候选
     termRows = std::max(1, (contentH - termPadTop - termPadBot) / termCellH - imeRows);
+}
+
+disp::Rect t9CellRect(const Geometry& g, int idx) {
+    const int gx = (g.panelW - g.stickBox) / 2;
+    const int gy = g.contentY + S(64, g.scale);  // 标题那一行下面
+    const int col = idx % 3, row = idx / 3;
+    return {gx + col * g.keyCell, gy + row * g.keyCell, g.keyCell, g.keyCell};
 }
 
 void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
@@ -204,10 +219,9 @@ void drawT9Panel(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
 
     // T9 九键
     ptitle(r, f, padX, g.contentY + S(46, s), uic.t9Title, col::kCyan, s);
-    int gx = (g.panelW - g.stickBox) / 2;
-    int gy = g.contentY + S(64, s);
+    int gy = t9CellRect(g, 0).y;
     const cfg::T9Key* keys = (st.layer == "SYMBOL") ? uic.t9Symbol : uic.t9Alpha;
-    drawT9Grid(r, f, keys, gx, gy, g.keyCell, st, col::kCyan, st.popup, s);
+    drawT9Grid(r, f, keys, g, st, col::kCyan, s);
 
     // DPAD
     int dy = gy + g.stickBox + S(16, s);

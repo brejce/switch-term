@@ -35,6 +35,11 @@ struct Point {
     int x = 0, y = 0;
 };
 
+// 鼠标点击：帧缓冲坐标 + 按键（1=左 2=右 3=中）
+struct ClickEvent {
+    int x = 0, y = 0, button = 1;
+};
+
 struct TextureDesc {
     int width = 0, height = 0;
     PixelFormat format = PixelFormat::RGBA8888;
@@ -77,12 +82,15 @@ public:
     virtual void setTextInputRect(const Rect&) {}
     // 收一帧事件：keys 追加待写入 PTY 的字节，clicks 追加界面点击（帧缓冲坐标）；
     // 返回 false = 退出（关窗）。无窗口后端返回 false，调用方只画一帧
-    virtual bool pump(std::string& keys, std::vector<Point>& clicks) {
+    virtual bool pump(std::string& keys, std::vector<ClickEvent>& clicks) {
         (void)keys;
         (void)clicks;
         return false;
     }
     virtual const char* name() const = 0;
+
+    // 鼠标位置（帧缓冲坐标，-1 = 指针不在画面内）。后端写，主循环读来算悬停格。
+    int mouseX = 0, mouseY = 0;
 
     // 滚轮/翻页累计量（+ 向上看历史）。后端写，主循环取走后清零。
     int wheel = 0;

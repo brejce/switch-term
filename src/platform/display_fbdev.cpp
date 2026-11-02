@@ -135,7 +135,7 @@ public:
     }
 
     // 控制台键盘：stdin 已在 raw 模式，Ctrl+Q 退出，其余原样送 PTY
-    bool pump(std::string& keys, std::vector<disp::Point>& clicks) override {
+    bool pump(std::string& keys, std::vector<disp::ClickEvent>& clicks) override {
         (void)clicks;
         unsigned char buf[64];
         ssize_t n = ::read(STDIN_FILENO, buf, sizeof buf);

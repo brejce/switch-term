@@ -23,6 +23,7 @@
 #include "term/pty.h"
 #include "ui/layout.h"
 #include "ui/screen.h"
+#include "ui/t9_popup.h"
 #include "ui/theme.h"
 
 namespace app {
@@ -30,6 +31,9 @@ namespace {
 
 volatile sig_atomic_t gReload = 0;
 void onReload(int) { gReload = 1; }
+
+// 字符键被触发后闪亮的时长（毫秒）
+constexpr long long kPopupFlashMs = 150;
 
 std::string resolve(const std::string& resDir, const char* rel) {
     std::string p = resDir + "/" + rel;
@@ -240,11 +244,23 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             .count();
     };
     long long lastPress[cfg::kKeyCount] = {0};
+    // 九宫格命中：帧缓冲坐标 → cell 0..8（-1 = 不在九宫格里）。与绘制共用 t9CellRect
+    auto t9Hit = [&](int x, int y) {
+        if (x < 0 || y < 0) return -1;
+        for (int i = 0; i < 9; ++i) {
+            disp::Rect box = ui::t9CellRect(g, i);
+            if (x >= box.x && x < box.right() && y >= box.y && y < box.bottom()) return i;
+        }
+        return -1;
+    };
     auto doAction = [&](cfg::Action a) {
         switch (a) {
             case cfg::kMagic: {
                 std::string letter = t9.magic();  // Grid→Popup 返回空；Popup→返回字母
-                if (!letter.empty()) pending += route(letter[0], bd->sticky | bd->locks).bytes;
+                if (!letter.empty())
+                    pending += route(letter[0], bd->sticky | bd->locks).bytes;
+                else  // 刚弹开：默认选中锁定格自己承载的字符，不动就能直接上屏
+                    t9.setLetter(ui::popupLetterIdx(t9.focus(), t9.focus()));
                 break;
             }
             case cfg::kSpace: {
@@ -314,7 +330,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     while (running) {
         std::string keys;
-        std::vector<disp::Point> clicks;
+        std::vector<disp::ClickEvent> clicks;
         running = bd->pump(keys, clicks);
         if (bd->uiDirty) {  // 窗口尺寸变了：重排 + 重建字体
             bd->uiDirty = 0;
@@ -351,7 +367,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 ime.setPageSize(eng.candPerPage);  // 翻页跨度跟着新配置走（组字缓冲不丢，页号夹住）
                 st.focusIdx = 4;
                 st.popup = false;
-                st.popupIdx = 0;
+                st.pressedCell = -1;
                 st.compose.clear();
                 st.cands.clear();
                 st.candPage = 0;
@@ -386,6 +402,32 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         long n = readInto();
         gamepad.pollPad({onPadButton, onLeftStick, [](int) {}});
 
+        // 鼠标 demo 路径：只改 UI 状态（焦点/选中/动画），绝不往 pending 里塞字节、不碰 PTY
+        const long long nowMs = msNow();
+        if (st.pressedCell >= 0 && nowMs - st.pressedMs >= kPopupFlashMs) st.pressedCell = -1;
+        st.hoverCell = t9Hit(bd->mouseX, bd->mouseY);
+        if (t9.popup() && st.hoverCell >= 0) {  // 悬停即选中
+            int li = ui::popupLetterIdx(t9.focus(), st.hoverCell);
+            if (li >= 0 && li < t9.letterCount()) t9.setLetter(li);
+        }
+        for (const disp::ClickEvent& ck : clicks) {
+            int hit = t9Hit(ck.x, ck.y);
+            if (hit < 0) continue;  // 九宫格以外忽略
+            if (!t9.popup()) {
+                if (ck.button == 1) t9.setFocus(hit);              // 左键选格，不弹窗
+                else if (ck.button == 2) doAction(cfg::kMagic);    // 右键 = 魔法键
+                continue;
+            }
+            int li = -1;  // 弹窗中：左键点字符键 / 右键触发当前选中
+            if (ck.button == 1) li = ui::popupLetterIdx(t9.focus(), hit);
+            else if (ck.button == 2) li = t9.letterIdx();
+            else continue;
+            if (li < 0 || li >= t9.letterCount()) continue;  // 不是字符键（或符号层截断）
+            t9.setLetter(li);
+            st.pressedCell = ui::popupCellFor(t9.focus(), li);
+            st.pressedMs = nowMs;
+        }
+
         // ⑥ 画
         int cr = 0, cc = 0;
         bool cv = true;
@@ -403,9 +445,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         t9.setKeys(st.layer == "SYMBOL" ? uic.t9Symbol : uic.t9Alpha);
         st.focusIdx = t9.focus();
         st.popup = t9.popup();
-        st.popupIdx = t9.letterIdx();
-        st.popupCount = t9.letterCount();
-        st.popupLetter = t9.currentLetter();
+        st.popupFocus = t9.popup() ? t9.focus() : -1;
+        st.selCell = t9.popup() ? ui::popupCellFor(t9.focus(), t9.letterIdx()) : -1;
         st.compose = ime.preedit();
         st.cands.clear();
         for (const auto& cd : ime.cands())

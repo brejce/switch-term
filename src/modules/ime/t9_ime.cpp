@@ -78,4 +78,12 @@ void T9Ime::stick(int sector) {
     focus_ = row * 3 + col;
 }
 
+void T9Ime::setFocus(int idx) {
+    if (idx >= 0 && idx < 9) focus_ = idx;
+}
+
+void T9Ime::setLetter(int idx) {
+    if (idx >= 0 && idx < letterCount()) letterIdx_ = idx;
+}
+
 }  // namespace ime
