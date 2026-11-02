@@ -103,7 +103,7 @@ cmake -B build && cmake --build build -j$(nproc)
   以后 evdev 手柄接上只需要在 ActionMap 里加一行按钮→动作。
 - 键盘：`Ctrl+Shift+C` 复制可见区（28 行，含回看位置）、`Ctrl+Shift+V` 粘贴。
   终端里 `Ctrl+C` 必须是 0x03 中断，不能拿来做复制。
-- 左面板底部多了两行可点的 `CP 复制 可见区` / `PS 粘贴 剪贴板`；ABXY 的「中」格现在点了也切中英。
+- 左面板底部多了两行可点的 `CP 复制 可见区` / `PS 粘贴 剪贴板`；ABXY 的「中」格现在点了也切中英（`--legacy` 的面板命中格，新路径尚未接点击）。
 - 剪贴板走 `wl-copy` / `wl-paste`（Wayland 本机）。
 - 选区：`kActSelLeft/kActSelRight` 动作做扩展（手柄 = Shift+ZL/ZR，键盘 = Shift+←/→），
   起点取终端光标，渲染为反色；`Ctrl+Shift+C`／`CP` 有选区就复制选区，没有才复制整屏。
@@ -121,10 +121,13 @@ cmake -B build && cmake --build build -j$(nproc)
 - `src/input/evdev_gamepad.*`：`GamepadMapper` 是纯映射（合成事件可自检），
   `EvdevGamepad` 扫 `/dev/input/event*`，只认「有 ABS_X/ABS_Y 或有 BTN_SOUTH」的设备，
   轴范围用 `EVIOCGABS` 读，初值取轴中点。
-- 映射：左右摇杆 8 扇区→字母（只在扇区变化时输出）；A=回车 B=退格 X=Delete Y=中英；
-  L=切层 R=空格 ZL/ZR=光标左右（锁 Shift 时变扩选）；十字左/右/下=锁 Ctrl/Shift/Alt，上=Tab。
-  中英切换 = Ctrl+空格。修饰键两种：**单按 = 一次性 sticky**（只作用于下一个键，
-  实体键盘"先按 Ctrl 再按空格"的语义），**400ms 内同方向再按 = 锁定**（一直生效，格子上反色）。
+- 映射（**新路径全读 `config/keymap.lua`**）：LB=magic LT=空格 RB/RT=鼠标左右键；
+  A=回车 B=退格 X=Delete **Y=escape**；十字左/右/下=一次性修饰 Ctrl/Shift/Alt（双击锁定），上=Tab。
+  **没有独立的中英切换键**：中英只能靠 Ctrl+空格（`ch == 0x00` → `ime.toggle()`），
+  框架里就是 `bool chinese` 一个开关翻转。
+  （下面这段是 `--legacy` 旧映射的残留：A=回车 B=退格 X=Delete Y=中英；
+  L=切层 R=空格 ZL/ZR=光标左右（锁 Shift 时变扩选）；修饰键：**单按 = 一次性 sticky**，
+  **400ms 内同方向再按 = 锁定**。旧映射只服务 `--legacy`，新路径不会产生这些动作。）
   手柄：十字左按一下 → 再按 R(空格) = 切换中英。键盘/手柄两路输入共用 `routeKeys()`。
 - 本机读不了 `/dev/input/event*`（root:input 660，用户不在 input 组）。Switchroot 上需要
   `/etc/udev/rules.d/70-sit-input.rules`：`KERNEL=="event*", SUBSYSTEM=="input", TAG+="uaccess"`
