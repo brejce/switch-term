@@ -45,6 +45,7 @@ void usage() {
         "  --out <path>       输出 PNG（headless），默认 frame.png\n"
         "  --run <cmd>        启动后先执行一条命令（截图/CI 用）\n"
         "  --list-backends    列出已注册后端\n"
+        "  --list-gamepad     列出 /dev/input 设备与程序选中了哪些（手柄排障用）\n"
         "  --theme <name>     配色主题（--list-themes 可查）\n"
         "  --list-themes      列出配色主题\n"
         "  --layout <path>    布局文件（默认 layout.lua）\n"
@@ -461,6 +462,28 @@ int main(int argc, char** argv) {
                configSelfTest() + uinputSelfTest();
         if (a == "--list-backends") {
             for (auto& n : disp::DisplayRegistry::instance().names()) std::printf("%s\n", n.c_str());
+            return 0;
+        }
+        if (a == "--list-gamepad") {  // 排障：看清设备被认成什么，尤其 Switch 上左右 Joy-Con
+            input::EvdevGamepad gp;
+            int n = gp.open();
+            std::printf("程序选中了 %d 个手柄设备（认「有 ABS_X/ABS_Y 或 BTN_SOUTH」）：\n", n);
+            for (const auto& nm : gp.names()) std::printf("  [已打开] %s\n", nm.c_str());
+            gp.close();
+            std::printf("\n/dev/input/event* 全部设备：\n");
+            for (int k = 0; k < 64; ++k) {
+                char p[96];
+                std::snprintf(p, sizeof p, "/sys/class/input/event%d/device/name", k);
+                FILE* f = std::fopen(p, "r");
+                if (!f) continue;
+                char buf[160] = {0};
+                if (std::fgets(buf, sizeof buf, f)) {
+                    buf[std::strcspn(buf, "\n")] = 0;
+                    std::printf("  event%-2d %s\n", k, buf);
+                }
+                std::fclose(f);
+            }
+            std::printf("\n注意：左右 Joy-Con 是两个独立设备，现在两个都会被打开。\n");
             return 0;
         }
         if (a == "--theme" && i + 1 < argc) { themeName = argv[++i]; continue; }
