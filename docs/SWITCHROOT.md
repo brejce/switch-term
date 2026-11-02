@@ -3,6 +3,69 @@
 > 目标：Switch 到手后从零到「跑起本程序」。本文只写这台机器上验证过的路径，
 > 未验证的地方标了 **(待验证)**。
 
+## 0. 部署前置：网络 + SSH（**必须在删桌面之前做完**）
+
+删桌面后没有 GUI 配网，网络配错就只能靠 hekate 挂 SD 卡救。所以顺序是：
+**先配网 → 验证 SSH → 再删桌面**。
+
+### 0.1 配多个 WiFi，手机热点排最高优先级
+
+```bash
+nmcli dev status                  # 确认网卡名（一般是 wlan0）
+nmcli dev wifi list
+nmcli dev wifi connect "iPhone" password "xxxx"      # 手机热点（锚点）
+nmcli dev wifi connect "家里SSID" password "yyyy"    # 常用 WiFi
+
+# 数值越大越优先：热点永远优先，家里次之
+nmcli con mod "iPhone"   connection.autoconnect-priority 100
+nmcli con mod "家里SSID" connection.autoconnect-priority  10
+
+# 关 WiFi 省电（省电模式下 SSH 延迟能到几百 ms）
+sudo iw dev wlan0 set power_save off
+sudo tee /etc/NetworkManager/conf.d/wifi-powersave.conf >/dev/null <<'EOF'
+[connection]
+wifi.powersave = 2
+EOF
+sudo systemctl restart NetworkManager
+```
+
+切换 WiFi 时不用删旧的：`nmcli con up "家里SSID"`，找不到就自动回落下一个 profile。
+
+### 0.2 SSH + mDNS（换网不用记 IP）
+
+```bash
+sudo apt install -y openssh-server avahi-daemon
+sudo systemctl enable --now ssh avahi-daemon
+hostname                      # 假设 switchroot
+ip -4 addr show wlan0         # 记下当前 IP，作为 mDNS 失败时的备份
+```
+
+PC 上：`ssh ubuntu@switchroot.local`。
+`.local` 解析不了（某些 Android 热点开了 AP 隔离）就用 `ip -4 addr` 查到的 IP。
+配密钥：`ssh-copy-id ubuntu@switchroot.local`。
+
+### 0.3 删桌面前的强制检查
+
+```bash
+apt-get -s purge kubuntu-desktop | grep -E '^(Remv|Purg)' \
+  | grep -E 'network-manager|openssh|avahi|wpa|bluez'
+```
+
+**输出为空才能真删。** 有输出就先 `apt-mark manual network-manager openssh-server avahi-daemon` 保护住。
+
+### 0.4 三条救命通道
+
+| 通道 | 怎么做 | 适用 |
+|---|---|---|
+| **USB-C 转以太网**（RTL8153 芯片最稳） | 插上出 `eth0`，NM 自动 DHCP | 最可靠，建议备一个 |
+| **USB 键盘 + TTY** | Ctrl+Alt+F2 进 TTY，用 `nmcli` 改网 | 不需要任何网络 |
+| **hekate UMS** | 重启 → `Tools → USB Tools` 挂 SD 卡，从 PC 改文件 | 最后手段（要重启） |
+
+### 0.5 已知坑：唤醒后可能不重连
+
+深睡眠唤醒后 `brcmfmac`/`cyw43455` 偶发不自动重连，临时办法 `sudo systemctl restart NetworkManager`。
+先不加 watchdog（担心网络抖动时被误踢），真遇到再说。
+
 ## 0. 镜像（已下载并校验）
 
 | 项 | 值 |
@@ -95,7 +158,7 @@ sudo systemctl disable --now sddm
 sudo reboot
 ```
 
-确认能进 TTY、能跑我们的程序之后再：
+确认能进 TTY、**SSH 还能连**（见 §0.3 的模拟 purge），再：
 
 ```bash
 dpkg -l | grep -E 'l4t|switchroot|tegra'    # 先记下这些，绝对不能删
@@ -169,7 +232,19 @@ cat /sys/class/graphics/fb0/virtual_size      # 掌机应为 1280,720 量级
 （`src/input/evdev_gamepad.cpp:152`），摇杆事件可能重复。真机看到设备名后再决定
 「按名字选主设备」还是「扇区变化去重」。
 
-## 10. 已知问题（来自官方 wiki / 报告）
+## 10. 通过 SSH 把程序跑到 Switch 屏幕上
+
+`--backend fbdev` 直接写 `/dev/fb0`，但 tty1 的 getty 会抢着刷光标。正确的远程启动方式：
+
+```bash
+sudo systemctl stop getty@tty1          # 让出 tty1（或 disable 永久让出）
+sudo openvt -c 1 -s -w ./build/switch-ime-term --backend fbdev
+#   -s = 切到该 VT，-w = 等程序退出；退出后手动 sudo systemctl start getty@tty1
+```
+
+纯验证不占屏的玩法：`--backend headless --out /tmp/f.png --run "ls"`，写成 PNG 拉回 PC 看。
+
+## 11. 已知问题（来自官方 wiki / 报告）
 
 - 连不上 WPA3/WPA2 混合模式 Wi-Fi：`nmcli dev wifi connect <SSID>`，或把路由器改 `WPA/WPA2 Personal`
 - Firefox 硬解要从 Mozilla PPA 装（官方 snap 不带 L4T 补丁）
