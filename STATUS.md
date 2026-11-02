@@ -10,6 +10,10 @@
   `cfg::Action`：`ui::ActionId` 与 `input::kGpAct*` 都只是它的常量别名，不再各写一套编号。
 - **运行期已换成新 UI**：`src/app/app.cpp`（新循环）+ `src/ui/screen.*`（三分区绘制）。
   旧 UI 保留在 `--legacy` 后端，确认无回归后删。
+- **桌面防冲突模式**：`engine.ime.enabled = false` 关掉内置输入法（字符直通，不组字、不切语言），
+  `engine.sink = "uinput"` 把输出口换成虚拟键盘（打到前台程序，PTY 仍作监视器）；
+  `/dev/uinput` 打不开自动回落 `pty`。直通路由在 `app::routeRaw`（可单测）。
+  与 fcitx5 的四种组合见 `docs/DESIGN.md` §4.4.1。
 - 新循环：Lua 装配 → `Geometry`（按缩放算）→ `TerminalParser` → PTY → 内置拼音 IME → 渲染。
   窗口尺寸变化自动重排 + 重建字体 + PTY resize。
 - `--run "<cmd>"` 现在是 `shell -c`，输出干净（不再被 fish 欢迎信息干扰），用于无头截图核验。
@@ -83,13 +87,12 @@ cmake -B build && cmake --build build -j$(nproc)
 
 ## 没做（按建议顺序）
 
-1. 配置文件 + 日志（M0 收尾；计划 §6 的 TOML 键一个都还没读）
+1. 配置文件 + 日志（M0 收尾；日志目前仍只读 `engine.log.*` 不输出）
 2. 词级候选（当前只有单音节/两音节逐字拼，`nihao` 后面是「你号/你毫」）
 3. evdev 手柄（M3，需先 `sudo usermod -aG input brejce` 并重新登录）
-4. uinput 打字模式（M7，桌面当通用手柄键盘用）
-5. fcitx5 D-Bus 后端（M6）、DRM/EGL 后端、Switch 交叉编译（M8/M9）
+4. fcitx5 D-Bus 后端（M6，uinput 打不出中文就是等它）、DRM/EGL 后端、Switch 交叉编译（M8/M9）
    - fbdev 已有：`--backend fbdev`；切到 TTY（Ctrl+Alt+F3）能看到，Ctrl+Q 退出
-6. ~~还没 `git init`~~ —— 已建仓（分支 `main`），首个提交含全部源码与 `data/`
+5. ~~还没 `git init`~~ —— 已建仓（分支 `main`），首个提交含全部源码与 `data/`
 
 ## 主题与滚动
 - 配色集中在 `src/theme/palette.cpp`（3 套预设），`--theme switch|light|gruvbox`、`--list-themes`；

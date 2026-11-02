@@ -174,9 +174,10 @@ void UinputKeyboard::typeBytes(const std::string& bytes, int gapMs) {
             }
             tap(key, false);
         } else if (ch >= 0x80) {
-            // CJK 没法用键码表达（uinput 不送 Unicode）。sink=uinput 时中文要靠系统输入法
-            std::fprintf(stderr, "uinput: 跳过非 ASCII 字符（中文需要系统输入法）\n");
-            ++i;
+            // uinput 不送 Unicode，UTF-8 多字节没法用键码表达（中文要靠系统输入法）
+            ++dropped_;
+            while (i + 1 < bytes.size() && (static_cast<unsigned char>(bytes[i + 1]) & 0xC0) == 0x80)
+                ++i;  // 跳完这个 UTF-8 字符的延续字节，一个字符只算一次
         } else {
             KeyStroke ks = asciiToKey(char(ch));
             tap(ks.key, ks.shift);

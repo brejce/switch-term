@@ -17,4 +17,8 @@ struct RouteResult {
 // Ctrl/Alt + 字母 优先于输入法：这样才能发出 Ctrl+C 这类组合键。
 RouteResult routeKey(ime::BuiltinIme& ime, char ch, int mods = 0);
 
+// ime.enabled = false 时的直通路径：只做 Ctrl/Alt/Shift 转换，永远不组字、不切语言。
+// 桌面模式（fcitx5 自己管输入）走这条，见 docs/DESIGN.md §4.4。
+RouteResult routeRaw(char ch, int mods = 0);
+
 }  // namespace app

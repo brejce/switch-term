@@ -314,6 +314,7 @@ bool loadEngine(const char* path, Engine& out) {
     out.candPerPage = einum(L, "ime", "cand_per_page", out.candPerPage);
     out.ngram = ebool(L, "ime", "ngram", out.ngram);
     out.t9 = ebool(L, "ime", "t9", out.t9);
+    out.imeEnabled = ebool(L, "ime", "enabled", out.imeEnabled);
     out.deadzone = efloat(L, "input", "deadzone", out.deadzone);
     out.hysteresisDeg = efloat(L, "input", "hysteresis_deg", out.hysteresisDeg);
     out.doubleTapMs = einum(L, "input", "double_tap_ms", out.doubleTapMs);

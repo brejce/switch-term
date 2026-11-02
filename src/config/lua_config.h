@@ -69,12 +69,13 @@ struct Engine {
     int candPerPage = 7;            // 底部候选条一页几个
     bool ngram = true;              // 候选是否按 bigram 上下文重排
     bool t9 = true;                 // 九键数字预测
+    bool imeEnabled = true;         // false = 内置输入法不介入，字符原样透传（桌面模式与 fcitx 共存）
     float deadzone = 0.35f;         // src/input/gamepad.h 摇杆死区
     float hysteresisDeg = 8.f;      // 同上：扇区滞回角
     int doubleTapMs = 400;          // src/app/app.cpp 双击判定窗口
     std::string logLevel = "warn";  // debug | info | warn | error
     std::string logPath;            // 空 = 只写 stderr
-    std::string sink = "pty";       // pty | uinput
+    std::string sink = "pty";       // 输出口：pty = 写伪终端；uinput = 打给系统虚拟键盘
 };
 
 // 一次热重载要拿到的全部配置

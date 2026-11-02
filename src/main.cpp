@@ -262,9 +262,39 @@ static int configSelfTest() {
     ok = ok && cfg::loadEngine(path, e2) && e2.scrollback == 11 && e2.doubleTapMs == 250 &&
          e2.sink == "uinput";
     ok = ok && e2.candPerPage == 7 && e2.ngram && e2.deadzone == 0.35f;  // 缺的键还在默认值
+    ok = ok && e2.imeEnabled;  // 没写 engine.ime.enabled = 默认启用
+    if (FILE* f = std::fopen(path, "w")) {
+        std::fputs("engine = {}\nengine.ime = { enabled = false }\n", f);
+        std::fclose(f);
+    }
+    cfg::Engine e3;
+    ok = ok && cfg::loadEngine(path, e3) && !e3.imeEnabled;
     std::remove(path);
-    std::printf("[selftest] config %s  scrollback=%d double_tap=%dms sink=%s\n", ok ? "OK" : "FAIL",
-                e2.scrollback, e2.doubleTapMs, e2.sink.c_str());
+
+    // 直通路径（ime.enabled = false）：不组字、不切语言、修饰键照旧
+    bool raw = app::routeRaw('b').bytes == "b" && !app::routeRaw('b').consumed;
+    raw = raw && app::routeRaw('b', 1).bytes == std::string(1, char(0x02));
+    raw = raw && app::routeRaw('b', 4).bytes == "\x1b" "b";
+    raw = raw && app::routeRaw('b', 2).bytes == "B";
+    raw = raw && app::routeRaw('\t').bytes == "\t" && app::routeRaw(0x7f).bytes == "\x7f";
+    raw = raw && app::routeRaw(0x00).bytes.empty() && !app::routeRaw(0x00).consumed;  // 不切语言
+    raw = raw && app::routeRaw('\xe4').bytes == std::string(1, char(0xe4));  // 高位字节原样
+    ok = ok && raw;
+    std::printf("[selftest] config %s  scrollback=%d double_tap=%dms sink=%s ime_enabled=%d\n",
+                ok ? "OK" : "FAIL", e2.scrollback, e2.doubleTapMs, e2.sink.c_str(),
+                e2.imeEnabled);
+    std::printf("[selftest] raw-route %s  b=\"b\" Ctrl+b=0x02 Ctrl+Space=空 高位字节直通\n",
+                raw ? "OK" : "FAIL");
+    return ok ? 0 : 1;
+}
+
+// uinput 自检：没开设备也能验「跳过非 ASCII」是按字符计数、且不卡死（tap 在未 open 时空转）
+static int uinputSelfTest() {
+    input::UinputKeyboard kb;
+    kb.typeBytes("你好abc", 0);  // 2 个中文字 = 6 个 UTF-8 字节
+    bool ok = kb.dropped() == 2;
+    std::printf("[selftest] uinput %s  未开设备时丢字计数=%zu（期望 2）\n", ok ? "OK" : "FAIL",
+                kb.dropped());
     return ok ? 0 : 1;
 }
 
@@ -428,7 +458,7 @@ int main(int argc, char** argv) {
         if (a == "--help" || a == "-h") { usage(); return 0; }
         if (a == "--selftest") return selfTest() + gamepadSelfTest() + imeSelfTest() + fbdevSelfTest() + themeSelfTest() +
                scrollSelfTest() + switchSelfTest() + selectSelfTest() + gamepadEvdevSelfTest() +
-               configSelfTest();
+               configSelfTest() + uinputSelfTest();
         if (a == "--list-backends") {
             for (auto& n : disp::DisplayRegistry::instance().names()) std::printf("%s\n", n.c_str());
             return 0;
@@ -675,10 +705,10 @@ int main(int argc, char** argv) {
                 }
             std::printf("axis STICK_R mouse_move=%d\n", km.axisMouseMove ? 1 : 0);
             std::printf(
-                "engine: scrollback=%d cand_per_page=%d ngram=%d t9=%d deadzone=%.2f "
+                "engine: scrollback=%d cand_per_page=%d ngram=%d t9=%d ime_enabled=%d deadzone=%.2f "
                 "hysteresis_deg=%.0f double_tap_ms=%d log=%s%s%s sink=%s\n",
-                eng.scrollback, eng.candPerPage, eng.ngram, eng.t9, eng.deadzone,
-                eng.hysteresisDeg, eng.doubleTapMs, eng.logLevel.c_str(),
+                eng.scrollback, eng.candPerPage, eng.ngram, eng.t9, eng.imeEnabled ? 1 : 0,
+                eng.deadzone, eng.hysteresisDeg, eng.doubleTapMs, eng.logLevel.c_str(),
                 eng.logPath.empty() ? "" : "@", eng.logPath.c_str(), eng.sink.c_str());
             return ok ? 0 : 1;
         }

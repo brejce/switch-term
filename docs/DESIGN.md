@@ -191,12 +191,13 @@ keymap.bind_axis("STICK_R", "mouse_move")        -- 已注册，C++ 侧故意不
 | `engine.ime.cand_per_page` | 7 | 底部候选条一页显示几个 |
 | `engine.ime.ngram` | true | 候选是否按 bigram 上下文重排（只装配，未接线） |
 | `engine.ime.t9` | true | 九键数字预测开关（只装配，未接线） |
+| `engine.ime.enabled` | true | 内置输入法是否介入；`false` = 字符原样透传（桌面模式与 fcitx5 共存，见 §4.4.1） |
 | `engine.input.deadzone` | 0.35 | 摇杆死区（归一化后） |
 | `engine.input.hysteresis_deg` | 8 | 扇区切换滞回角，防边界抖动 |
 | `engine.input.double_tap_ms` | 400 | 同键二按 = 双击的判定窗口 |
 | `engine.log.level` | `"warn"` | `debug/info/warn/error`（只打印，未接线） |
 | `engine.log.path` | `""` | 日志文件，空 = 只写 stderr（只打印，未接线） |
-| `engine.sink` | `"pty"` | `pty` 自带终端 / `uinput` 打给前台程序（只打印，未接线） |
+| `engine.sink` | `"pty"` | 输出口：`pty` 写自带伪终端 / `uinput` 当虚拟键盘打给系统（需 `/dev/uinput` 可写，打不开自动回落 `pty`） |
 
 ```lua
 engine = {}
@@ -206,9 +207,10 @@ engine.terminal = {
 }
 
 engine.ime = {
-    cand_per_page = 7,   -- 底部候选条一页显示几个（IME 内部每页仍是 7，见报告说明）
+    cand_per_page = 7,   -- 底部候选条一页显示几个（IME 内部翻页跨度跟着变）
     ngram         = true, -- 候选要不要用 bigram 上下文重排（目前只解析，未接线）
     t9            = true, -- 九键数字预测输入开关（目前只解析，未接线）
+    enabled       = true, -- false = 内置输入法不介入，字符原样透传（桌面模式与 fcitx 共存）
 }
 
 engine.input = {
@@ -222,8 +224,33 @@ engine.log = {
     path  = "",          -- 日志文件路径，空 = 只写 stderr
 }
 
-engine.sink = "pty"       -- 输出口：pty（自带 PTY）| uinput（打到前台程序）
+engine.sink = "pty"       -- 输出口：pty = 写自带伪终端；uinput = 当虚拟键盘打给系统（需 /dev/uinput 可写，打不开自动回落 pty）
 ```
+
+#### 4.4.1 桌面模式（与 fcitx5 共存）
+
+Switch/TTY 上本程序自己就是输入法（内置拼音 → 写 PTY）。带桌面的 Linux 上 fcitx5 已经在做
+同一件事，两个输入法同时介入 = 双重输入、抢快捷键。这时用这两个键把职责让出去：
+
+| `engine.sink` | `engine.ime.enabled` | 用途 | 行为 |
+|---|---|---|---|
+| `pty` | `true` | **默认**：Switch / 裸 TTY | 内置拼音写 PTY，与今天完全一致 |
+| `pty` | `false` | 桌面窗口里当终端，输入法交给 fcitx5 | 字符原样写 PTY（只做 Ctrl/Alt/Shift 转换），不组字、不切语言 |
+| `uinput` | `false` | **只当虚拟键盘**：手柄按键 = 系统输入事件 | 按键经 `/dev/uinput` 打给当前焦点程序；PTY 仍照常 spawn 并显示输出（只当监视器） |
+| `uinput` | `true` | 罕见：内置拼音上屏后交给系统 | 组字/选词在本程序内，上屏结果经 uinput 打给焦点程序（中文会被丢弃，见下） |
+
+防冲突的三条原则：
+
+1. **不注册任何全局热键**。程序不抓 X/Wayland 键盘，不抢 fcitx5 的组合键。
+2. `ime.enabled = false` 时**不注入任何修饰组合**（尤其不替用户按 `Ctrl+Space`）：
+   `Ctrl+Space`（字节 `0x00`）在直通路径上返回空且不消耗，切换键完整留给 fcitx5。
+3. `uinput` **打不开就自动回落 `pty`**：打印一行警告（需要 root 或 input 组 / udev 规则），
+   把 `sink` 强制改回 `pty`，继续跑。
+
+**硬限制**：`uinput` 只能发 `EV_KEY` 1..127（US 布局的键码），打不出 Unicode。
+非 ASCII 的 UTF-8 字符直接跳过并计数，退出时打印一次
+`uinput: 丢弃 N 个非 ASCII 字符（中文需要 fcitx5/wtype，见 DESIGN §4.4）`。
+中文出路：让 fcitx5 走 D-Bus 接（M6），或在 Wayland 下用 `wtype` 送文本。
 
 ### 4.5 热切换语义
 

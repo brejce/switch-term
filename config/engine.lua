@@ -12,6 +12,7 @@ engine.ime = {
     cand_per_page = 7,   -- 底部候选条一页显示几个（IME 内部翻页跨度也跟着变）
     ngram         = true, -- 候选要不要用 bigram 上下文重排（目前只解析，未接线）
     t9            = true, -- 九键数字预测输入开关（目前只解析，未接线）
+    enabled       = true, -- false = 内置输入法不介入，字符原样透传（桌面模式与 fcitx 共存）
 }
 
 engine.input = {
@@ -25,4 +26,4 @@ engine.log = {
     path  = "",          -- 日志文件路径，空 = 只写 stderr
 }
 
-engine.sink = "pty"       -- 输出口：pty（自带 PTY）| uinput（打到前台程序）
+engine.sink = "pty"       -- 输出口：pty = 写自带伪终端；uinput = 当虚拟键盘打给系统（需 /dev/uinput 可写，打不开自动回落 pty）

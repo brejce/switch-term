@@ -114,4 +114,38 @@ RouteResult routeKey(ime::BuiltinIme& ime, char ch, int mods) {
     return r;
 }
 
+RouteResult routeRaw(char ch, int mods) {
+    RouteResult r;
+    const bool ctrl = (mods & 1) != 0, shift = (mods & 2) != 0, alt = (mods & 4) != 0;
+
+    // Ctrl+Space 原样交出去（空 + consumed=false），绝不切语言：
+    // 桌面模式下这是 fcitx5 的切换键，吞了就等于抢用户的热键。
+    if (ch == 0x00) return r;
+
+    if (ch >= 'a' && ch <= 'z') {
+        if (ctrl) {
+            r.bytes = std::string(1, char(ch - 'a' + 1));
+            r.consumed = true;
+            return r;
+        }
+        if (alt) {
+            r.bytes = std::string("\x1b") + ch;
+            r.consumed = true;
+            return r;
+        }
+        if (shift) {
+            r.bytes = std::string(1, char(ch - 'a' + 'A'));
+            r.consumed = true;
+            return r;
+        }
+    } else if (alt && (unsigned char)ch >= 0x20 && (unsigned char)ch < 0x7f) {
+        r.bytes = std::string("\x1b") + ch;  // Alt+标点/数字：ESC 前缀
+        r.consumed = true;
+        return r;
+    }
+
+    r.bytes = ch;  // 其余（含控制码、UTF-8 高位字节）一个字节原样透传
+    return r;
+}
+
 }  // namespace app

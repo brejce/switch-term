@@ -14,6 +14,7 @@
 #include "config/lua_config.h"
 #include "ime/builtin_ime.h"
 #include "input/evdev_gamepad.h"
+#include "input/uinput_kbd.h"
 #include "input/uinput_mouse.h"
 #include "modules/ime/t9_ime.h"
 #include "modules/terminal/terminal_parser.h"
@@ -126,10 +127,21 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     cfg::Ui uic = prof.ui;
     cfg::KeyMap km = prof.keymap;
     cfg::Engine eng = prof.engine;
-    // engine.log / engine.sink 目前只装配+打印，不改变实际行为（见 STATUS.md 待做）
-    std::fprintf(stderr, "engine: sink=%s log=%s%s%s ngram=%d t9=%d\n", eng.sink.c_str(),
+    // engine.log 目前只装配+打印；engine.sink / engine.ime.enabled 真实生效
+    std::fprintf(stderr, "engine: sink=%s log=%s%s%s ngram=%d t9=%d ime=%s\n", eng.sink.c_str(),
                  eng.logLevel.c_str(), eng.logPath.empty() ? "" : "@", eng.logPath.c_str(),
-                 eng.ngram, eng.t9);
+                 eng.ngram, eng.t9, eng.imeEnabled ? "on" : "off");
+
+    // 输出口：uinput = 当虚拟键盘打给系统；打不开就回落 pty（不抢键、不少一条警告）
+    input::UinputKeyboard ukbd;
+    if (eng.sink == "uinput" && !ukbd.open()) {
+        std::fprintf(stderr,
+                     "警告：/dev/uinput 打不开，回落到 pty（需要 root 或 input 组 / udev 规则）\n");
+        eng.sink = "pty";
+    }
+    const bool useUinput = eng.sink == "uinput";
+    if (useUinput)
+        std::fprintf(stderr, "sink: uinput（打到前台程序；PTY 仅作监视器，按键不写进去）\n");
 
     ui::Geometry g;
     g.fromConfig(uic, ui::layout::kScale);
@@ -165,6 +177,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     ime::T9Ime t9;
     t9.setKeys(uic.t9Alpha);
+
+    // 按键入口：
+    // eng.imeEnabled = true  → 内置输入法（routeKey，组字/选词）
+    // eng.imeEnabled = false → 直通 routeRaw（只转 Ctrl/Alt/Shift，完全不组字）
+    auto route = [&](char ch, int mods) -> RouteResult {
+        return eng.imeEnabled ? routeKey(ime, ch, mods) : routeRaw(ch, mods);
+    };
 
     UInputMouse mouse;
 
@@ -212,7 +231,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     int lastBtn = -1;      // 上一颗按下的键（双击锁定用）
 
     ui::AppState st;
-    st.imeName = ime.chinese ? "PINYIN" : "EN";
+    st.imeName = !eng.imeEnabled ? "OFF" : (ime.chinese ? "PINYIN" : "EN");
 
     // 动作分发：手柄/面板都走这里（映射来自 keymap.lua）
     auto msNow = [] {
@@ -225,13 +244,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         switch (a) {
             case cfg::kMagic: {
                 std::string letter = t9.magic();  // Grid→Popup 返回空；Popup→返回字母
-                if (!letter.empty()) pending += routeKey(ime, letter[0], bd->sticky | bd->locks).bytes;
+                if (!letter.empty()) pending += route(letter[0], bd->sticky | bd->locks).bytes;
                 break;
             }
             case cfg::kSpace: {
                 // 网格态（不在弹窗）：空格 = 敲当前格的数字，走 T9 九键；
                 // 已用字母组字或弹窗里：空格 = 上屏首候选
-                bool t9Input = ime.chinese && !t9.popup() &&
+                bool t9Input = eng.imeEnabled && ime.chinese && !t9.popup() &&
                                (!ime.composing() || ime.digitsBuffer());
                 if (t9Input) {
                     char d = t9.focusDigit();
@@ -240,15 +259,15 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                         break;
                     }
                 }
-                pending += routeKey(ime, ' ', bd->sticky | bd->locks).bytes;
+                pending += route(' ', bd->sticky | bd->locks).bytes;
                 break;
             }
-            case cfg::kTab: pending += routeKey(ime, '\t', bd->sticky | bd->locks).bytes; break;
-            case cfg::kEnter: pending += routeKey(ime, '\r', bd->sticky | bd->locks).bytes; break;
-            case cfg::kBackspace: pending += routeKey(ime, 0x7f, bd->sticky | bd->locks).bytes; break;
+            case cfg::kTab: pending += route('\t', bd->sticky | bd->locks).bytes; break;
+            case cfg::kEnter: pending += route('\r', bd->sticky | bd->locks).bytes; break;
+            case cfg::kBackspace: pending += route(0x7f, bd->sticky | bd->locks).bytes; break;
             case cfg::kDelete: pending += "\x1b[3~"; break;
             case cfg::kEscape:
-                pending += routeKey(ime, 0x1b, bd->sticky | bd->locks).bytes;
+                pending += route(0x1b, bd->sticky | bd->locks).bytes;
                 t9.leavePopup();
                 break;
             case cfg::kModCtrl: bd->sticky ^= 1; break;
@@ -320,6 +339,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 uic = p.ui;      // uic/km/eng 都是可重新赋值的局部变量，lambda 按引用捕获
                 km = p.keymap;
                 eng = p.engine;
+                eng.sink = useUinput ? "uinput" : "pty";  // 输出口开机时定下，热重载不换设备
                 g.fromConfig(uic, ui::layout::kScale);
                 bd->setCanvasSize(g.screenW, g.screenH);
                 fonts.init(fm);
@@ -345,9 +365,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             }
         }
 
-        // ④ 输入路由：行为都在 app::routeKey 里（可单测）
+        // ④ 输入路由：行为都在 app::routeKey / routeRaw 里（可单测）
         for (char ch : keys) {
-            RouteResult rr = routeKey(ime, ch, bd->sticky | bd->locks);
+            RouteResult rr = route(ch, bd->sticky | bd->locks);
             if (rr.langChanged) {
                 st.imeName = ime.chinese ? "PINYIN" : "EN";
                 st.lang = ime.chinese ? "ZH" : "EN";
@@ -355,7 +375,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             pending += rr.bytes;
         }
         if (!pending.empty()) {
-            pty.writeMaster(pending.data(), pending.size());
+            if (useUinput)
+                ukbd.typeBytes(pending);  // 打给系统；PTY 只收 shell 输出，不再收这些键
+            else
+                pty.writeMaster(pending.data(), pending.size());
             pending.clear();
         }
 
@@ -411,6 +434,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     }
 
     delete tp;
+    if (ukbd.dropped())
+        std::fprintf(stderr, "uinput: 丢弃 %zu 个非 ASCII 字符（中文需要 fcitx5/wtype，见 DESIGN §4.4）\n",
+                     ukbd.dropped());
     if (!outPath.empty() && !bd->captureFrame(outPath))
         std::fprintf(stderr, "截图失败：%s\n", outPath.c_str());
     return 0;
