@@ -4,7 +4,6 @@
 
 namespace ime {
 namespace {
-constexpr int kPageSize = 7;
 
 uint32_t lastCodepoint(const std::string& s) {
     if (s.empty()) return 0;
@@ -58,7 +57,7 @@ void BuiltinIme::refresh() {
     bool allDigits = std::all_of(buf_.begin(), buf_.end(),
                                  [](char c) { return c >= '0' && c <= '9'; });
     // 九键会生成很多组合：先多取一些，按 bigram 排完再截断，否则常用组合排不进来
-    size_t want = allDigits ? 400 : size_t(kPageSize) * 8;
+    size_t want = allDigits ? 400 : size_t(pageSize_) * 8;
     if (allDigits && !chinese && en_.size()) {  // 英文态：查英文词表
         cands_.clear();
         for (const std::string& w : en_.query(buf_, want)) {
@@ -66,7 +65,7 @@ void BuiltinIme::refresh() {
             c.text = w;
             cands_.push_back(std::move(c));
         }
-        if (cands_.size() > size_t(kPageSize) * 8) cands_.resize(size_t(kPageSize) * 8);
+        if (cands_.size() > size_t(pageSize_) * 8) cands_.resize(size_t(pageSize_) * 8);
         return;
     }
     cands_ = allDigits ? idx_.queryDigits(buf_, want) : idx_.query(buf_, want);
@@ -81,12 +80,12 @@ void BuiltinIme::refresh() {
             return sc(a) > sc(b);
         });
     }
-    if (cands_.size() > size_t(kPageSize) * 8) cands_.resize(size_t(kPageSize) * 8);
+    if (cands_.size() > size_t(pageSize_) * 8) cands_.resize(size_t(pageSize_) * 8);
 }
 
 int BuiltinIme::pageCount() const {
     if (cands_.empty()) return 0;
-    return int((cands_.size() + kPageSize - 1) / kPageSize);
+    return int((cands_.size() + pageSize_ - 1) / pageSize_);
 }
 
 void BuiltinIme::nextPage() {
@@ -105,7 +104,7 @@ std::string BuiltinIme::commitRaw() {
 
 std::string BuiltinIme::commit(int idx) {
     if (cands_.empty()) return {};
-    int i = idx < 0 ? page_ * kPageSize : idx;
+    int i = idx < 0 ? page_ * pageSize_ : idx;
     if (i < 0 || i >= int(cands_.size())) return {};
     std::string out = cands_[size_t(i)].text;
     ctx_ = lastCodepoint(out);  // 更新上下文

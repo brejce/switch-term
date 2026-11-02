@@ -29,6 +29,9 @@ public:
         visible = bridge_.cursorVisible();
     }
 
+    void setHistoryLimit(int lines) override {
+        bridge_.setHistoryLimit(lines < 0 ? 0 : size_t(lines));
+    }
     int historySize() const override { return bridge_.historySize(); }
     Cell historyAt(int line, int col) const override {
         term::CellView v = bridge_.historyAt(line, col);

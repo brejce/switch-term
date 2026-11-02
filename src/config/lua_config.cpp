@@ -112,6 +112,69 @@ std::string istr(lua_State* L, const char* k, const char* def) {
     return v;
 }
 
+// engine.<sect>.<k>：缺段/缺键/类型不符都返回 def（引擎配置全部可选）
+void pushSection(lua_State* L, const char* sect) {  // 成功时栈顶 = 段表
+    lua_getglobal(L, "engine");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return;
+    }
+    lua_getfield(L, -1, sect);
+    lua_remove(L, -2);
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        lua_pushnil(L);
+    }
+}
+
+int einum(lua_State* L, const char* sect, const char* k, int def) {
+    pushSection(L, sect);
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return def;
+    }
+    lua_getfield(L, -1, k);
+    int v = lua_isnumber(L, -1) ? int(lua_tointeger(L, -1)) : def;
+    lua_pop(L, 2);
+    return v;
+}
+
+bool ebool(lua_State* L, const char* sect, const char* k, bool def) {
+    pushSection(L, sect);
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return def;
+    }
+    lua_getfield(L, -1, k);
+    bool v = lua_isboolean(L, -1) ? lua_toboolean(L, -1) != 0 : def;
+    lua_pop(L, 2);
+    return v;
+}
+
+float efloat(lua_State* L, const char* sect, const char* k, float def) {
+    pushSection(L, sect);
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return def;
+    }
+    lua_getfield(L, -1, k);
+    float v = lua_isnumber(L, -1) ? float(lua_tonumber(L, -1)) : def;
+    lua_pop(L, 2);
+    return v;
+}
+
+std::string estr(lua_State* L, const char* sect, const char* k, const char* def) {
+    pushSection(L, sect);
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return def;
+    }
+    lua_getfield(L, -1, k);
+    std::string v = lua_isstring(L, -1) ? lua_tostring(L, -1) : def;
+    lua_pop(L, 2);
+    return v;
+}
+
 // 读 ui.t9_alpha / t9_symbol：9 项 { "2", "ABC" }
 void readT9(lua_State* L, const char* field, T9Key out[9]) {
     lua_getglobal(L, "ui");
@@ -230,6 +293,49 @@ bool loadKeymap(const char* path, KeyMap& out) {
     }
     lua_close(L);
     return true;
+}
+
+bool loadEngine(const char* path, Engine& out) {
+    // 文件不存在 = 没写引擎配置，静默用默认值（只有真写错了才报）
+    if (FILE* f = std::fopen(path, "r")) {
+        std::fclose(f);
+    } else {
+        return false;
+    }
+    lua_State* L = luaL_newstate();
+    if (!L) return false;
+    luaL_openlibs(L);
+    if (luaL_dofile(L, path) != LUA_OK) {
+        std::fprintf(stderr, "%s: %s\n", path, lua_tostring(L, -1));
+        lua_close(L);
+        return false;
+    }
+    out.scrollback = einum(L, "terminal", "scrollback", out.scrollback);
+    out.candPerPage = einum(L, "ime", "cand_per_page", out.candPerPage);
+    out.ngram = ebool(L, "ime", "ngram", out.ngram);
+    out.t9 = ebool(L, "ime", "t9", out.t9);
+    out.deadzone = efloat(L, "input", "deadzone", out.deadzone);
+    out.hysteresisDeg = efloat(L, "input", "hysteresis_deg", out.hysteresisDeg);
+    out.doubleTapMs = einum(L, "input", "double_tap_ms", out.doubleTapMs);
+    out.logLevel = estr(L, "log", "level", out.logLevel.c_str());
+    out.logPath = estr(L, "log", "path", out.logPath.c_str());
+    lua_getglobal(L, "engine");  // engine.sink 是顶层字段，不是表
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, "sink");
+        if (lua_isstring(L, -1)) out.sink = lua_tostring(L, -1);
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    lua_close(L);
+    return true;
+}
+
+bool loadProfile(const char* dir, Profile& out) {
+    const std::string d = dir && *dir ? dir : "config";
+    bool any = loadUi((d + "/ui.lua").c_str(), out.ui);
+    if (loadKeymap((d + "/keymap.lua").c_str(), out.keymap)) any = true;
+    if (loadEngine((d + "/engine.lua").c_str(), out.engine)) any = true;
+    return any;
 }
 
 }  // namespace cfg

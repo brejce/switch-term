@@ -179,7 +179,7 @@ int EvdevGamepad::open() {
             if (::ioctl(fd, EVIOCGABS(code), &ai) == 0) m.setAxisRange(code, ai.minimum, ai.maximum);
         }
         mappers_.push_back(m);
-        PadState ps;
+        PadState ps(stickDz_, stickHyst_);
         for (int code2 : {ABS_X, ABS_Y, ABS_RX, ABS_RY}) {
             input_absinfo ai2{};
             if (::ioctl(fd, EVIOCGABS(code2), &ai2) == 0)

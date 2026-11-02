@@ -30,8 +30,6 @@ namespace {
 volatile sig_atomic_t gReload = 0;
 void onReload(int) { gReload = 1; }
 
-constexpr int kCandPerPage = 7;  // 与 ime 每页候选数一致
-
 std::string resolve(const std::string& resDir, const char* rel) {
     std::string p = resDir + "/" + rel;
     FILE* f = std::fopen(p.c_str(), "r");
@@ -118,13 +116,20 @@ void answerDA(term::Pty& pty, const char* buf, long n) {
 
 int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& outPath,
          const std::string& runCmd) {
-    // ① 装配：Lua → 原生结构，只跑这一次
-    cfg::Ui uic;
-    cfg::KeyMap km;
-    if (!cfg::loadUi(resolve(resDir, "config/ui.lua").c_str(), uic))
-        std::fprintf(stderr, "警告：config/ui.lua 读不到，用内置默认值\n");
-    if (!cfg::loadKeymap(resolve(resDir, "config/keymap.lua").c_str(), km))
-        std::fprintf(stderr, "警告：config/keymap.lua 读不到\n");
+    // ① 装配：config/ 下三个 Lua 一次读完（ui + keymap + engine），SIGUSR1 也走同一段
+    auto loadProfile = [&](cfg::Profile& p) {
+        return cfg::loadProfile((resDir + "/config").c_str(), p) ||
+               cfg::loadProfile("config", p);  // 退回相对路径（从项目根运行）
+    };
+    cfg::Profile prof;
+    if (!loadProfile(prof)) std::fprintf(stderr, "警告：config/*.lua 读不到，用内置默认值\n");
+    cfg::Ui uic = prof.ui;
+    cfg::KeyMap km = prof.keymap;
+    cfg::Engine eng = prof.engine;
+    // engine.log / engine.sink 目前只装配+打印，不改变实际行为（见 STATUS.md 待做）
+    std::fprintf(stderr, "engine: sink=%s log=%s%s%s ngram=%d t9=%d\n", eng.sink.c_str(),
+                 eng.logLevel.c_str(), eng.logPath.empty() ? "" : "@", eng.logPath.c_str(),
+                 eng.ngram, eng.t9);
 
     ui::Geometry g;
     g.fromConfig(uic, ui::layout::kScale);
@@ -140,6 +145,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // ② 终端：只认 TerminalParser 接口
     term::TerminalParser* tp = term::createParser("vterm");
     if (!tp->init(g.termRows, g.termCols)) return 1;
+    tp->setHistoryLimit(eng.scrollback);  // engine.terminal.scrollback
 
     term::Pty pty;
     const char* shell = std::getenv("SHELL");
@@ -155,6 +161,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     const std::string idx = resolve(resDir, "data/pinyin.idx");
     const std::string ng = resolve(resDir, "data/ngram.bin");
     if (!ime.load(idx, ng)) std::fprintf(stderr, "警告：没有 pinyin.idx，中文输入不可用\n");
+    ime.setPageSize(eng.candPerPage);  // engine.ime.cand_per_page：IME 内部翻页跨度
 
     ime::T9Ime t9;
     t9.setKeys(uic.t9Alpha);
@@ -162,6 +169,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     UInputMouse mouse;
 
     input::EvdevGamepad gamepad;
+    gamepad.setStickParams(eng.deadzone, eng.hysteresisDeg);  // engine.input.*
     int pads = gamepad.open();
     for (const auto& nm : gamepad.names()) std::fprintf(stderr, "gamepad: %s\n", nm.c_str());
     if (pads == 0) std::fprintf(stderr, "gamepad: 没有可读的手柄\n");
@@ -251,6 +259,15 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             case cfg::kLockShift: bd->locks ^= 2; break;
             case cfg::kMouseLeft: mouse.click(BTN_LEFT); break;    // 只点不移动
             case cfg::kMouseRight: mouse.click(BTN_RIGHT); break;
+            // 面板/触摸独有动作（kIme..kCursorRight）：手柄路径不会产生，只有 --legacy 用
+            case cfg::kIme:
+            case cfg::kCopy:
+            case cfg::kPaste:
+            case cfg::kSelLeft:
+            case cfg::kSelRight:
+            case cfg::kLayer:
+            case cfg::kCursorLeft:
+            case cfg::kCursorRight:
             case cfg::kNone: break;
         }
         tp->markDirty();
@@ -260,8 +277,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         if (btn < 0 || btn >= cfg::kKeyCount) return;
         long long now = msNow();
         cfg::Action act = km.single[btn];
-        // 同一键 400ms 内按第二下 = 双击动作（DPAD 锁定修饰用）
-        if (km.dbl[btn] && btn == lastBtn && now - lastPress[btn] < 400) act = km.dbl[btn];
+        // 同一键窗口内按第二下 = 双击动作（DPAD 锁定修饰用）
+        if (km.dbl[btn] && btn == lastBtn && now - lastPress[btn] < eng.doubleTapMs)
+            act = km.dbl[btn];
         lastPress[btn] = now;
         lastBtn = btn;
         if (act != cfg::kNone) doAction(act);
@@ -292,16 +310,39 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 tp->markDirty();
             }
         }
-        if (gReload) {  // kill -USR1 = 重读 ui.lua
+        if (gReload || bd->reloadReq) {  // kill -USR1 / SIGHUP，或窗口内 Ctrl+Shift+R
             gReload = 0;
-            cfg::loadUi(resolve(resDir, "config/ui.lua").c_str(), uic);
-            g.fromConfig(uic, ui::layout::kScale);
-            bd->setCanvasSize(g.screenW, g.screenH);
-            fonts.init(fm);
-            tp->resize(g.termRows, g.termCols);
-            pty.resize(g.termCols, g.termRows);
-            tp->markDirty();
-            std::fprintf(stderr, "ui: 重载 ui.lua → %dx%d\n", g.screenW, g.screenH);
+            bd->reloadReq = 0;
+            cfg::Profile p;
+            if (!loadProfile(p)) {
+                std::fprintf(stderr, "ui: 重载失败（config/*.lua 读不到），保持旧配置\n");
+            } else {
+                uic = p.ui;      // uic/km/eng 都是可重新赋值的局部变量，lambda 按引用捕获
+                km = p.keymap;
+                eng = p.engine;
+                g.fromConfig(uic, ui::layout::kScale);
+                bd->setCanvasSize(g.screenW, g.screenH);
+                fonts.init(fm);
+                tp->resize(g.termRows, g.termCols);
+                tp->setHistoryLimit(eng.scrollback);
+                pty.resize(g.termCols, g.termRows);
+                // 瞬态状态复位：焦点/弹窗/组字/候选/上一颗键
+                t9.reset();
+                ime.setPageSize(eng.candPerPage);  // 翻页跨度跟着新配置走（组字缓冲不丢，页号夹住）
+                st.focusIdx = 4;
+                st.popup = false;
+                st.popupIdx = 0;
+                st.compose.clear();
+                st.cands.clear();
+                st.candPage = 0;
+                lastBtn = -1;
+                tp->markDirty();
+                std::fprintf(stderr,
+                             "ui: 重载 config/{ui,keymap,engine}.lua → %dx%d "
+                             "scrollback=%d cand_per_page=%d double_tap=%dms\n",
+                             g.screenW, g.screenH, eng.scrollback, eng.candPerPage,
+                             eng.doubleTapMs);
+            }
         }
 
         // ④ 输入路由：行为都在 app::routeKey 里（可单测）
@@ -345,7 +386,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         st.compose = ime.preedit();
         st.cands.clear();
         for (const auto& cd : ime.cands())
-            if (st.cands.size() < 7) st.cands.push_back({cd.text, cd.annot});
+            if (int(st.cands.size()) < eng.candPerPage)
+                st.cands.push_back({cd.text, cd.annot});
         st.candPage = ime.page();
         st.candPageCount = std::max(1, ime.pageCount());
         std::string mods;

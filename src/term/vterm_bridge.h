@@ -29,6 +29,7 @@ public:
 
     CellView cellAt(int row, int col) const;
     // 滚动历史：滚出屏幕顶部的行（最老在前），供 TerminalView 回放
+    void setHistoryLimit(size_t lines);  // engine.terminal.scrollback
     int historySize() const { return int(hist_.size()); }
     CellView historyAt(int line, int col) const;
     void sbPush(int cols, const VTermScreenCell* cells);
@@ -52,7 +53,7 @@ private:
     bool cursorVisible_ = true;
     int rows_ = 0, cols_ = 0;
     std::deque<std::vector<CellView>> hist_;
-    static constexpr size_t kHistMax = 2000;
+    size_t histMax_ = 2000;  // 默认 = config/engine.lua 的 terminal.scrollback
     size_t bytesIn_ = 0;
 };
 

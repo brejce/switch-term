@@ -30,7 +30,8 @@
 4. **并行输入，互不抢夺**：手柄走 IME，物理键盘直写 PTY，指针走 HitTest，三者事件队列独立处理。
 5. **事件驱动重绘**：只在 PTY 数据、输入事件、定时器到期时重绘。
 6. **单线程事件循环**：epoll 统一管理 PTY、手柄、键盘、指针、D-Bus、定时器。
-7. **配置驱动**：按键映射、手柄归一化、IME 选择、显示后端全部 TOML 配置。
+7. **配置驱动**：按键映射、手柄归一化、IME 选择、显示后端全部 Lua 配置
+   （`config/ui.lua` / `keymap.lua` / `engine.lua`，规范见 `DESIGN.md` §4）。
 8. **接口预留，内容后补**：Overlay 只留接口，registry 为空，不阻塞主目标。
 
 ---
@@ -133,8 +134,9 @@ udev 权限：`SUBSYSTEM=="input", GROUP="input", MODE="0660"`，用户加入 `i
 |---|---|---|---|
 | `data/pinyin.idx` | 公开语料 + 自整理；可选从 Paper S3 导出 | 最小版 < 5MB | `(pinyin, candidate_utf8, freq)` |
 | `data/ngram.bin` | 离线生成，bigram/trigram 哈希表 | 视语料 | 提供 `tools/build_ngram.py` |
-| `data/keymap.toml` | 随仓库 | 小 | 按键映射 |
-| `data/gamepad_profiles.toml` | 随仓库 | 小 | Switch/Xbox/PS 归一化表 |
+| `config/keymap.lua` | 随仓库 | 小 | 按键映射（已实现） |
+| `config/ui.lua` / `engine.lua` | 随仓库 | 小 | 布局/键表、终端/IME/输入参数（已实现） |
+| 手柄归一化表 | 待定 | — | Switch/Xbox/PS，**未实现**（目前用固定死区/滞回） |
 
 最小版随仓库，保证 clone 下来就能跑内置 IME。
 
@@ -222,6 +224,6 @@ CI 只跑 headless，实机手动触发。
 - 触摸屏手势：双指滚动、三指切层。
 - 多语言 IME：日文假名、韩文谚文。
 - 网络终端：SSH 客户端集成。
-- 主题系统：配色、字体、面板布局 TOML。
+- 主题系统：配色、字体、面板布局做成独立的 Lua 主题文件。
 - Windows/macOS 移植：需实现对应后端。
 

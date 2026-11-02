@@ -1,5 +1,9 @@
 # switch-ime-term · 实现规范
 
+> **注意：本文档是早期设计稿，部分内容（尤其 TOML 配置、epoll、fcitx5、DRM/EGL）已被现实取代。**
+> 当前有效的配置规范见 `docs/DESIGN.md` §4（配置文件是 Lua，分 `ui.lua` / `keymap.lua` /
+> `engine.lua` 三类，热切换走 `kill -USR1`）；已实现的能力清单见 `STATUS.md`。
+
 > 配套：`PLAN.md`（计划书）、`ui-mockup.html`（视觉基准）
 > 本文档定义接口签名、模块边界、数据流。写代码时对照本文档。
 

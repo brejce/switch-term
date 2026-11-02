@@ -27,6 +27,15 @@ public:
     void backspace();
     void clear();
 
+    static constexpr int kMaxPageSize = 7;  // 底部候选条最多放得下几个
+    int pageSize() const { return pageSize_; }
+    // engine.ime.cand_per_page 落到 IME 内部翻页；越界值忽略，不改现有状态
+    void setPageSize(int n) {
+        if (n < 1 || n > kMaxPageSize) return;
+        pageSize_ = n;
+        if (page_ >= pageCount()) page_ = pageCount() > 0 ? pageCount() - 1 : 0;
+    }
+
     const std::string& preedit() const { return buf_; }
     bool digitsBuffer() const {  // 当前组字串是不是 T9 数字序列
         if (buf_.empty()) return false;
@@ -55,6 +64,7 @@ private:
     std::string buf_;
     std::vector<Cand> cands_;
     int page_ = 0;
+    int pageSize_ = kMaxPageSize;
     uint32_t ctx_ = 0;  // 上一个提交字的码位
 };
 

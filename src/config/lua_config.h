@@ -1,10 +1,12 @@
 #pragma once
-// Lua 只在启动装配：把 ui.lua / keymap.lua 读成原生结构，运行期主循环纯 C++。
+// Lua 只在启动/热重载时装配：把 ui.lua / keymap.lua / engine.lua 读成原生结构，
+// 运行期主循环纯 C++。
 #include <string>
 
 namespace cfg {
 
-// 动作：由 keymap.lua 的字符串名映射到这些常量
+// 动作：全局唯一的一套编号。前半段是 keymap.lua 能绑的手柄动作，
+// 后半段只有面板/触摸的命中格会产出（没有对应动作名，绑不进 keymap）。
 enum Action {
     kNone = 0,
     kMagic,      // LB：网格 ↔ 弹窗 ↔ 上屏
@@ -22,6 +24,15 @@ enum Action {
     kLockShift,
     kMouseLeft,  // RB
     kMouseRight, // RT
+    // 面板独有：只出现在 --legacy UI 的 HitCell / evdev 旧映射里
+    kIme,        // 中英切换
+    kCopy,       // 复制可见区/选区
+    kPaste,      // 粘贴剪贴板
+    kSelLeft,    // 选区左移一格
+    kSelRight,   // 选区右移一格
+    kLayer,      // 字母层 / 符号·数字层
+    kCursorLeft, // 光标左移（锁 Shift 时 = 扩选）
+    kCursorRight,
 };
 
 enum InputKey {
@@ -52,8 +63,33 @@ struct KeyMap {
     bool axisMouseMove = false;
 };
 
+// engine.lua：「看不见」的那一半。默认值 = 接线前散落在各处的硬编码值，改这里等于改默认。
+struct Engine {
+    int scrollback = 2000;          // src/term/vterm_bridge.h 的滚动历史上限
+    int candPerPage = 7;            // 底部候选条一页几个
+    bool ngram = true;              // 候选是否按 bigram 上下文重排
+    bool t9 = true;                 // 九键数字预测
+    float deadzone = 0.35f;         // src/input/gamepad.h 摇杆死区
+    float hysteresisDeg = 8.f;      // 同上：扇区滞回角
+    int doubleTapMs = 400;          // src/app/app.cpp 双击判定窗口
+    std::string logLevel = "warn";  // debug | info | warn | error
+    std::string logPath;            // 空 = 只写 stderr
+    std::string sink = "pty";       // pty | uinput
+};
+
+// 一次热重载要拿到的全部配置
+struct Profile {
+    Ui ui;
+    KeyMap keymap;
+    Engine engine;
+};
+
 bool loadUi(const char* path, Ui& out);
 bool loadKeymap(const char* path, KeyMap& out);
+// 缺文件 / 缺键 / 类型不符 = 保留 out 里的默认值，返回 false 但不报错
+bool loadEngine(const char* path, Engine& out);
+// dir 下依次读 ui.lua / keymap.lua / engine.lua；三个都读不到才返回 false
+bool loadProfile(const char* dir, Profile& out);
 
 const char* actionName(Action a);   // 反查，给日志/自检用
 bool actionFromName(const char* s, Action& out);

@@ -3,10 +3,15 @@
 设计准则：`docs/DESIGN.md`（v4.2：§3.1 空格双含义 / §3.2 鼠标暂缓 / §3.3 修饰键规则），设计稿 `docs/ui-mockup.html`。
 
 ## 已完成（重构）
+- **配置分层 + 热切换**：配置分三类文件（`config/ui.lua` 尺寸/键表/标签、`config/keymap.lua`
+  按键→动作、`config/engine.lua` 终端/IME/输入/日志/sink）；`cfg::loadProfile("config", prof)`
+  一次装配成 `Profile{Ui,KeyMap,Engine}`；`kill -USR1`（或窗口内 `Ctrl+Shift+R`）= 三个文件
+  全量重读 → 重排几何/重建字体/换 T9 键表/PTY resize/瞬态状态复位。动作枚举收敛到
+  `cfg::Action`：`ui::ActionId` 与 `input::kGpAct*` 都只是它的常量别名，不再各写一套编号。
 - **运行期已换成新 UI**：`src/app/app.cpp`（新循环）+ `src/ui/screen.*`（三分区绘制）。
   旧 UI 保留在 `--legacy` 后端，确认无回归后删。
 - 新循环：Lua 装配 → `Geometry`（按缩放算）→ `TerminalParser` → PTY → 内置拼音 IME → 渲染。
-  `kill -USR1` 重载 ui.lua；窗口尺寸变化自动重排 + 重建字体 + PTY resize。
+  窗口尺寸变化自动重排 + 重建字体 + PTY resize。
 - `--run "<cmd>"` 现在是 `shell -c`，输出干净（不再被 fish 欢迎信息干扰），用于无头截图核验。
 - `src/modules/terminal/terminal_parser.h`：终端解析层接口（feed / cellAt / cursor / history / dirty）。
 - `src/modules/terminal/vterm_parser.cpp`：包住已验证的 `term::VTermBridge`；`createParser()` 是唯一入口，
@@ -39,7 +44,7 @@
 1. 删旧 UI：`src/ui/panels.cpp` / `src/ui/layout_lua.cpp` / 根 `layout.lua` 现在只服务 `--legacy`，
    新架构无回归后连同 `main.cpp` 的 `--legacy` 分支一起删。
 2. 词级候选（`nihao` 第 2 候选是「你号」）。
-3. TOML 配置（PLAN §6）、evdev `input` 组/udev、Switch 交叉编译（M4）。
+3. evdev `input` 组/udev、Switch 交叉编译（M4）。
 
 ---
 

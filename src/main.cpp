@@ -246,6 +246,28 @@ static int scrollSelfTest() {
     return ok ? 0 : 1;
 }
 
+// 配置自检：engine.lua 缺文件→默认值，缺键→保留默认值，写了的键才覆盖
+static int configSelfTest() {
+    cfg::Engine e;
+    bool ok = !cfg::loadEngine("/tmp/sit_no_such_engine.lua", e) && e.scrollback == 2000 &&
+              e.candPerPage == 7 && e.doubleTapMs == 400;
+    const char* path = "/tmp/sit_engine_selftest.lua";
+    if (FILE* f = std::fopen(path, "w")) {
+        std::fputs("engine = {}\nengine.terminal = { scrollback = 11 }\n"
+                   "engine.input = { double_tap_ms = 250 }\nengine.sink = \"uinput\"\n",
+                   f);
+        std::fclose(f);
+    }
+    cfg::Engine e2;
+    ok = ok && cfg::loadEngine(path, e2) && e2.scrollback == 11 && e2.doubleTapMs == 250 &&
+         e2.sink == "uinput";
+    ok = ok && e2.candPerPage == 7 && e2.ngram && e2.deadzone == 0.35f;  // 缺的键还在默认值
+    std::remove(path);
+    std::printf("[selftest] config %s  scrollback=%d double_tap=%dms sink=%s\n", ok ? "OK" : "FAIL",
+                e2.scrollback, e2.doubleTapMs, e2.sink.c_str());
+    return ok ? 0 : 1;
+}
+
 // 中英切换自检：组字中切到英文，拼音必须原样交出而不是消失
 static int switchSelfTest() {
     ime::BuiltinIme im;
@@ -405,7 +427,8 @@ int main(int argc, char** argv) {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(); return 0; }
         if (a == "--selftest") return selfTest() + gamepadSelfTest() + imeSelfTest() + fbdevSelfTest() + themeSelfTest() +
-               scrollSelfTest() + switchSelfTest() + selectSelfTest() + gamepadEvdevSelfTest();
+               scrollSelfTest() + switchSelfTest() + selectSelfTest() + gamepadEvdevSelfTest() +
+               configSelfTest();
         if (a == "--list-backends") {
             for (auto& n : disp::DisplayRegistry::instance().names()) std::printf("%s\n", n.c_str());
             return 0;
@@ -629,9 +652,11 @@ int main(int argc, char** argv) {
             return bad ? 1 : 0;
         }
         if (a == "--print-config") {
-            cfg::Ui ui;
-            cfg::KeyMap km;
-            bool ok = cfg::loadUi("config/ui.lua", ui) && cfg::loadKeymap("config/keymap.lua", km);
+            cfg::Profile prof;
+            bool ok = cfg::loadProfile("config", prof);
+            const cfg::Ui& ui = prof.ui;
+            const cfg::KeyMap& km = prof.keymap;
+            const cfg::Engine& eng = prof.engine;
             std::printf("装配 %s\n", ok ? "OK" : "FAIL");
             std::printf("panel_w=%d stick_box=%d cell=%dx%d title=%s\n", ui.panelW, ui.stickBox,
                         ui.cellW, ui.cellH, ui.title.c_str());
@@ -643,10 +668,18 @@ int main(int argc, char** argv) {
             static const char* kn[] = {"LB", "LT", "RB", "RT", "A", "B", "X", "Y",
                                        "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT"};
             for (int k = 0; k < cfg::kKeyCount; ++k)
-                if (km.single[k] || km.dbl[k])
-                    std::printf("  %-10s 单击=%s%s%s\n", kn[k], cfg::actionName(km.single[k]),
-                                km.dbl[k] ? "  双击=" : "", cfg::actionName(km.dbl[k]));
+                if (km.single[k] || km.dbl[k]) {
+                    std::printf("  %-10s 单击=%s", kn[k], cfg::actionName(km.single[k]));
+                    if (km.dbl[k]) std::printf("  双击=%s", cfg::actionName(km.dbl[k]));
+                    std::printf("\n");
+                }
             std::printf("axis STICK_R mouse_move=%d\n", km.axisMouseMove ? 1 : 0);
+            std::printf(
+                "engine: scrollback=%d cand_per_page=%d ngram=%d t9=%d deadzone=%.2f "
+                "hysteresis_deg=%.0f double_tap_ms=%d log=%s%s%s sink=%s\n",
+                eng.scrollback, eng.candPerPage, eng.ngram, eng.t9, eng.deadzone,
+                eng.hysteresisDeg, eng.doubleTapMs, eng.logLevel.c_str(),
+                eng.logPath.empty() ? "" : "@", eng.logPath.c_str(), eng.sink.c_str());
             return ok ? 0 : 1;
         }
         if (a == "--type" && i + 1 < argc) { typeText = argv[++i]; continue; }

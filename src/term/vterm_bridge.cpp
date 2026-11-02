@@ -70,12 +70,17 @@ CellView VTermBridge::historyAt(int line, int col) const {
     return row[size_t(col)];
 }
 
+void VTermBridge::setHistoryLimit(size_t lines) {
+    histMax_ = lines;
+    while (hist_.size() > histMax_) hist_.pop_front();
+}
+
 void VTermBridge::sbPush(int cols, const VTermScreenCell* cells) {
     std::vector<CellView> row;
     row.reserve(size_t(cols));
     for (int i = 0; i < cols; ++i) row.push_back(toView(cells[i]));
     hist_.push_back(std::move(row));
-    while (hist_.size() > kHistMax) hist_.pop_front();
+    while (hist_.size() > histMax_) hist_.pop_front();
 }
 
 CellView VTermBridge::toView(const VTermScreenCell& c) const {

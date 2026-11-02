@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "config/lua_config.h"
 #include "input/gamepad.h"
 
 namespace input {
@@ -17,19 +18,18 @@ struct GamepadHandlers {
     std::function<void(int)> action;
 };
 
-// 面板动作编号（与 ui::ActionId 对齐，这里不 include ui 保持分层）
-enum : int {
-    kGpActIme = 1,
-    kGpActCursorLeft = 10,
-    kGpActCursorRight = 11,
-    kGpActLayer = 6,
-    kGpActLockCtrl = 7,
-    kGpActStickyCtrl = 12,
-    kGpActStickyShift = 13,
-    kGpActStickyAlt = 14,
-    kGpActLockShift = 8,
-    kGpActLockAlt = 9,
-};
+// 面板动作编号：唯一来源 = cfg::Action（与 ui::ActionId 同一套值）。
+// kGpAct* 是旧名，保留是为了调用方不改；语义一一对应，没有 input 独有的动作。
+constexpr cfg::Action kGpActIme = cfg::kIme;
+constexpr cfg::Action kGpActCursorLeft = cfg::kCursorLeft;
+constexpr cfg::Action kGpActCursorRight = cfg::kCursorRight;
+constexpr cfg::Action kGpActLayer = cfg::kLayer;
+constexpr cfg::Action kGpActLockCtrl = cfg::kLockCtrl;
+constexpr cfg::Action kGpActStickyCtrl = cfg::kModCtrl;
+constexpr cfg::Action kGpActStickyShift = cfg::kModShift;
+constexpr cfg::Action kGpActStickyAlt = cfg::kModAlt;
+constexpr cfg::Action kGpActLockShift = cfg::kLockShift;
+constexpr cfg::Action kGpActLockAlt = cfg::kLockAlt;
 
 class GamepadMapper {
 public:
@@ -68,6 +68,10 @@ struct PadHandlers {
 
 class PadState {  // 纯映射：evdev 事件 → PadButton / 扇区（可用合成事件自检）
 public:
+    PadState() = default;
+    PadState(float deadzone, float hysteresisDeg)  // engine.input.deadzone / hysteresis_deg
+        : left_(deadzone, hysteresisDeg), right_(deadzone, hysteresisDeg) {}
+
     void setAxisRange(int code, int minV, int maxV);
     void onEvent(const input_event& ev, const PadHandlers& h);
 
@@ -87,6 +91,11 @@ public:
 
     // 打开所有「像手柄」的 /dev/input/event*（有 ABS_X/ABS_Y 或 BTN_SOUTH）
     int open();
+    // 摇杆参数要在这里设：open() 时才会用它们建 PadState（engine.input.*）
+    void setStickParams(float deadzone, float hysteresisDeg) {
+        stickDz_ = deadzone;
+        stickHyst_ = hysteresisDeg;
+    }
     void close();
     int count() const { return int(fds_.size()); }
     const std::vector<std::string>& names() const { return names_; }
@@ -100,6 +109,7 @@ private:
     std::vector<GamepadMapper> mappers_;
     std::vector<PadState> pads_;
     std::string lastError_;
+    float stickDz_ = 0.35f, stickHyst_ = 8.f;  // 默认值 = src/input/gamepad.h
 };
 
 }  // namespace input

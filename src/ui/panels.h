@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 
+#include "config/lua_config.h"
 #include "render/renderer.h"
 #include "ui/theme.h"
 
@@ -35,24 +36,25 @@ struct UiState {
     std::string version = "v0.1.0";
 };
 
-// 面板动作：鼠标/触摸点击、键盘、以后的手柄按钮走的都是这一个分发
-enum ActionId {
-    kActNone = 0,
-    kActIme = 1,    // 中英切换
-    kActCopy = 2,   // 复制可见区
-    kActPaste = 3,  // 粘贴剪贴板
-    kActSelLeft = 4,   // 选区左移一格（手柄 = Shift+ZL）
-    kActSelRight = 5,  // 选区右移一格（手柄 = Shift+ZR）
-    kActLayer = 6,     // 切换 字母层 / 符号·数字层（L）
-    kActLockCtrl = 7,  // 双击锁定 Ctrl
-    kActLockShift = 8, // 双击锁定 Shift（锁定后移动光标 = 扩选）
-    kActLockAlt = 9,   // 双击锁定 Alt
-    kActCursorLeft = 10,   // 光标左移；锁了 Shift 就变成扩选
-    kActCursorRight = 11,
-    kActStickyCtrl = 12,   // 按一下 = 只对下一个键生效（实体键盘的"先按 Ctrl 再按键"）
-    kActStickyShift = 13,
-    kActStickyAlt = 14,
-};
+// 面板动作：鼠标/触摸点击、键盘、以后的手柄按钮走的都是这一个分发。
+// 编号唯一来源是 cfg::Action；kActXxx 是旧名（--legacy 路径在用），值全部指过去。
+using ActionId = cfg::Action;
+constexpr ActionId kActNone = cfg::kNone;
+constexpr ActionId kActIme = cfg::kIme;              // 中英切换
+constexpr ActionId kActCopy = cfg::kCopy;            // 复制可见区
+constexpr ActionId kActPaste = cfg::kPaste;          // 粘贴剪贴板
+constexpr ActionId kActSelLeft = cfg::kSelLeft;      // 选区左移一格（手柄 = Shift+ZL）
+constexpr ActionId kActSelRight = cfg::kSelRight;    // 选区右移一格（手柄 = Shift+ZR）
+constexpr ActionId kActLayer = cfg::kLayer;          // 字母层 / 符号·数字层（L）
+constexpr ActionId kActLockCtrl = cfg::kLockCtrl;    // 双击锁定 Ctrl
+constexpr ActionId kActLockShift = cfg::kLockShift;  // 双击锁定 Shift（锁后移动光标 = 扩选）
+constexpr ActionId kActLockAlt = cfg::kLockAlt;      // 双击锁定 Alt
+constexpr ActionId kActCursorLeft = cfg::kCursorLeft;    // 光标左移；锁了 Shift 就变成扩选
+constexpr ActionId kActCursorRight = cfg::kCursorRight;
+// 一次性修饰：物理上就是 keymap.lua 的 mod_* 动作
+constexpr ActionId kActStickyCtrl = cfg::kModCtrl;  // 只对下一个键生效
+constexpr ActionId kActStickyShift = cfg::kModShift;
+constexpr ActionId kActStickyAlt = cfg::kModAlt;
 
 // 可点击的字符格：action 为 0 时把 bytes 写入 PTY，否则执行动作
 struct HitCell {

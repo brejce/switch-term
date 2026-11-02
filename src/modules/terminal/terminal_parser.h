@@ -28,6 +28,7 @@ public:
     virtual void cursor(int& row, int& col, bool& visible) const = 0;
 
     // 滚动历史（可选，默认不支持）
+    virtual void setHistoryLimit(int lines) { (void)lines; }  // engine.terminal.scrollback
     virtual int historySize() const { return 0; }
     virtual Cell historyAt(int line, int col) const {
         (void)line;

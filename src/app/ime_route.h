@@ -7,8 +7,6 @@
 
 namespace app {
 
-constexpr int kCandPerPage = 7;  // 与 ime::BuiltinIme 每页候选数一致
-
 struct RouteResult {
     std::string bytes;   // 要写进 PTY 的内容（可能为空）
     bool consumed = false;  // 是否被输入法吃掉（true 时不要再往 PTY 发原始字符）

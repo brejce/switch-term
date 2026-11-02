@@ -50,10 +50,10 @@ RouteResult routeKey(ime::BuiltinIme& ime, char ch, int mods) {
                 return r;
             }
         }
-        if (ch >= '1' && ch <= '9') {  // 数字选词：只认当前页内的 7 个
+        if (ch >= '1' && ch <= '9') {  // 数字选词：只认当前页内的候选（页大小 = engine.ime.cand_per_page）
             int idx = ch - '1';
-            if (idx < kCandPerPage) {
-                r.bytes = ime.commit(ime.page() * kCandPerPage + idx);
+            if (idx < ime.pageSize()) {
+                r.bytes = ime.commit(ime.page() * ime.pageSize() + idx);
                 r.consumed = true;
                 return r;
             }
