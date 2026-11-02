@@ -250,3 +250,37 @@ sudo openvt -c 1 -s -w ./build/switch-ime-term --backend fbdev
 - Firefox 硬解要从 Mozilla PPA 装（官方 snap 不带 L4T 补丁）
 - Chromium 定制版 126 之后停更
 - 升级走标准 `sudo apt update && sudo apt dist-upgrade`
+
+## 12. 备用通道：PC ↔ Switch 网线直连（不需要路由器）
+
+酒店/宿舍没有可用路由器时，用一根网线把 PC 和 Switch 直接连起来，PC 当 DHCP + NAT。
+
+**已验证的硬件**（2026-11-02 本机实测）：
+
+| 项 | 结果 |
+|---|---|
+| PC 侧网卡 | RTL8153 USB，`0bda:8153`，原生 `r8152` 驱动，免驱 |
+| 接口名 | `enp7s0u1u4u4`，稳定别名 `enx6c1ff76618b3`（MAC 派生） |
+| 环回测试 | 两网口直连协商 1000 Mbps，`carrier=1` |
+| 酒店墙插 | 两个 RJ45 口均 `carrier=0`，物理层无信号（与 Switch 无关） |
+
+PC 侧一键（需要 sudo）：
+
+```bash
+sudo ./tools/pc-host-switch.sh                 # 默认 enx6c1ff76618b3 → wlan0
+sudo ./tools/pc-host-switch.sh eth-if wlan0    # 或显式指定
+sudo ./tools/pc-host-switch.sh --down          # 收工，交回 NetworkManager
+```
+
+它会做四件事：
+1. `nmcli device set $IF managed no`（防止 NM 自己在这张网卡上跑 DHCP）
+2. 给 `$IF` 配 `192.168.50.1/24`
+3. 起 `dnsmasq` 发 `192.168.50.10-50` 的 DHCP，网关/DNS 指向本机
+4. 加 `nft` masquerade 到 `wlan0`，让 Switch 能通过 PC 的 WiFi 上网
+
+Switch 侧：接口设 DHCP 即可；或手动静态 `192.168.50.2/24`、网关 `192.168.50.1`。
+
+排查：租约 `/tmp/dnsmasq-switch.leases`，日志 `/tmp/dnsmasq-switch.log`。
+
+> Switch 侧要接网卡需要 USB-C 处于 host 模式：**dock 的 USB 口**最省事，
+> 或用 OTG 转接头（注意供电）。掌机模式直插 USB-C 是设备模式，网卡不会枚举。
