@@ -25,12 +25,14 @@ public:
     void clearClip() { bd_->clearClip(); }
 
     int textWidth(const std::string& utf8, const FontFace* f, int charSpacing = 0);
+    // scale < 1 = 直接把字形位图缩着贴（最近邻）。用于"远一点的键整体变小"这类效果，
+    // 比按字号重新栅格化省事，也不会因为字号缓存产生跳档。
     void textBaseline(int x, int baselineY, const std::string& utf8, const FontFace* f,
-                      disp::Color c, int charSpacing = 0);
+                      disp::Color c, int charSpacing = 0, float scale = 1.f);
     // 在 box 内垂直居中（按 ascent/descent 视觉居中）
     void textInBox(disp::Rect box, const std::string& utf8, const FontFace* f, disp::Color c,
                    Align align = Align::Left, int padLeft = 0, int padRight = 0,
-                   int charSpacing = 0);
+                   int charSpacing = 0, float scale = 1.f);
 
     const FontFace* font(const std::string& query, double px) { return fm_->get(query, px); }
 

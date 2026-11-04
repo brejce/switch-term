@@ -1,5 +1,7 @@
 #include "render/renderer.h"
 
+#include <cmath>
+
 namespace render {
 
 bool Renderer::init(disp::DisplayBackend* bd, FontManager* fm) {
@@ -40,31 +42,36 @@ int Renderer::textWidth(const std::string& utf8, const FontFace* f, int charSpac
 }
 
 void Renderer::textBaseline(int x, int baselineY, const std::string& utf8, const FontFace* f,
-                            disp::Color c, int charSpacing) {
+                            disp::Color c, int charSpacing, float scale) {
     if (!f || c.a == 0) return;
+    if (scale <= 0.01f) return;
+    auto sc = [scale](int v) { return int(std::lround(float(v) * scale)); };
     int pen = x;
     for (uint32_t cp : decodeUtf8(utf8)) {
         const Glyph& g = atlas_.glyphResolved(f, cp);
         if (g.w > 0 && g.h > 0 && cp != ' ') {
             bd_->drawTexture(atlas_.texture(), disp::Rect{g.texX, g.texY, g.w, g.h},
-                             disp::Rect{pen + g.left, baselineY - g.top, g.w, g.h}, c);
+                             disp::Rect{pen + sc(g.left), baselineY - sc(g.top), sc(g.w),
+                                        sc(g.h)},
+                             c);
         }
-        pen += g.advance + charSpacing;
+        pen += sc(g.advance) + charSpacing;
     }
 }
 
 void Renderer::textInBox(disp::Rect box, const std::string& utf8, const FontFace* f,
                          disp::Color c, Align align, int padLeft, int padRight,
-                         int charSpacing) {
+                         int charSpacing, float scale) {
     if (!f) return;
-    int tw = textWidth(utf8, f, charSpacing);
+    int tw = int(std::lround(float(textWidth(utf8, f, charSpacing)) * scale));
     int innerX = box.x + padLeft;
     int innerW = box.w - padLeft - padRight;
     int x = innerX;
     if (align == Align::Center) x = innerX + (innerW - tw) / 2;
     else if (align == Align::Right) x = innerX + innerW - tw;
-    int baseline = box.y + box.h / 2 + (f->ascent - f->descent) / 2;
-    textBaseline(x, baseline, utf8, f, c, charSpacing);
+    int baseline = box.y + box.h / 2 +
+                   int(std::lround(float(f->ascent - f->descent) * 0.5f * scale));
+    textBaseline(x, baseline, utf8, f, c, charSpacing, scale);
 }
 
 }  // namespace render

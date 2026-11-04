@@ -17,6 +17,24 @@ disp::Rect tabPlusRect(const Geometry& g, const cfg::Ui& uic, int count) {
     return box;
 }
 
+// 圆角矩形：renderer 只有 fillRect，所以用「上下各 rad 行逐行内缩 + 中间一整块」拼。
+// 每帧每键约 (2×rad + 1) 次 fill，30 键 ≈ 1000 次，软光栅足够（不是逐像素）。
+void fillRound(render::Renderer& r, disp::Rect b, int rad, disp::Color col) {
+    if (b.w <= 0 || b.h <= 0) return;
+    rad = std::clamp(rad, 0, std::min(b.w, b.h) / 2);
+    if (rad <= 0) {
+        r.fill(b, col);
+        return;
+    }
+    r.fill({b.x, b.y + rad, b.w, b.h - 2 * rad}, col);
+    for (int i = 0; i < rad; ++i) {
+        const float dy = float(rad - i) - 0.5f;
+        const int dx = rad - int(std::lround(std::sqrt(float(rad * rad) - dy * dy)));
+        r.fill({b.x + dx, b.y + i, b.w - 2 * dx, 1}, col);
+        r.fill({b.x + dx, b.y + b.h - 1 - i, b.w - 2 * dx, 1}, col);
+    }
+}
+
 void ptitle(render::Renderer& r, const FontBook& f, int x, int y, const std::string& text,
             uint32_t color, float s) {
     r.textInBox({x, y, 0, S(12, s)}, text, f.ptitle, c(color), render::Align::Left, 0, 0,
@@ -249,14 +267,22 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         ds += 2 * grow;
         const disp::Rect box{kx - ds / 2, ky - ds / 2, ds, ds};
         // 吸附 = 整键反色（底色 col::kText、字色 col::kBg）；悬停（无吸附时）= 亮色描边
-        r.fill(box, edge);
-        r.fill({box.x + b, box.y + b, box.w - 2 * b, box.h - 2 * b}, bg);
-        // 主字符在上（大/亮），副字符在下（小/淡）：整块字在键帽里竖向居中
-        const int ty = box.y + (ds - mainH - gap - subH) / 2;
-        r.textInBox({box.x, ty, box.w, mainH}, uic.layers[L][k], f.keyMain, mainCol,
-                    render::Align::Center);
-        r.textInBox({box.x, ty + mainH + gap, box.w, subH}, uic.layers[sub][k], f.keySub, subCol,
-                    render::Align::Center);
+        // 圆角：外圈 rad、内圈 rad-b（门框式描边），半径跟着键块尺寸走，缩小的外围键也是圆角
+        const int rad = std::max(1, S(7, s));
+        fillRound(r, box, rad, edge);
+        fillRound(r, {box.x + b, box.y + b, box.w - 2 * b, box.h - 2 * b},
+                  std::max(1, rad - b), bg);
+        // 主字符在上（大/亮），副字符在下（小/淡）：整块字在键帽里竖向居中。
+        // 字跟着键块一起缩（tscale = ds/side），所以外围小键里也是小字，不会撑爆。
+        const float tscale = side > 0 ? float(ds) / float(side) : 1.f;
+        const int mH = int(std::lround(float(mainH) * tscale));
+        const int gH = int(std::lround(float(gap) * tscale));
+        const int sH = int(std::lround(float(subH) * tscale));
+        const int ty = box.y + (ds - mH - gH - sH) / 2;
+        r.textInBox({box.x, ty, box.w, mH}, uic.layers[L][k], f.keyMain, mainCol,
+                    render::Align::Center, 0, 0, 0, tscale);
+        r.textInBox({box.x, ty + mH + gH, box.w, sH}, uic.layers[sub][k], f.keySub, subCol,
+                    render::Align::Center, 0, 0, 0, tscale);
     }
     r.clearClip();
 }
