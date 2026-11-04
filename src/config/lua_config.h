@@ -107,6 +107,7 @@ struct Engine {
         float snapWeak = 0.55f;     //             弱马达
         int snapMs = 90;            // 持续时长（ms）
         int rateHz = 25;            // 底噪刷新率上限
+        float moveSmoothMs = 60.f;  // 底噪强度的一阶低通时间常数（越大越绵）
     } rumble;
 };
 

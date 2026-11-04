@@ -366,6 +366,7 @@ bool loadEngine(const char* path, Engine& out) {
     out.physics.speedSlowEnd =
         efloat(L, "physics", "speed_slow_end", out.physics.speedSlowEnd);
     out.physics.speedLow = efloat(L, "physics", "speed_low", out.physics.speedLow);
+    out.physics.speedPower = efloat(L, "physics", "speed_power", out.physics.speedPower);
     out.physics.hoverRadius = efloat(L, "physics", "hover_radius", out.physics.hoverRadius);
     out.physics.homePull = efloat(L, "physics", "home_pull", out.physics.homePull);  // engine.physics.dt 不读：写死在 physics.cpp
     out.physics.pointerRadius =
@@ -379,6 +380,7 @@ bool loadEngine(const char* path, Engine& out) {
     out.rumble.snapWeak = efloat(L, "rumble", "snap_weak", out.rumble.snapWeak);
     out.rumble.snapMs = einum(L, "rumble", "snap_ms", out.rumble.snapMs);
     out.rumble.rateHz = einum(L, "rumble", "rate_hz", out.rumble.rateHz);
+    out.rumble.moveSmoothMs = efloat(L, "rumble", "move_smooth_ms", out.rumble.moveSmoothMs);
     out.logLevel = estr(L, "log", "level", out.logLevel.c_str());
     out.logPath = estr(L, "log", "path", out.logPath.c_str());
     lua_getglobal(L, "engine");  // engine.sink 是顶层字段，不是表

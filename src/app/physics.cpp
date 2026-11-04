@@ -19,15 +19,20 @@ float smooth01(float x) {
     return x * x * (3.f - 2.f * x);
 }
 
-// 推杆量 → 速度倍率（PHYSICS.md §2.1）：死区之外两段，smoothstep 衔接，接缝处导数为 0。
-// 内段微操（到 speedSlowEnd 才 speedLow 那么快），外段快速（越推越快，推满最快）。
+// 推杆量 → 速度倍率（PHYSICS.md §2.1）：死区之外两段。
+// 内段微操：smoothstep 起手（接缝导数为 0，刚出死区不会一下窜出去）。
+// 外段：u^speedPower —— 幂函数在 u=0 处导数也是 0，所以接缝仍然平滑；但斜率随 u 单调变陡，
+// 越靠外越快。旧实现外段也用 smoothstep，导数在 u=0.5 见顶、到边缘又归零，
+// 结果推到底和推到八成差不多快，手感"发木"。
 float speedShape(float t, const Params& pr) {
     const float dz = pr.deadzone;
     const float se = pr.speedSlowEnd;
     if (t <= dz) return 0.f;
     if (se <= dz || se >= 1.f) return t;  // 参数配反了：退化成线性，不要除零
     if (t <= se) return pr.speedLow * smooth01((t - dz) / (se - dz));
-    return pr.speedLow + (1.f - pr.speedLow) * smooth01((t - se) / (1.f - se));
+    const float u = std::fmin(1.f, (t - se) / (1.f - se));
+    const float p = pr.speedPower > 0.f ? pr.speedPower : 1.f;
+    return pr.speedLow + (1.f - pr.speedLow) * std::pow(u, p);
 }
 
 float dist(float ax, float ay, float bx, float by) {

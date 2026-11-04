@@ -46,6 +46,9 @@ struct Params {
     float deadzone = 0.1f;      // = engine.input.deadzone（app 里同步）：曲线从死区边缘起算
     float speedSlowEnd = 0.5f;  // 微操段结束的推杆量（推杆半径 10 就是 5）
     float speedLow = 0.3f;      // 微操段顶端的速度（× maxSpeed）
+    // 外段的曲线指数：1 = 线性（斜率恒定），>1 = 越靠外斜率越大（边缘最快、不发木）。
+    // 旧实现用 smoothstep，导数在 u=0.5 最大、到边缘又归零，所以推到底和推到 80% 差不多快
+    float speedPower = 1.6f;
     float hoverRadius = 26;     // 无吸附时的最近键判定
     float homePull = 0.6f;      // 零位回落：每帧收回剩余距离的比例（< 1 才不冲过头）
     // 指针球半径（px）：0 = 原点模型（完全兼容旧行为）。>0 时吸附/悬停/脱开判定都是

@@ -692,7 +692,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 const float vr = std::sqrt(ptrR.vx * ptrR.vx + ptrR.vy * ptrR.vy);
                 const float v = std::fmax(vl, vr);
                 const float ref = eng.rumble.moveSpeedRef > 1.f ? eng.rumble.moveSpeedRef : 500.f;
-                rumble.setMove(std::fmin(v / ref, 1.f) * eng.rumble.moveMax, eng.rumble.rateHz);
+                rumble.setMove(std::fmin(v / ref, 1.f) * eng.rumble.moveMax, eng.rumble.rateHz,
+                               eng.rumble.moveSmoothMs);
                 if (snaps > 0)
                     rumble.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
             }

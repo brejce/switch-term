@@ -17,8 +17,10 @@ public:
     bool ok() const { return fd_ >= 0; }
     const std::string& device() const { return dev_; }
 
-    // 连续底噪：mag = 0..1，0 = 停。rateHz 限流（默认 25Hz，别每帧发 ioctl）
-    void setMove(float mag, int rateHz = 25);
+    // 连续底噪：mag = 0..1，0 = 停。rateHz 限流（别每帧发 ioctl）；
+    // smoothMs = 一阶低通时间常数：摇杆速度是跳变的，直接喂给马达会一档一档地顿，
+    // 滤过之后才是连续的"滚"。0 = 不滤。
+    void setMove(float mag, int rateHz = 25, float smoothMs = 60.f);
 
     // 短促一下：strong/weak = 0..1，ms = 持续时长
     void thunk(float strong, float weak, int ms);
@@ -32,7 +34,9 @@ private:
     int idMove_ = -1;
     int idThunk_ = -1;
     float lastMove_ = -1.f;
+    float smooth_ = 0.f;      // 低通后的底噪强度
     long long lastMoveMs_ = 0;
+    long long lastCallMs_ = -1;
     bool moveOn_ = false;
 };
 

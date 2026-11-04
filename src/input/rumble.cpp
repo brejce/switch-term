@@ -89,10 +89,18 @@ void Rumble::play(int id, bool on) {
     if (::write(fd_, &ev, sizeof ev) != ssize_t(sizeof ev)) return;
 }
 
-void Rumble::setMove(float mag, int rateHz) {
+void Rumble::setMove(float mag, int rateHz, float smoothMs) {
     if (fd_ < 0) return;
+    const long long t0 = nowMs();
+    const float dt = lastCallMs_ < 0 ? 0.016f : float(t0 - lastCallMs_) / 1000.f;
+    lastCallMs_ = t0;
     mag = mag < 0.f ? 0.f : (mag > 1.f ? 1.f : mag);
-    const long long t = nowMs();
+    // 一阶低通：alpha = dt / (tau + dt)。摇杆速度是逐帧跳变的，不滤的话马达一档一档地顿
+    const float tau = (smoothMs > 0.f ? smoothMs : 0.f) / 1000.f;
+    const float a = tau <= 1e-5f ? 1.f : std::fmin(1.f, dt / (tau + dt));
+    smooth_ += (mag - smooth_) * a;
+    mag = smooth_;
+    const long long t = t0;
     const long long gap = 1000 / (rateHz > 0 ? rateHz : 25);
     const bool significant = std::fabs(mag - lastMove_) > 0.04f;
     if (!significant && t - lastMoveMs_ < gap) return;  // 变化不大且没到刷新间隔：不发
