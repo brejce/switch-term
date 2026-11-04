@@ -190,8 +190,8 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     // 中心遮罩：只有画面中心的键是清楚的，往外逐渐沉入背景（"走向幕后阴影"）。
     // 软件光栅器没有高斯模糊，所以做成往面板底色淡出 + 淡到一定程度直接不画。
     // 半径是设计像素，和键距同一套：相邻键 70/76，对角 103。
-    constexpr float kMaskIn = 55.f;   // 这个距离以内完全清楚（相邻键 70/76 只淡一点）
-    constexpr float kMaskOut = 125.f; // 这个距离以外完全看不见（对角 103 只剩三分之一）
+    constexpr float kMaskIn = 55.f;   // 这个距离以内完全清楚（相邻键 76/82 只淡一点）
+    constexpr float kMaskOut = 125.f; // 这个距离以外完全看不见（对角 112 只剩五分之一）
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
     const int sub = (L + 1) % cfg::kLayerCount;  // 副字符 = 下一层同位置（LAYOUT-v2 §3）
