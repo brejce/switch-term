@@ -400,6 +400,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     int activeSide = 0;  // 0=左 1=右：L 上屏取哪一侧（最近推过、推得更狠的那根摇杆）
     int layerIdx = 0;    // 0=ALPHA 1=NUM 2=SYM（L3 循环）
     float keyCx[cfg::kKeyV2Count], keyCy[cfg::kKeyV2Count];
+    // 摄像机：屏幕上那个「窗口中心」对准的世界坐标。
+    // 吸附住某键时对准该键中心 —— 选中的键就钉死在面板正中，只有周围的键在动；
+    // 没吸附时对准指针（否则自由移动时会拖影）。
+    float camLx = 0, camLy = 0, camRx = 0, camRy = 0;
     auto resetFields = [&] {
         const float half = float(uic.keySize) * 0.5f;  // ui.keys 是键帽左上角
         for (int i = 0; i < cfg::kKeyV2Count; ++i) {
@@ -412,6 +416,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         ptrL.y = keyCy[fieldL.home];
         ptrR.x = keyCx[fieldR.home];
         ptrR.y = keyCy[fieldR.home];
+        camLx = ptrL.x;
+        camLy = ptrL.y;
+        camRx = ptrR.x;
+        camRy = ptrR.y;
     };
     resetFields();
 
@@ -729,10 +737,24 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         st.snapRight = ptrR.snapped;
         st.hoverLeft = ptrL.hovered;
         st.hoverRight = ptrR.hovered;
-        st.ptrLeftX = ptrL.x;
-        st.ptrLeftY = ptrL.y;
-        st.ptrRightX = ptrR.x;
-        st.ptrRightY = ptrR.y;
+        // 摄像机跟随：吸附时对准吸附键中心（选中的键钉在正中），未吸附时直接贴指针。
+        // 吸附那一下用 0.45 的指数收敛，约 4 帧滑到位，键窗不会硬跳。
+        {
+            const float kSnapEase = 0.45f;
+            const bool sl = ptrL.snapped >= 0, sr = ptrR.snapped >= 0;
+            const float tlx = sl ? keyCx[ptrL.snapped] : ptrL.x;
+            const float tly = sl ? keyCy[ptrL.snapped] : ptrL.y;
+            const float trx = sr ? keyCx[ptrR.snapped] : ptrR.x;
+            const float try_ = sr ? keyCy[ptrR.snapped] : ptrR.y;
+            camLx += (tlx - camLx) * (sl ? kSnapEase : 1.f);
+            camLy += (tly - camLy) * (sl ? kSnapEase : 1.f);
+            camRx += (trx - camRx) * (sr ? kSnapEase : 1.f);
+            camRy += (try_ - camRy) * (sr ? kSnapEase : 1.f);
+        }
+        st.ptrLeftX = camLx;
+        st.ptrLeftY = camLy;
+        st.ptrRightX = camRx;
+        st.ptrRightY = camRy;
         st.attractRadius = eng.physics.attractRadius;  // 键窗的点亮半径 = 物理场的引力半径
         st.compose = ime.preedit();
         st.cands.clear();
