@@ -707,16 +707,24 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             app::physics::step(ptrL, fieldL, keyCx, keyCy, lx, ly, eng.physics, onPhys);
             app::physics::step(ptrR, fieldR, keyCx, keyCy, rx, ry, eng.physics, onPhys);
 
-            // 震动：底噪跟指针速度走（有"在滚"的感觉），吸附那一下盖一个短促的"咚"
+            // 震动：底噪跟指针速度走（有"在滚"的感觉），吸附那一下盖一个短促的"咚"。
+            // 但只在摇杆真的被推着时震：松手后的惯性滑行和自动回中（home_pull）是系统自己
+            // 在动，不该有反馈，否则手离开摇杆了它还一直在嗡。
             if (rumble.ok()) {
-                const float vl = std::sqrt(ptrL.vx * ptrL.vx + ptrL.vy * ptrL.vy);
-                const float vr = std::sqrt(ptrR.vx * ptrR.vx + ptrR.vy * ptrR.vy);
-                const float v = std::fmax(vl, vr);
-                const float ref = eng.rumble.moveSpeedRef > 1.f ? eng.rumble.moveSpeedRef : 500.f;
-                rumble.setMove(std::fmin(v / ref, 1.f) * eng.rumble.moveMax, eng.rumble.rateHz,
-                               eng.rumble.moveSmoothMs);
-                if (snaps > 0)
-                    rumble.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
+                const bool pushed = std::fmax(lm, rm) > 0.f;  // lm/rm 已过死区
+                if (!pushed) {
+                    rumble.setMove(0.f, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
+                } else {
+                    const float vl = std::sqrt(ptrL.vx * ptrL.vx + ptrL.vy * ptrL.vy);
+                    const float vr = std::sqrt(ptrR.vx * ptrR.vx + ptrR.vy * ptrR.vy);
+                    const float ref =
+                        eng.rumble.moveSpeedRef > 1.f ? eng.rumble.moveSpeedRef : 500.f;
+                    rumble.setMove(std::fmin(std::fmax(vl, vr) / ref, 1.f) * eng.rumble.moveMax,
+                                   eng.rumble.rateHz, eng.rumble.moveSmoothMs);
+                    if (snaps > 0)  // 回中路过键时的 snap 也不算反馈
+                        rumble.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak,
+                                     eng.rumble.snapMs);
+                }
             }
         }
 
