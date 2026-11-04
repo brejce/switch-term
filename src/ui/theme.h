@@ -40,6 +40,10 @@ inline const char* kMonoBold = "Maple Mono NF CN:weight=bold";
 inline const char* kCjk = "Noto Sans CJK SC";
 }  // namespace fam
 
+// 界面字号倍率（相对终端内容）：键帽、顶栏、底栏、tab 标签、面板标题都乘它，
+// 终端内容不乘（等宽网格 8×21 会被撑破）。以后加设置页时改成可调。
+inline constexpr float kUiFontBoost = 2.0f;
+
 struct FontBook {
     const render::FontFace* term = nullptr;      // 12.5
     const render::FontFace* stick = nullptr;     // 16 bold 第一层
@@ -56,26 +60,34 @@ struct FontBook {
     const render::FontFace* keySub = nullptr;    // 9 键帽副字符（小淡）
 
     bool init(render::FontManager& fm) {
-        const double S = double(layout::kScale);  // 字号跟着布局缩放，位图才不会糊
-        auto mono = [&fm, S](const char* q, double px, const char* fbq) {
-            const render::FontFace* f = fm.get(q, px * S);
-            const render::FontFace* fb = fm.get(fbq, px * S);
+        // 两套字号，分开算：
+        //   term  = 终端内容（命令行区域），只跟布局缩放走；字号以后要能在运行期调，
+        //           所以这里不吃 kUiFontBoost——放大字体会撑破 8×21 的等宽网格
+        //   其余  = 界面（键帽/顶栏/底栏/tab 标签/面板标题），额外乘 kUiFontBoost
+        const double T = double(layout::kScale);
+        const double U = T * kUiFontBoost;
+        auto get = [&fm](const char* q, double px, const char* fbq) {
+            const render::FontFace* f = fm.get(q, px);
+            const render::FontFace* fb = fm.get(fbq, px);
             if (f) const_cast<render::FontFace*>(f)->fallback = fb;
             return f;
         };
-        term = mono(fam::kMono, 13, fam::kCjk);
-        stick = mono(fam::kMonoBold, 16, fam::kCjk);
-        stick2 = mono(fam::kMono, 14, fam::kCjk);
-        dpad = mono(fam::kMono, 8, fam::kCjk);
-        abxy = mono(fam::kMonoBold, 12, fam::kCjk);
-        ptitle = mono(fam::kMono, 10, fam::kCjk);
-        shoulder = mono(fam::kMonoBold, 9, fam::kCjk);
-        kk = mono(fam::kMonoBold, 9, fam::kCjk);
-        kd = mono(fam::kMono, 9, fam::kCjk);
-        bar = mono(fam::kMono, 11, fam::kCjk);
-        footer = mono(fam::kMono, 10, fam::kCjk);
-        keyMain = mono(fam::kMonoBold, 18, fam::kCjk);
-        keySub = mono(fam::kMono, 9, fam::kCjk);
+        auto ui = [&](const char* q, double px, const char* fbq) {
+            return get(q, px * U, fbq);
+        };
+        term = get(fam::kMono, 13 * T, fam::kCjk);
+        stick = ui(fam::kMonoBold, 16, fam::kCjk);
+        stick2 = ui(fam::kMono, 14, fam::kCjk);
+        dpad = ui(fam::kMono, 8, fam::kCjk);
+        abxy = ui(fam::kMonoBold, 12, fam::kCjk);
+        ptitle = ui(fam::kMono, 10, fam::kCjk);
+        shoulder = ui(fam::kMonoBold, 9, fam::kCjk);
+        kk = ui(fam::kMonoBold, 9, fam::kCjk);
+        kd = ui(fam::kMono, 9, fam::kCjk);
+        bar = ui(fam::kMono, 11, fam::kCjk);
+        footer = ui(fam::kMono, 10, fam::kCjk);
+        keyMain = ui(fam::kMonoBold, 18, fam::kCjk);
+        keySub = ui(fam::kMono, 9, fam::kCjk);
         return term && stick && kk && kd;
     }
 };
