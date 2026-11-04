@@ -47,7 +47,7 @@ void emit(const EventSink& sink, PhysEvent kind, int key, const Pointer& p) {
 }  // namespace
 
 void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, float ix, float iy,
-          const Params& pr, const EventSink& sink) {
+          const Params& pr, const EventSink& sink, const bool* valid) {
     iy = -iy;  // 摇杆数学坐标（上 = +）→ 屏幕坐标（y 向下），和键位坐标同一套
     float mag = std::sqrt(ix * ix + iy * iy);
     if (mag > 1.f) {  // 合成事件可能给超 1 的向量：夹住，别超速
@@ -87,6 +87,7 @@ void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, floa
     // 3. 引力：场内每个键按距离衰减地拉。键心附近必须淡出（kSettlePx），
     // 否则那个「每帧硬加一把」的常量力会在键心上摆成 2px 极限环——画面就是字母键在抖
     for (int i = 0; i < kFieldKeys; ++i) {
+        if (valid && !valid[i]) continue;
         const int k = f.first + i;
         const float d = dist(keyX[k], keyY[k], p.x, p.y);
         if (d >= pr.attractRadius || d <= 0.f) continue;
@@ -103,6 +104,7 @@ void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, floa
     // 5. 边界：本场 15 键的包围盒外扩 hover_radius
     float minX = keyX[f.first], maxX = minX, minY = keyY[f.first], maxY = minY;
     for (int i = 1; i < kFieldKeys; ++i) {
+        if (valid && !valid[i]) continue;
         const int k = f.first + i;
         minX = std::fmin(minX, keyX[k]);
         maxX = std::fmax(maxX, keyX[k]);
@@ -118,12 +120,17 @@ void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, floa
     int n = -1;
     float dn = 1e30f;
     for (int i = 0; i < kFieldKeys; ++i) {
+        if (valid && !valid[i]) continue;
         const int k = f.first + i;
         const float d = dist(keyX[k], keyY[k], p.x, p.y);
         if (d < dn) {
             dn = d;
             n = k;
         }
+    }
+    if (p.snapped >= 0 && valid && !valid[p.snapped - f.first]) {
+        emit(sink, PhysEvent::Release, p.snapped, p);  // 切层后原来那颗键变空了
+        p.snapped = -1;
     }
     if (p.snapped < 0) {
         if (dn < pr.snapRadius + pr.pointerRadius) {

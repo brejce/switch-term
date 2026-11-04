@@ -269,6 +269,8 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         const bool isHover = snap < 0 && hover == k;
         // 吸附动效：亮度 = 物理场的真实受力（同一半径、同一距离），所以往右推时 f 先亮、
         // 再往右 g 才亮；松手回零位时亮度跟着退回 d。吸附键已反色，不再叠加。
+        // 当前层这键是空的：整块都不画（物理层也不会吸它）
+        if (uic.layers[L][k].empty()) continue;
         const float kcx = float(uic.keysV2[k].x) + float(uic.keySize) * 0.5f;
         const float kcy = float(uic.keysV2[k].y) + float(uic.keySize) * 0.5f;
         // 亮度按「指针离键心多近」算（不是摄像机）：指针被引力收进键心后自然全灭，

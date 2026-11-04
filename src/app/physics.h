@@ -69,7 +69,9 @@ using EventSink = std::function<void(const PhysEventData&)>;
 // keyX/keyY：30 个键的中心（设计像素），下标 = ui.keys 的下标（本函数只碰本场那 15 个）。
 // ix/iy：与 input::PadState::stickVec 同一套——数学坐标（上 = +y）、长度 0..1、死区已在外面滤掉。
 // 每帧调一次；事件按状态变化在内部触发，sink 可以为空。
+// valid：本场每个键是否可用（nullptr = 全可用）。不可用的键（当前层没字符）不参与
+// 引力、吸附、边界，也吸不住——否则摇杆会停在空白键上。
 void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, float ix, float iy,
-          const Params& pr, const EventSink& sink = {});
+          const Params& pr, const EventSink& sink = {}, const bool* valid = nullptr);
 
 }  // namespace app::physics

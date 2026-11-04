@@ -747,6 +747,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             app::physics::applyDeadzone(rx, ry, eng.deadzone);
             const float lm = std::sqrt(lx * lx + ly * ly), rm = std::sqrt(rx * rx + ry * ry);
             if (std::fmax(lm, rm) > 0.15f) activeSide = lm >= rm ? 0 : 1;  // 死区外才换活跃侧
+            // 本层哪些键有字符：空的（切到 NUM 层时大量空格）不参与吸附/引力，
+            // 否则摇杆会吸在一堆看不见的空白键上
+            bool validL[cfg::kKeyV2Count / 2], validR[cfg::kKeyV2Count / 2];
+            for (int i = 0; i < cfg::kKeyV2Count / 2; ++i) {
+                validL[i] = !uic.layers[layerIdx][i].empty();
+                validR[i] = !uic.layers[layerIdx][i + cfg::kKeyV2Count / 2].empty();
+            }
             // 吸附事件 → 震动（"咚"）。分侧计：左手的咚只震左手柄
             int snapsL = 0, snapsR = 0;
             auto onPhysL = [&snapsL](const app::physics::PhysEventData& e) {
@@ -755,8 +762,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             auto onPhysR = [&snapsR](const app::physics::PhysEventData& e) {
                 if (e.kind == app::physics::PhysEvent::Snap) ++snapsR;
             };
-            app::physics::step(ptrL, fieldL, keyCx, keyCy, lx, ly, eng.physics, onPhysL);
-            app::physics::step(ptrR, fieldR, keyCx, keyCy, rx, ry, eng.physics, onPhysR);
+            app::physics::step(ptrL, fieldL, keyCx, keyCy, lx, ly, eng.physics, onPhysL, validL);
+            app::physics::step(ptrR, fieldR, keyCx, keyCy, rx, ry, eng.physics, onPhysR, validR);
 
             // 震动：底噪跟指针速度走（有"在滚"的感觉），吸附那一下盖一个短促的"咚"。
             // 但只在摇杆真的被推着时震：松手后的惯性滑行和自动回中（home_pull）是系统自己
