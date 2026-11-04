@@ -15,10 +15,23 @@ struct Theme {
 
 // 顺序即 --list-themes 的顺序，第一个是默认
 const Theme kThemes[] = {
-    {"switch",  // 原版：近黑冷调
-     0x08080c, 0x0c0c14, 0x06060a, 0x1a1a26, 0xc8c8d4, 0x5a5a72, 0x2e2e40,
-     0x22d3ee, 0xff6b5a, 0x4ade80, 0xa855f7, 0xfbbf24, 0x4ab8e6,
-     0x1a1226, 0x14101e, 0x0e1e26, 0x0a1620, 0x8a6ab0, 0x3a8aa8, 0xff9a8a, 0x14141e,
+    // 2026-11-04 重做（设计稿见 docs/DESIGN.md §令牌）：原版是"一片差不多黑的层 +
+    // 六个饱和色"，实测 bg/panel 1.03:1、line/panel 1.13:1（键框看不见）、
+    // dim/bg 2.99:1（副字读不清）。现在结构靠**明度分层**拉开，颜色只留给选中与左右手。
+    {"switch",  // 深色 · 层次分明
+     0x05070c,  // bg      最深 vs ——
+     0x151a24,  // panel   vs bg    1.16:1（中性 slate，不偏蓝）
+     0x0b0f16,  // term    vs bg    1.05:1（比面板更暗 = 凹槽，不能比面板亮）
+     0x3e4756,  // line    vs 键面  1.64:1
+     0xccd2dc,  // text    vs bg   13.3:1
+     0x8891a1,  // dim     vs bg    6.3:1
+     0x5a6272,  // faint   vs bg    3.3:1（只做装饰）
+     0x46c5d3,  // cyan    选中/左手（唯一主强调色）
+     0xe87e66,  // red     右手标识
+     0x5cc98f, 0xa78bea, 0xd9ab5c, 0x5f9fd0,  // green/purple/yellow/blue：降饱和，仅状态用
+     0x1b2331, 0x14232e, 0x101d28, 0x101d28,  // shL / shZL / shR / shZR
+     0x6f5f8e, 0x3c7183, 0xe88f7c,            // shZL 文字 / shZR 文字 / 右手键
+     0x1f2531,                                 // kkBg 键面 vs panel 1.13:1
      {0x000000, 0xcd0000, 0x00cd00, 0xcdcd00, 0x0000ee, 0xcd00cd, 0x00cdcd, 0xe5e5e5,
       0x7f7f7f, 0xff0000, 0x00ff00, 0xffff00, 0x5c5cff, 0xff00ff, 0x00ffff, 0xffffff}},
 
