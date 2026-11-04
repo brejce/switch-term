@@ -110,8 +110,18 @@ Joy-Con 走 evdev FF（`--audit-input` 不管这个；实测 `event8` 支持 `FF
 | `snap_strong` | 0.55 | 吸附那一下：强马达（低频"咚"） |
 | `snap_weak` | 0.30 | 吸附那一下：弱马达（高频"嗒"） |
 | `snap_ms` | 55 | 持续时长；太长会和下一颗键的"咚"糊在一起 |
+| `gain_left` | 0.80 | 左手柄马达增益（实测右侧偏弱，所以压左边而不是抬右边——FF 幅度已是 0xFFFF 上限） |
+| `gain_right` | 1.00 | 右手柄马达增益 |
 
 改这几项要 `systemctl restart switch-ime-term`（FF 槽在启动时上传，热重载不覆盖）。
+
+**分侧震动**：左右 Joy-Con 各自是一个 FF 设备（`event6` = Left Serial、`event7` = Right Serial，
+都支持 `FF_RUMBLE`），所以左手键区的事件只震左手柄、右手只震右手柄，底噪也各算各的。
+组合设备 `event8` 只在分侧设备打不开时兜底。
+
+权限：这两个串口设备默认是 `0600 root:input`，`70-sit-input.rules` 没吃到，另加了
+`/etc/udev/rules.d/99-sit-joycon-ff.rules`；service 里还有一道 `chmod 660 /dev/input/event*`
+兜底（Joy-Con 重连会重建节点），程序每 2s 重试打开。
 
 ## 5. 可测性（硬要求）
 

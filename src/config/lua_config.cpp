@@ -387,6 +387,8 @@ bool loadEngine(const char* path, Engine& out) {
     out.rumble.snapMs = einum(L, "rumble", "snap_ms", out.rumble.snapMs);
     out.rumble.rateHz = einum(L, "rumble", "rate_hz", out.rumble.rateHz);
     out.rumble.moveSmoothMs = efloat(L, "rumble", "move_smooth_ms", out.rumble.moveSmoothMs);
+    out.rumble.gainLeft = efloat(L, "rumble", "gain_left", out.rumble.gainLeft);
+    out.rumble.gainRight = efloat(L, "rumble", "gain_right", out.rumble.gainRight);
     out.logLevel = estr(L, "log", "level", out.logLevel.c_str());
     out.logPath = estr(L, "log", "path", out.logPath.c_str());
     lua_getglobal(L, "engine");  // engine.sink 是顶层字段，不是表

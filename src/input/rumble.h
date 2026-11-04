@@ -11,8 +11,12 @@ class Rumble {
 public:
     ~Rumble() { close(); }
 
-    // 扫 /dev/input/event*，打开第一个支持 FF_RUMBLE 且可写的设备
-    bool open();
+    // 扫 /dev/input/event*，优先打开设备名包含 preferName 的那个（如 "Left Joy-Con"），
+    // preferName = nullptr 就取第一个支持 FF_RUMBLE 的设备（组合手柄走这条）。
+    bool open(const char* preferName = nullptr);
+
+    // 增益：两侧马达出厂力度不同（实测右边偏弱），用这个把两边调到一致
+    void setGain(float g) { gain_ = g < 0.f ? 0.f : (g > 1.f ? 1.f : g); }
     void close();
     bool ok() const { return fd_ >= 0; }
     const std::string& device() const { return dev_; }
@@ -33,6 +37,7 @@ private:
     std::string dev_;
     int idMove_ = -1;
     int idThunk_ = -1;
+    float gain_ = 1.f;
     float lastMove_ = -1.f;
     float smooth_ = 0.f;      // 低通后的底噪强度
     long long lastMoveMs_ = 0;

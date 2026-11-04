@@ -26,8 +26,10 @@ uint16_t mag16(float v) {  // 0..1 → 0..65535
 
 }  // namespace
 
-bool Rumble::open() {
+bool Rumble::open(const char* preferName) {
     close();
+    int fallback = -1;
+    std::string fallbackDev;
     for (int i = 0; i < 64; ++i) {
         char path[64];
         std::snprintf(path, sizeof path, "/dev/input/event%d", i);
@@ -43,9 +45,24 @@ bool Rumble::open() {
         }
         char name[256] = "?";
         ::ioctl(fd, EVIOCGNAME(sizeof name), name);
-        fd_ = fd;
-        dev_ = path;
-        std::fprintf(stderr, "rumble: %s (%s)\n", dev_.c_str(), name);
+        if (preferName && std::strstr(name, preferName)) {  // 指名的那个：直接用
+            fd_ = fd;
+            dev_ = path;
+            std::fprintf(stderr, "rumble: %s (%s)\n", dev_.c_str(), name);
+            if (fallback >= 0) ::close(fallback);
+            return true;
+        }
+        if (fallback < 0) {  // 记下第一个可用的，指名的找不到就退回去
+            fallback = fd;
+            fallbackDev = std::string(path) + " (" + name + ")";
+            continue;
+        }
+        ::close(fd);
+    }
+    if (fallback >= 0) {
+        fd_ = fallback;
+        dev_ = fallbackDev;
+        std::fprintf(stderr, "rumble: %s\n", dev_.c_str());
         return true;
     }
     return false;
@@ -70,8 +87,8 @@ bool Rumble::upload(int& id, float strong, float weak, int ms) {
     e.direction = 0;
     e.replay.length = uint16_t(ms);
     e.replay.delay = 0;
-    e.u.rumble.strong_magnitude = mag16(strong);
-    e.u.rumble.weak_magnitude = mag16(weak);
+    e.u.rumble.strong_magnitude = mag16(strong * gain_);
+    e.u.rumble.weak_magnitude = mag16(weak * gain_);
     if (::ioctl(fd_, EVIOCSFF, &e) < 0) {
         if (id < 0) std::fprintf(stderr, "rumble: EVIOCSFF 失败: %s\n", std::strerror(errno));
         return false;

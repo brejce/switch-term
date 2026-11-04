@@ -315,9 +315,16 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     for (const auto& nm : gamepad.names()) std::fprintf(stderr, "gamepad: %s\n", nm.c_str());
     if (pads == 0) std::fprintf(stderr, "gamepad: 没有可读的手柄\n");
 
-    input::Rumble rumble;
-    if (eng.rumble.enabled && !rumble.open()) std::fprintf(stderr, "rumble: 没有支持 FF_RUMBLE 的设备\n");
-    long long gpRescanAt = 0;  // 手柄没打开时下次重扫的时刻（ms）
+    // 分侧震动：左右 Joy-Con 各自是一个 FF 设备，事件只打到对应那一边
+    input::Rumble rumbleL, rumbleR;
+    if (eng.rumble.enabled) {
+        rumbleL.setGain(eng.rumble.gainLeft);
+        rumbleR.setGain(eng.rumble.gainRight);
+        if (!rumbleL.open("Left Joy-Con")) std::fprintf(stderr, "rumble: 左手柄没有 FF_RUMBLE\n");
+        if (!rumbleR.open("Right Joy-Con")) std::fprintf(stderr, "rumble: 右手柄没有 FF_RUMBLE\n");
+    }
+    long long gpRescanAt = 0;      // 手柄没打开时下次重扫的时刻（ms）
+    long long rumbleRescanAt = 0;  // 震动设备掉线时下次重开的时刻（ms）
 
     const bool answerDa = runCmd.empty();
     // 后台 tab 也得读：没人读的话 shell 写满 PTY 缓冲就卡死了
@@ -699,6 +706,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 for (const auto& nm : gamepad.names())
                     std::fprintf(stderr, "gamepad: (重扫) %s\n", nm.c_str());
         }
+        // Joy-Con 重连会重建 event6/event7，旧 fd 就废了：每 2s 试着补开
+        if (eng.rumble.enabled && (!rumbleL.ok() || !rumbleR.ok()) &&
+            msNow() - rumbleRescanAt >= 2000) {
+            rumbleRescanAt = msNow();
+            if (!rumbleL.ok()) rumbleL.open("Left Joy-Con");
+            if (!rumbleR.ok()) rumbleR.open("Right Joy-Con");
+        }
         gamepad.pollPad({onPadButton, [](int) {}, [](int) {}});
 
         // 摇杆向量 → 引力场。dt 写死在 physics.cpp（1/60），所以这里每帧步进一次就够。
@@ -712,32 +726,33 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             app::physics::applyDeadzone(rx, ry, eng.deadzone);
             const float lm = std::sqrt(lx * lx + ly * ly), rm = std::sqrt(rx * rx + ry * ry);
             if (std::fmax(lm, rm) > 0.15f) activeSide = lm >= rm ? 0 : 1;  // 死区外才换活跃侧
-            // 吸附事件 → 震一下（"咚"）。移动底噪在下面统一结算
-            int snaps = 0;
-            auto onPhys = [&snaps](const app::physics::PhysEventData& e) {
-                if (e.kind == app::physics::PhysEvent::Snap) ++snaps;
+            // 吸附事件 → 震动（"咚"）。分侧计：左手的咚只震左手柄
+            int snapsL = 0, snapsR = 0;
+            auto onPhysL = [&snapsL](const app::physics::PhysEventData& e) {
+                if (e.kind == app::physics::PhysEvent::Snap) ++snapsL;
             };
-            app::physics::step(ptrL, fieldL, keyCx, keyCy, lx, ly, eng.physics, onPhys);
-            app::physics::step(ptrR, fieldR, keyCx, keyCy, rx, ry, eng.physics, onPhys);
+            auto onPhysR = [&snapsR](const app::physics::PhysEventData& e) {
+                if (e.kind == app::physics::PhysEvent::Snap) ++snapsR;
+            };
+            app::physics::step(ptrL, fieldL, keyCx, keyCy, lx, ly, eng.physics, onPhysL);
+            app::physics::step(ptrR, fieldR, keyCx, keyCy, rx, ry, eng.physics, onPhysR);
 
             // 震动：底噪跟指针速度走（有"在滚"的感觉），吸附那一下盖一个短促的"咚"。
             // 但只在摇杆真的被推着时震：松手后的惯性滑行和自动回中（home_pull）是系统自己
             // 在动，不该有反馈，否则手离开摇杆了它还一直在嗡。
-            if (rumble.ok()) {
-                const bool pushed = std::fmax(lm, rm) > 0.f;  // lm/rm 已过死区
-                if (!pushed) {
-                    rumble.setMove(0.f, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
-                } else {
-                    const float vl = std::sqrt(ptrL.vx * ptrL.vx + ptrL.vy * ptrL.vy);
-                    const float vr = std::sqrt(ptrR.vx * ptrR.vx + ptrR.vy * ptrR.vy);
-                    const float ref =
-                        eng.rumble.moveSpeedRef > 1.f ? eng.rumble.moveSpeedRef : 500.f;
-                    rumble.setMove(std::fmin(std::fmax(vl, vr) / ref, 1.f) * eng.rumble.moveMax,
-                                   eng.rumble.rateHz, eng.rumble.moveSmoothMs);
-                    if (snaps > 0)  // 回中路过键时的 snap 也不算反馈
-                        rumble.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak,
-                                     eng.rumble.snapMs);
-                }
+            {
+                const float ref = eng.rumble.moveSpeedRef > 1.f ? eng.rumble.moveSpeedRef : 500.f;
+                const float vl = std::sqrt(ptrL.vx * ptrL.vx + ptrL.vy * ptrL.vy);
+                const float vr = std::sqrt(ptrR.vx * ptrR.vx + ptrR.vy * ptrR.vy);
+                // 每侧独立：只有那根摇杆真被推着才震（回中/惯性滑行静音）
+                const float magL = lm > 0.f ? std::fmin(vl / ref, 1.f) * eng.rumble.moveMax : 0.f;
+                const float magR = rm > 0.f ? std::fmin(vr / ref, 1.f) * eng.rumble.moveMax : 0.f;
+                rumbleL.setMove(magL, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
+                rumbleR.setMove(magR, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
+                if (snapsL > 0)
+                    rumbleL.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
+                if (snapsR > 0)
+                    rumbleR.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
             }
         }
 
