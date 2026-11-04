@@ -77,11 +77,12 @@ void drawDpad(render::Renderer& r, const FontBook& f, int x0, int y0, int cell,
             r.textInBox(box, label, f.dpad, c(color), render::Align::Center);
         }
     };
-    put(1, 0, "Tab", col::kGreen, st.pressedKey == cfg::kDpadUp);
+    // 外壳中性：静止用 dim，锁定才给强调色（按下时 put 会反白）
+    put(1, 0, "Tab", col::kDim, st.pressedKey == cfg::kDpadUp);
     put(1, 1, "·", col::kFaint, false);
-    put(0, 1, "Shift", col::kYellow, st.modShift || st.pressedKey == cfg::kDpadLeft);
-    put(2, 1, "Alt", col::kBlue, st.modAlt || st.pressedKey == cfg::kDpadRight);
-    put(1, 2, "Ctrl", col::kPurple, st.modCtrl || st.pressedKey == cfg::kDpadDown);
+    put(0, 1, "Shift", st.modShift ? col::kCyan : col::kDim, st.pressedKey == cfg::kDpadLeft);
+    put(2, 1, "Alt", st.modAlt ? col::kCyan : col::kDim, st.pressedKey == cfg::kDpadRight);
+    put(1, 2, "Ctrl", st.modCtrl ? col::kCyan : col::kDim, st.pressedKey == cfg::kDpadDown);
 }
 
 void drawAbxy(render::Renderer& r, const FontBook& f, int x0, int y0, int cell, float s,
@@ -96,10 +97,10 @@ void drawAbxy(render::Renderer& r, const FontBook& f, int x0, int y0, int cell, 
         r.textInBox(box, label, f.stick, c(color), render::Align::Center);
     };
     // 位置按真机（Nintendo 布局）：X 在上、Y 在左、A 在右、B 在下
-    put(1, 0, "X", col::kBlue, cfg::kX);
-    put(0, 1, "Y", col::kYellow, cfg::kY);
-    put(2, 1, "A", col::kGreen, cfg::kA);
-    put(1, 2, "B", col::kRed, cfg::kB);
+    put(1, 0, "X", col::kDim, cfg::kX);
+    put(0, 1, "Y", col::kDim, cfg::kY);
+    put(2, 1, "A", col::kDim, cfg::kA);
+    put(1, 2, "B", col::kDim, cfg::kB);
 }
 
 void Geometry::fromConfig(const cfg::Ui& uic, float s) {
@@ -362,26 +363,26 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
 
     // 肩键提示：面板最上面一行（键名亮、动作暗）
     {
-        auto hint = [&](int x, const char* key, const char* act, uint32_t col) {
+        auto hint = [&](int x, const char* key, const char* act) {
             const int y = g.contentY + S(6, s);
-            r.textInBox({x, y, 0, S(16, s)}, key, f.shoulder, c(col), render::Align::Left);
+            r.textInBox({x, y, 0, S(16, s)}, key, f.shoulder, c(col::kDim), render::Align::Left);
             const int kx = x + r.textWidth(key, f.shoulder) + S(6, s);
-            r.textInBox({kx, y, 0, S(16, s)}, act, f.shoulder, c(col::kDim),
+            r.textInBox({kx, y, 0, S(16, s)}, act, f.shoulder, c(col::kFaint),
                         render::Align::Left);
         };
-        hint(S(10, s), "L", "上屏", col::kPurple);
-        hint(S(96, s), "ZL", "空格", col::kBlue);
-        hint(rightX + S(10, s), "R", "左", col::kCyan);
-        hint(rightX + S(96, s), "ZR", "右", col::kYellow);
+        hint(S(10, s), "L", "上屏");
+        hint(S(96, s), "ZL", "空格");
+        hint(rightX + S(10, s), "R", "左");
+        hint(rightX + S(96, s), "ZR", "右");
     }
 
     // 按键簇摆在键窗下面：窗口在面板里竖向居中，所以从窗口底边往下排
     const disp::Rect win = keyWindowRect(g, uic, 0, g.contentY, g.panelW, g.contentH);
     const int dy = win.bottom() + S(44, s);  // 和键窗拉开一点，不然挤在一起
     const int padX = S(10, s);
-    ptitle(r, f, padX, dy, uic.dpadTitle, col::kCyan, s);
+    ptitle(r, f, padX, dy, uic.dpadTitle, col::kDim, s);  // 外壳一律中性，颜色只留给选中
     drawDpad(r, f, (g.panelW - 3 * g.dpadCell) / 2, dy + S(16, s), g.dpadCell, st, s);
-    ptitle(r, f, rightX + padX, dy, uic.abxyTitle, col::kRed, s);
+    ptitle(r, f, rightX + padX, dy, uic.abxyTitle, col::kDim, s);
     drawAbxy(r, f, rightX + (g.panelW - 3 * g.abxyCell) / 2, dy + S(16, s), g.abxyCell, s,
              st.pressedKey);
 }
