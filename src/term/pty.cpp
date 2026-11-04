@@ -23,7 +23,8 @@ Pty::~Pty() {
     }
 }
 
-bool Pty::spawn(const std::vector<std::string>& argv, int cols, int rows) {
+bool Pty::spawn(const std::vector<std::string>& argv, int cols, int rows,
+                const std::string& cwd, const std::string& home) {
     if (argv.empty()) return false;
     struct winsize ws{};
     ws.ws_col = (unsigned short)cols;
@@ -37,6 +38,11 @@ bool Pty::spawn(const std::vector<std::string>& argv, int cols, int rows) {
     if (pid_ == 0) {
         ::setenv("TERM", "xterm-256color", 1);
         ::setenv("COLORTERM", "truecolor", 0);
+        if (!home.empty()) ::setenv("HOME", home.c_str(), 1);
+        if (!cwd.empty() && ::chdir(cwd.c_str()) != 0) {
+            std::fprintf(stderr, "chdir %s: %s\n", cwd.c_str(), std::strerror(errno));
+            ::_exit(127);
+        }
         std::vector<char*> av;
         for (auto& a : argv) av.push_back(const_cast<char*>(a.c_str()));
         av.push_back(nullptr);

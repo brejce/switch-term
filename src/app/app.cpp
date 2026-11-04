@@ -1,6 +1,7 @@
 // 新架构主循环：UI 只认 cfg::Ui，终端只认 TerminalParser，PTY/IME 是可选驱动。
 #include "app/app.h"
 
+#include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -76,18 +77,26 @@ std::string resolve(const std::string& resDir, const char* rel) {
     return rel;  // 都没有：返回原路径，让 ime.load() 报打不开
 }
 
-// 终端网格：逐格画，宽字符跳过后一格
+// 终端网格：逐格画，宽字符跳过后一格；scroll>0 时把历史与当前屏拼成可见窗口。
 void drawGrid(render::Renderer& r, const ui::FontBook& f, const ui::Geometry& g,
-              term::TerminalParser& tp, int cursorRow, int cursorCol, bool cursorVisible) {
+              term::TerminalParser& tp, int cursorRow, int cursorCol, bool cursorVisible,
+              int scroll) {
     const int cellW = g.termCellW;
     const int cellH = g.termCellH;
     const int baselineOff = (cellH + f.term->ascent - f.term->descent) / 2;
+    const int hist = tp.historySize();
+    scroll = std::clamp(scroll, 0, hist);
+    auto cellAt = [&](int row, int col) {
+        const int virtualRow = hist - scroll + row;
+        return virtualRow < hist ? tp.historyAt(virtualRow, col)
+                                 : tp.cellAt(virtualRow - hist, col);
+    };
 
     for (int row = 0; row < tp.rows(); ++row) {
         int y = g.contentY + g.termPadTop + row * cellH;
         // ① 先铺底色（宽字符两格一起铺，避免后一格的底色盖掉前一个字）
         for (int col = 0; col < tp.cols();) {
-            term::Cell c = tp.cellAt(row, col);
+            term::Cell c = cellAt(row, col);
             int w = c.wide ? 2 : 1;
             if (c.bg != ui::col::kTerm) {
                 int x = g.termX + g.termPadX + col * cellW;
@@ -97,7 +106,7 @@ void drawGrid(render::Renderer& r, const ui::FontBook& f, const ui::Geometry& g,
         }
         // ② 再画字
         for (int col = 0; col < tp.cols();) {
-            term::Cell c = tp.cellAt(row, col);
+            term::Cell c = cellAt(row, col);
             int x = g.termX + g.termPadX + col * cellW;
             int w = c.wide ? 2 : 1;
             if (c.cp != ' ' && c.cp != 0) {
@@ -126,13 +135,33 @@ void drawGrid(render::Renderer& r, const ui::FontBook& f, const ui::Geometry& g,
             col += w;
         }
     }
-    // 光标
-    if (cursorVisible && cursorRow >= 0 && cursorRow < tp.rows() && cursorCol >= 0 &&
-        cursorCol < tp.cols()) {
+    if (scroll == 0 && cursorVisible && cursorRow >= 0 && cursorRow < tp.rows() &&
+        cursorCol >= 0 && cursorCol < tp.cols()) {
         int x = g.termX + g.termPadX + cursorCol * cellW;
         int y = g.contentY + g.termPadTop + cursorRow * cellH;
         term::Cell c = tp.cellAt(cursorRow, cursorCol);
         r.fill({x, y + cellH - 2, cellW, 2}, ui::c(c.fg));
+    }
+
+    if (scroll > 0) {
+        const int trackY = g.contentY + g.termPadTop;
+        const int trackH = tp.rows() * cellH;
+        const int barW = std::max(1, int(std::lround(3.f * g.scale)));
+        const int totalRows = hist + tp.rows();
+        const int thumbH = std::max(barW, trackH * tp.rows() / std::max(totalRows, 1));
+        const int thumbY = trackY + (trackH - thumbH) * (hist - scroll) / std::max(hist, 1);
+        r.fill({g.termX + g.termW - barW, thumbY, barW, thumbH},
+               disp::withAlpha(ui::c(ui::col::kBlue), 128));
+        const std::string arrow = "↕";
+        const int arrowW = r.textWidth(arrow, f.footer);
+        r.textBaseline(g.termX + g.termW - barW - arrowW - 2, trackY + f.footer->ascent,
+                       arrow, f.footer, ui::c(ui::col::kFaint));
+
+        const int statusY = g.contentY + g.termPadTop + tp.rows() * cellH;
+        const std::string status =
+            "SCROLL " + std::to_string(scroll) + "/" + std::to_string(hist);
+        r.textBaseline(g.termX + g.termPadX, statusY + baselineOff, status, f.term,
+                       ui::c(ui::col::kDim));
     }
 }
 
@@ -196,7 +225,7 @@ void answerDA(term::Pty& pty, const char* buf, long n) {
 }  // namespace
 
 int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& outPath,
-         const std::string& runCmd, int tabs) {
+        const std::string& runCmd, const std::string& cwd, int tabs) {
     // ① 装配：config/ 下三个 Lua 一次读完（ui + keymap + engine），SIGUSR1 也走同一段
     auto loadProfile = [&](cfg::Profile& p) {
         return cfg::loadProfile((resDir + "/config").c_str(), p) ||
@@ -244,6 +273,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         std::unique_ptr<term::Pty> pty;
         std::string title;
         std::string pend;  // OSC 跨 read 的残余（见 term/osc_filter.h）
+        int scroll = 0;    // 回看行数；0 = 跟随最新输出
     };
     std::vector<Term> terms;
     int active = 0;
@@ -251,6 +281,11 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     const char* shell = std::getenv("SHELL");
     std::vector<std::string> argv{shell && *shell ? shell : "/bin/bash"};
+    const passwd* pw = ::getpwuid(::getuid());
+    const std::string home = pw && pw->pw_dir ? pw->pw_dir : "";
+    if (home.empty()) std::fprintf(stderr, "警告：按 uid 查不到 home，终端沿用当前 cwd\n");
+    // 交互 shell 默认从登录用户 home 起；--run 保留调用方 cwd，--cwd 始终优先。
+    const std::string termCwd = !cwd.empty() ? cwd : (runCmd.empty() ? home : "");
     if (!runCmd.empty()) {  // --run：直接 shell -c，输出干净（无欢迎信息干扰）
         argv.push_back("-c");
         argv.push_back(runCmd);
@@ -268,8 +303,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         if (!tp || !tp->init(g.termRows, g.termCols)) return false;
         tp->setHistoryLimit(eng.scrollback);  // engine.terminal.scrollback
         std::unique_ptr<term::Pty> pty(new term::Pty);
-        if (!pty->spawn(argv, g.termCols, g.termRows)) return false;
-        terms.push_back({std::move(tp), std::move(pty), "TERM " + std::to_string(++tabSeq), {}});
+        if (!pty->spawn(argv, g.termCols, g.termRows, termCwd, home)) return false;
+        terms.push_back(
+            {std::move(tp), std::move(pty), "TERM " + std::to_string(++tabSeq), {}, 0});
         return true;
     };
 
@@ -473,7 +509,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         std::fprintf(stderr, "警告：ui.lua 没有 keys，左右键区是空的\n");
 
     ui::AppState st;
-    st.imeName = !eng.imeEnabled ? "OFF" : (ime.chinese ? "PINYIN" : "EN");
+    st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "EN 直通";
 
     // 动作分发：手柄/面板都走这里（映射来自 keymap.lua）
     auto msNow = [] {
@@ -787,6 +823,14 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             }
         }
 
+        // 滚轮、Shift+PgUp/PgDn 与触摸滑动都按“行”累计：正数向上回看。
+        if (bd->wheel != 0) {
+            Term& t = terms[active];
+            t.scroll = std::clamp(t.scroll + bd->wheel, 0, t.tp->historySize());
+            bd->wheel = 0;
+            t.tp->markDirty();
+        }
+
         // 鼠标：只处理 tab 条（点「+」新建，点已有 tab 切过去）；键区暂时不接鼠标
         const long long nowMs = msNow();
         if (st.pressedKey >= 0 && nowMs - st.pressedKeyMs >= kFlashMs) st.pressedKey = -1;
@@ -813,8 +857,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         refreshTopBar();
         // 底栏语言/输入法每帧从 ime 现算：按键路径（键盘 keys 循环、手柄 doAction）都会改
         // ime.chinese，但只有前者的 RouteResult 带了 langChanged，手柄那条路以前永远不更新底栏
-        st.imeName = !eng.imeEnabled ? "OFF" : (ime.chinese ? "PINYIN" : "EN");
-        st.lang = (eng.imeEnabled && ime.chinese) ? "ZH" : "EN";
+        st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "EN 直通";
         st.layer = layerIdx;  // L3 循环，不再跟 Shift 锁定走
         st.layerName = kLayerNames[layerIdx];
         // 换键那一下的弹跳：换键瞬间把脉冲拉到 1，150ms 内衰减到 0（渲染侧拿它放大键块）。
@@ -913,8 +956,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         ui::drawTabBar(r, fonts, g, uic, titles, active);
         ui::drawKeyPanels(r, fonts, uic, g, st);
         ui::drawTermBackground(r, fonts, g);
-        drawGrid(r, fonts, g, *terms[active].tp, cr, cc, cv && cursorOn);
-        ui::drawComposeLine(r, fonts, g, st);
+        drawGrid(r, fonts, g, *terms[active].tp, cr, cc, cv && cursorOn,
+                 terms[active].scroll);
+        ui::drawComposeLine(r, fonts, g, st, cr, cc, cv && terms[active].scroll == 0);
         ui::drawBottomBar(r, fonts, g, st);
         r.endFrame();
 

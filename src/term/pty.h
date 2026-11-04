@@ -9,7 +9,8 @@ class Pty {
 public:
     ~Pty();
 
-    bool spawn(const std::vector<std::string>& argv, int cols, int rows);
+    bool spawn(const std::vector<std::string>& argv, int cols, int rows,
+               const std::string& cwd = {}, const std::string& home = {});
     // 返回读到的字节数；0 = 暂无数据；-1 = 已关闭/出错
     long readMaster(char* buf, size_t n);
     bool writeMaster(const char* buf, size_t n);

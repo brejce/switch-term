@@ -124,7 +124,7 @@ void Geometry::fromConfig(const cfg::Ui& uic, float s) {
     termW = screenW - 2 * panelW;
     termCellW = std::max(1, S(uic.cellW, s));
     termCellH = std::max(1, S(uic.cellH, s));
-    imeRows = std::max(1, S(uic.imeRows, s));
+    imeRows = std::max(1, uic.imeRows);  // 行数不随像素缩放变化
     termCols = std::max(1, (termW - 2 * termPadX) / termCellW);
     // 底部固定留 imeRows 行给组字串/候选
     termRows = std::max(1, (contentH - termPadTop - termPadBot) / termCellH - imeRows);
@@ -203,8 +203,7 @@ void drawBottomBar(render::Renderer& r, const FontBook& f, const Geometry& g,
         x += r.textWidth(value, f.footer) + S(14, s);
     };
     item("LAYER", st.layerName, st.layer == 0 ? col::kCyan : col::kPurple);
-    item("LANG", st.lang, st.lang == "ZH" ? col::kYellow : col::kGreen);
-    item("IME", st.imeName, col::kDim);
+    item("IME", st.imeName, st.imeName == "拼音" ? col::kYellow : col::kGreen);
 
     if (!st.modsText.empty()) {
         std::string t = "MODS [" + st.modsText + "]";
@@ -393,32 +392,39 @@ void drawTermBackground(render::Renderer& r, const FontBook& f, const Geometry& 
 }
 
 void drawComposeLine(render::Renderer& r, const FontBook& f, const Geometry& g,
-                     const AppState& st) {
-    const float s = g.scale;
-    int cellH = g.termCellH;
-    int y = g.contentY + g.contentH - g.imeRows * cellH;  // 底部留给定行数：组字串 + 候选
-    r.fill({g.termX + 1, y, g.termW - 2, cellH * g.imeRows}, c(col::kTerm));
-    r.fill({g.termX + 1, y, g.termW - 2, 1}, c(col::kLine));
+                     const AppState& st, int cursorRow, int cursorCol, bool cursorVisible) {
+    if (!cursorVisible || (st.compose.empty() && st.cands.empty())) return;
 
+    const float s = g.scale;
+    const int cellH = g.termCellH;
+    const int totalRows = std::max(g.termRows + g.imeRows, 1);
+    const int row = std::clamp(cursorRow, 0, g.termRows - 1);
+    int y = g.contentY + g.termPadTop + row * cellH;
+    int x0 = g.termX + g.termPadX + std::clamp(cursorCol, 0, g.termCols - 1) * g.termCellW;
+    const int right = g.termX + g.termW - g.termPadX;
+    r.setClip({g.termX + 1, g.contentY, g.termW - 2, g.contentH});
+
+    // 组字串贴着 PTY 光标；PTY 行数已先扣 imeRows，所以候选在最底输入行下仍放得下。
     int baseline = y + cellH / 2 + (f.term->ascent - f.term->descent) / 2;
-    int x = g.termX + g.termPadX;
-    if (!st.compose.empty()) {  // 组字串：蓝字 + 下划线
-        r.textBaseline(x, baseline, st.compose, f.term, c(col::kBlue));
+    if (!st.compose.empty()) {
+        r.fill({x0, y, std::max(0, right - x0), cellH}, c(col::kTerm));
+        r.textBaseline(x0, baseline, st.compose, f.term, c(col::kBlue));
         int w = r.textWidth(st.compose, f.term);
-        r.fill({x, y + cellH - S(3, s), w, S(1, s)}, c(col::kBlue));
-        x += w + S(8, s);
+        r.fill({x0, y + cellH - S(3, s), w, S(1, s)}, c(col::kBlue));
     }
-    // 候选
-    y += cellH;
+
+    // 候选紧邻输入行；预留行只限制 PTY 高度，不把候选钉在屏幕底部。
+    y = g.contentY + g.termPadTop + std::min(row + 1, totalRows - 1) * cellH;
     baseline = y + cellH / 2 + (f.term->ascent - f.term->descent) / 2;
-    x = g.termX + g.termPadX;
+    int x = x0;
+    r.fill({x, y, std::max(0, right - x), cellH}, c(col::kTerm));
     for (size_t i = 0; i < st.cands.size() && i < 7; ++i) {
         const CandView& cd = st.cands[i];
         std::string num = std::to_string(i + 1);
         int wn = r.textWidth(num, f.term);
         int wt = r.textWidth(cd.text, f.term);
         int wa = cd.annot.empty() ? 0 : S(6, s) + r.textWidth(cd.annot, f.term);
-        if (x + wn + S(4, s) + wt + wa > g.termX + g.termW - g.termPadX) break;
+        if (x + wn + S(4, s) + wt + wa > right) break;
         bool active = (i == size_t(st.candSel));
         if (active)
             r.fill({x - S(2, s), y, wn + wt + wa + S(10, s), cellH}, c(col::kBlue));
@@ -426,7 +432,7 @@ void drawComposeLine(render::Renderer& r, const FontBook& f, const Geometry& g,
         x += wn + S(4, s);
         r.textBaseline(x, baseline, cd.text, f.term, c(active ? 0x000000 : col::kText));
         x += wt;
-        if (wa > 0) {  // 注音：带声调的拼音，暗色
+        if (wa > 0) {
             x += S(6, s);
             r.textBaseline(x, baseline, cd.annot, f.term,
                            c(active ? 0x103040 : col::kDim));
@@ -438,8 +444,9 @@ void drawComposeLine(render::Renderer& r, const FontBook& f, const Geometry& g,
         char pg[32];
         std::snprintf(pg, sizeof pg, "%d/%d", st.candPage + 1, st.candPageCount);
         int w = r.textWidth(pg, f.term);
-        r.textBaseline(g.termX + g.termW - g.termPadX - w, baseline, pg, f.term, c(col::kFaint));
+        r.textBaseline(right - w, baseline, pg, f.term, c(col::kFaint));
     }
+    r.clearClip();
 }
 
 }  // namespace ui

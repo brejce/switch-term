@@ -221,6 +221,7 @@ public:
                                             (e.key.keysym.mod & KMOD_ALT) || (locks & 4));
                     break;
                 case SDL_MOUSEBUTTONDOWN: {
+                    if (e.button.which == SDL_TOUCH_MOUSEID) break;  // 触摸由 FINGER* 判滑动/轻点
                     // 用 e.button.button 判键：左=1 右=3 中=2 → 我们的 1/2/3
                     const int btn = e.button.button == SDL_BUTTON_LEFT     ? 1
                                     : e.button.button == SDL_BUTTON_RIGHT ? 2
@@ -259,12 +260,38 @@ public:
                 case SDL_MOUSEWHEEL:
                     if (std::getenv("SIT_DEBUG"))
                         std::fprintf(stderr, "[wheel] y=%d dir=%d\n", e.wheel.y, int(e.wheel.direction));
-                    wheel += e.wheel.y;
+                    wheel += e.wheel.y * 3;
                     break;
-                case SDL_FINGERDOWN: {  // 触摸：归一化坐标
-                    clicks.push_back({int(e.tfinger.x * fbW_), int(e.tfinger.y * fbH_), 1});
+                case SDL_FINGERDOWN:
+                    if (fingerId_ == -1) {
+                        fingerId_ = e.tfinger.fingerId;
+                        fingerX_ = int(e.tfinger.x * fbW_);
+                        fingerY_ = int(e.tfinger.y * fbH_);
+                        fingerStartY_ = fingerY_;
+                        fingerRemainder_ = 0;
+                        fingerMoved_ = false;
+                    }
                     break;
-                }
+                case SDL_FINGERMOTION:
+                    if (e.tfinger.fingerId == fingerId_) {
+                        const int y = int(e.tfinger.y * fbH_);
+                        fingerRemainder_ += y - fingerY_;  // 手指向下拖 = 向上看历史
+                        fingerY_ = y;
+                        const int rowPx = std::max(8, fbH_ * 21 / 720);
+                        while (std::abs(fingerRemainder_) >= rowPx) {
+                            const int d = fingerRemainder_ > 0 ? 1 : -1;
+                            wheel += d;
+                            fingerRemainder_ -= d * rowPx;
+                        }
+                        fingerMoved_ = fingerMoved_ || std::abs(y - fingerStartY_) >= rowPx / 2;
+                    }
+                    break;
+                case SDL_FINGERUP:
+                    if (e.tfinger.fingerId == fingerId_) {
+                        if (!fingerMoved_) clicks.push_back({fingerX_, fingerY_, 1});
+                        fingerId_ = -1;
+                    }
+                    break;
                 default: break;
             }
         }
@@ -317,6 +344,9 @@ private:
     SDL_Texture* tex_ = nullptr;
     disp::SoftCanvas canvas_;
     std::string preedit_;
+    SDL_FingerID fingerId_ = -1;
+    int fingerX_ = 0, fingerY_ = 0, fingerStartY_ = 0, fingerRemainder_ = 0;
+    bool fingerMoved_ = false;
 };
 
 }  // namespace

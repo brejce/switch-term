@@ -30,8 +30,7 @@ struct AppState {
     // 用摄像机算亮度会让静止时也有键莫名其妙亮着边框。
     float pullLeftX = 0, pullLeftY = 0, pullRightX = 0, pullRightY = 0;
     float attractRadius = 60;     // engine.physics.attract_radius：键窗的点亮半径跟着物理场走
-    std::string lang = "ZH";      // ZH | EN
-    std::string imeName = "PINYIN";
+    std::string imeName = "拼音";  // 拼音 | EN 直通
     bool modCtrl = false, modShift = false, modAlt = false;  // 锁定态（底部状态栏显示）
     int pressedKey = -1;          // 刚按下的键位（cfg::InputKey），提示条闪一下
     long long pressedKeyMs = 0;
@@ -74,7 +73,7 @@ void drawBottomBar(render::Renderer& r, const FontBook& f, const Geometry& g, co
 // 中间终端区只画边框底色 + 组字串/候选两行；网格由调用方按 TerminalParser 填
 void drawTermBackground(render::Renderer& r, const FontBook& f, const Geometry& g);
 void drawComposeLine(render::Renderer& r, const FontBook& f, const Geometry& g,
-                     const AppState& st);
+                     const AppState& st, int cursorRow, int cursorCol, bool cursorVisible);
 
 // v2 分体键盘的滑窗键区：世界比面板大（5×3 键），只露出 ui.key_window.cols×rows 那一窗，
 // 指针固定在窗口中心，摇杆滚动世界（不画准星：吸附键的整键反色 + 引力点亮就是方向指示）。

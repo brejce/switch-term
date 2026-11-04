@@ -47,6 +47,7 @@ void usage() {
         "  --backend <name>   sdl | headless（默认按环境自动选）\n"
         "  --out <path>       输出 PNG（headless），默认 frame.png\n"
         "  --run <cmd>        启动后先执行一条命令（截图/CI 用）\n"
+        "  --cwd <path>       终端工作目录（默认当前 uid 的 home；--run 默认沿用调用目录）\n"
         "  --tabs <n>         启动时开 n 个终端 tab（默认 1，截图验多 tab 用）\n"
         "  --list-backends    列出已注册后端\n"
         "  --list-gamepad     列出 /dev/input 设备与程序选中了哪些（手柄排障用）\n"
@@ -221,7 +222,26 @@ static int selfTest() {
             ::usleep(10000);
     }
     bool ok = got.find("hello-pty") != std::string::npos;
-    std::printf("[selftest] pty %s (%zu bytes)\n", ok ? "OK" : "FAIL", got.size());
+
+    term::Pty cwdPty;
+    if (!cwdPty.spawn({"/bin/sh", "-c", "printf '%s|%s' \"$PWD\" \"$HOME\""}, 80, 24,
+                      "/tmp", "/tmp/sit-home"))
+        return 1;
+    std::string cwdGot;
+    for (int i = 0; i < 200 && cwdGot.find("/tmp|/tmp/sit-home") == std::string::npos; ++i) {
+        char buf[256];
+        long n = cwdPty.readMaster(buf, sizeof buf);
+        if (n > 0)
+            cwdGot.append(buf, size_t(n));
+        else if (n < 0)
+            break;
+        else
+            ::usleep(10000);
+    }
+    const bool cwdOk = cwdGot.find("/tmp|/tmp/sit-home") != std::string::npos;
+    ok = ok && cwdOk;
+    std::printf("[selftest] pty %s (%zu bytes), cwd/HOME %s\n", ok ? "OK" : "FAIL",
+                got.size(), cwdOk ? "OK" : "FAIL");
     return ok ? 0 : 1;
 }
 
@@ -742,6 +762,7 @@ int main(int argc, char** argv) {
     float previewScale = 1.0f;
     std::string out = "frame.png";
     std::string runCmd;
+    std::string cwd;
     int tabs = 1;  // --tabs：无输入的环境下靠它截多 tab 的画面
 
     for (int i = 1; i < argc; ++i) {
@@ -1013,6 +1034,7 @@ int main(int argc, char** argv) {
         if (a == "--backend" && i + 1 < argc) { backend = argv[++i]; continue; }
         if (a == "--out" && i + 1 < argc) { out = argv[++i]; continue; }
         if (a == "--run" && i + 1 < argc) { runCmd = argv[++i]; continue; }
+        if (a == "--cwd" && i + 1 < argc) { cwd = argv[++i]; continue; }
         if (a == "--tabs" && i + 1 < argc) { tabs = std::atoi(argv[++i]); continue; }
         std::fprintf(stderr, "unknown arg: %s\n", a.c_str());
         usage();
@@ -1154,7 +1176,7 @@ int main(int argc, char** argv) {
             line(1, "你好，Switch", ui::col::kText);
             line(2, "switch@arch:~$ sudo pacman -S --needed fcitx5", ui::col::kGreen);
             line(3, ":: 正在解析依赖关系...", ui::col::kDim);
-            ui::drawComposeLine(pr, pfonts, g, st);
+            ui::drawComposeLine(pr, pfonts, g, st, 3, 18, true);
             ui::drawBottomBar(pr, pfonts, g, st);
         }
         pr.endFrame();
@@ -1203,7 +1225,7 @@ int main(int argc, char** argv) {
                  layout::kScreenW, layout::kScreenH, 13.0 * layout::kScale);
 
     if (!legacy) {  // 新架构：ui/screen + TerminalParser
-        int rc = app::run(bd, exeDir + "/..", out, runCmd, tabs);
+        int rc = app::run(bd, exeDir + "/..", out, runCmd, cwd, tabs);
         bd->shutdown();
         delete bd;
         return rc;
