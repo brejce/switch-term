@@ -235,6 +235,9 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     // 中心两行（清楚），外圈到对角（≈144）还留一点影子 —— 数字行就是这么"淡但可见"的
     constexpr float kMaskIn = 50.f;    // 这个距离以内完全不遮（选中键周围一圈是亮的）
     constexpr float kMaskOut = 230.f;  // 这个距离以外全遮住（数字行 164 → 遮 63%）
+    // 缩放用自己的半径：遮罩 50→230 太宽，按这个曲线相邻键几乎同尺寸（d 和 e 看着一样大）。
+    // 这里收窄到 45→180、最多缩 30%，相邻键才看得出大小差。
+    constexpr float kShrinkIn = 45.f, kShrinkOut = 180.f, kShrinkMax = 0.30f;
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
     const int sub = (L + 1) % cfg::kLayerCount;  // 该键没上档时，副字符退回「下一层同位置」
@@ -281,9 +284,10 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         // 偏移 = 面板中心 - 指针（世界坐标）：吸附住的键正好压在中心上
         const int kx = cx + px(kcx - ptrX);
         const int ky = cy + px(kcy - ptrY);
-        // 外围未选中的键随遮罩一起缩小（最多 18%），跟着 fade 连续变化，不会跳档；
-        // 选中的键保持原尺寸（另外还有吸附脉冲的放大）
-        const float shrink = isSnap ? 1.f : (1.f - 0.18f * (1.f - fade));
+        // 外围未选中的键缩小：用独立半径曲线，连续变化不跳档
+        const float st =
+            std::clamp((dmask - kShrinkIn) / (kShrinkOut - kShrinkIn), 0.f, 1.f);
+        const float shrink = isSnap ? 1.f : (1.f - kShrinkMax * st);
         int ds = int(std::lround(float(side) * shrink));
         // 刚吸上时弹一下：键块放大一点点再收回（只放大描边/底色，字不动，免得糊）
         const int grow = isSnap ? int(std::lround(float(side) * 0.09f * snapPulse)) : 0;
@@ -321,7 +325,9 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
             ccx = float(cx + px(skx - ptrX));
             ccy = float(cy + px(sky - ptrY));
         }
-        vignette(r, win, ccx, ccy, kMaskIn, kMaskOut, c(col::kPanel));
+        // 遮罩色 = 面板底色再暗 10%（往黑里压），外圈才真的"更黑"而不是跟底色同色
+        const disp::Color veil = disp::mix(c(col::kPanel), disp::rgb(0x000000), 0.10f);
+        vignette(r, win, ccx, ccy, kMaskIn, kMaskOut, veil);
     }
     r.clearClip();
 }
