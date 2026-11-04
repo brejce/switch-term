@@ -353,9 +353,24 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
     r.fill({g.panelW - 1, g.contentY, 1, g.contentH}, c(col::kLine));
     r.fill({rightX, g.contentY, 1, g.contentH}, c(col::kLine));
 
+    // 肩键提示：面板最上面一行（键名亮、动作暗）
+    {
+        auto hint = [&](int x, const char* key, const char* act, uint32_t col) {
+            const int y = g.contentY + S(6, s);
+            r.textInBox({x, y, 0, S(16, s)}, key, f.shoulder, c(col), render::Align::Left);
+            const int kx = x + r.textWidth(key, f.shoulder) + S(6, s);
+            r.textInBox({kx, y, 0, S(16, s)}, act, f.shoulder, c(col::kDim),
+                        render::Align::Left);
+        };
+        hint(S(10, s), "L", "上屏", col::kPurple);
+        hint(S(96, s), "ZL", "空格", col::kBlue);
+        hint(rightX + S(10, s), "R", "左", col::kCyan);
+        hint(rightX + S(96, s), "ZR", "右", col::kYellow);
+    }
+
     // 按键簇摆在键窗下面：窗口在面板里竖向居中，所以从窗口底边往下排
     const disp::Rect win = keyWindowRect(g, uic, 0, g.contentY, g.panelW, g.contentH);
-    const int dy = win.bottom() + S(20, s);
+    const int dy = win.bottom() + S(44, s);  // 和键窗拉开一点，不然挤在一起
     const int padX = S(10, s);
     ptitle(r, f, padX, dy, uic.dpadTitle, col::kCyan, s);
     drawDpad(r, f, (g.panelW - 3 * g.dpadCell) / 2, dy + S(16, s), g.dpadCell, st, s);
