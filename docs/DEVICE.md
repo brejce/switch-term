@@ -774,3 +774,39 @@ KERNEL=="uinput", SUBSYSTEM=="misc", MODE="0660", GROUP="input"
 
 `tools/pc-host-switch.sh enp5s0` 起 DHCP + NAT，Switch 拿 `192.168.50.x`；
 **收工要带接口名**：`sudo ./tools/pc-host-switch.sh --down enp5s0`（脚本原先会把接口名当成 `--down`，已修）。
+
+## 12. 终端字体必须是「真的」等宽（2026-11-04）
+
+**现象**：终端区文字看起来字距坏了——`hello` 显示成 `hel l o`，`switch` 成 `swi tch`，
+`Display` 成 `Di spl ay`。只影响窄字形（`i` `l` `j` `t` `.` `|`），`M` `A` 和汉字正常；
+面板（键帽、底栏）也跟着散。截图和缩放都不改变它，**不是渲染错位**。
+
+**根因**：`src/ui/theme.h` 的 `fam::kMono` 要的是 `Maple Mono NF CN`，这台机器**没装**。
+fontconfig 对不存在的族名不报错，直接 `FcFontMatch` 给一个默认族——这里是 `Noto Sans`
+（**比例字体**）。字形按自身 advance 落位，而网格每格固定 8px，于是窄字形前后各空一截。
+
+判定一行：
+
+```fish
+fc-match "Maple Mono NF CN"
+# 缺 → NotoSans-Regular.ttf: "Noto Sans" "Regular"      ← 就是它
+# 有 → MapleMono-NF-CN-Regular.ttf: "Maple Mono NF CN" "Regular"
+```
+
+**修**（不需要 root，装在用户目录）：
+
+```fish
+mkdir -p ~/.local/share/fonts
+rsync -av ~/本地路径/MapleMono-NF-CN-{Regular,Bold}.ttf brejce@<switch>:~/.local/share/fonts/
+ssh brejce@<switch> 'fc-cache -f && fc-match "Maple Mono NF CN"'
+```
+
+两个 ttf 各 ~20MB（CJK + Nerd 图标）。**别用 `Noto Sans Mono` 顶替**：advance 也是 0.6em，
+网格能对齐，但丢了 1:2 中英宽度比和 Nerd 图标，属于临时凑合。
+
+**代码里的防御**：`render::FontManager::get()` 在「实际匹配到的族名 ≠ 请求的族名」时打
+`fontconfig: 要 'X' 实际拿到 'Y'（没装？）`。以后换字体/上新机器，看启动日志这一行就知道，
+不要再靠肉眼发现"字距有点怪"。
+
+**排查教训**：先在无头后端复现（`--backend headless --out f.png --run "bash /tmp/t.sh"`），
+再用像素量一遍——所有字符起点步距都是 8px，就能立刻排除"渲染错位"，把方向锁到字体本身。

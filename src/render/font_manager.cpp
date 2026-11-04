@@ -56,6 +56,14 @@ const FontFace* FontManager::get(const std::string& query, double px) {
     }
 
     std::string fileStr = (const char*)file;
+    // 族名没装时 fontconfig 会静默给个默认（往往是比例字体），在等宽网格里就会散开：说一句
+    if (family) {
+        std::string want = query.substr(0, query.find(':'));
+        std::string got = (const char*)family;
+        if (got.find(want) == std::string::npos && want.find(got) == std::string::npos)
+            std::fprintf(stderr, "fontconfig: 要 '%s' 实际拿到 '%s'（没装？）\n", want.c_str(),
+                         got.c_str());
+    }
     auto f = std::make_unique<FontFace>();
     if (FT_New_Face(lib_, (const char*)file, index, &f->face)) {
         std::fprintf(stderr, "FT_New_Face failed: %s (index %d)\n", (const char*)file, index);

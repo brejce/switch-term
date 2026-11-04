@@ -32,6 +32,9 @@ inline uint32_t &kKkBg = pal::kkBg;
 
 namespace fam {
 // Maple Mono NF CN：ASCII 0.6em、汉字恰好 2×，1:2 网格合格；CJK 回退 Noto
+// 这台机器必须自己装（~/.local/share/fonts + fc-cache -f）：fontconfig 对没装的族名是静默
+// 降级成 Noto Sans（比例字体），i/l/j 落进 8px 格子就会散开，字体又“看起来没问题”。
+// 崩法见 docs/DEVICE.md 「7.x 终端字体必须字节真实等宽」；FontManager::get 会在降级时报警告。
 inline const char* kMono = "Maple Mono NF CN";
 inline const char* kMonoBold = "Maple Mono NF CN:weight=bold";
 inline const char* kCjk = "Noto Sans CJK SC";
