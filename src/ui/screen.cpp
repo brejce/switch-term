@@ -228,8 +228,8 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
 
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                  int layer, int first, int panelX, int panelY, int panelW, int panelH,
-                 float ptrX, float ptrY, int snap, int hover, float attractRadius, float pullX,
-                 float pullY) {
+                 float ptrX, float ptrY, int snap, int hover, float attractRadius,
+                 float snapPulse, float pullX, float pullY) {
     // 中心遮罩：只有画面中心的键是清楚的，往外逐渐沉入背景（"走向幕后阴影"）。
     // 软件光栅器没有高斯模糊，所以做成往面板底色淡出 + 淡到一定程度直接不画。
     // 半径是设计像素，和键距同一套：相邻键 70/76，对角 103。
@@ -240,7 +240,8 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     // 缩放用自己的半径：遮罩 50→230 太宽，按这个曲线相邻键几乎同尺寸（d 和 e 看着一样大）。
     // 这里收窄到 45→180、最多缩 30%，相邻键才看得出大小差。
     constexpr float kShrinkIn = 45.f, kShrinkOut = 180.f, kShrinkMax = 0.30f;
-    constexpr float kSnapGrow = 1.09f;  // 选中键固定放大 9%（静止 = 移动时的峰值）
+    constexpr float kSnapGrow = 1.09f;  // 选中键静止时的尺寸（相对键帽 64px）
+    constexpr float kPulseAmp = 0.14f;  // 换键瞬间额外再涨 14% 然后回落 = 弹簧感
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
     const int sub = (L + 1) % cfg::kLayerCount;  // 该键没上档时，副字符退回「下一层同位置」
@@ -296,8 +297,9 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         const int ky = cy + px(kcy - ptrY);
         // 外围未选中的键缩小：用独立半径曲线，连续变化不跳档
         const float st = std::clamp((dmask - kShrinkIn) / (kShrinkOut - kShrinkIn), 0.f, 1.f);
-        // 选中的键固定放大 9%（原来那个"弹一下"的峰值），静止时也是这个尺寸
-        const float shrink = isSnap ? kSnapGrow : (1.f - kShrinkMax * st);
+        // 选中的键：静止 1.09，换键那一下再乘 (1 + 0.14×pulse)，然后落回静止尺寸
+        const float shrink =
+            isSnap ? kSnapGrow * (1.f + kPulseAmp * snapPulse) : (1.f - kShrinkMax * st);
         const int ds = int(std::lround(float(side) * shrink));
         const disp::Rect box{kx - ds / 2, ky - ds / 2, ds, ds};
         // 吸附 = 整键反色（底色 col::kText、字色 col::kBg）；悬停（无吸附时）= 亮色描边
@@ -342,11 +344,11 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
     r.fill({0, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
     r.fill({rightX, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
     drawKeyHand(r, f, uic, g, st.layer, 0, 0, g.contentY, g.panelW, g.contentH, st.ptrLeftX,
-                st.ptrLeftY, st.snapLeft, st.hoverLeft, st.attractRadius, st.pullLeftX,
-                st.pullLeftY);
+                st.ptrLeftY, st.snapLeft, st.hoverLeft, st.attractRadius, st.snapPulseL,
+                st.pullLeftX, st.pullLeftY);
     drawKeyHand(r, f, uic, g, st.layer, 20, rightX, g.contentY, g.panelW, g.contentH,
                 st.ptrRightX, st.ptrRightY, st.snapRight, st.hoverRight, st.attractRadius,
-                st.pullRightX, st.pullRightY);
+                st.snapPulseR, st.pullRightX, st.pullRightY);
     // 竖分隔线画在键之后：滚到窗边的键不该盖住面板边界
     r.fill({g.panelW - 1, g.contentY, 1, g.contentH}, c(col::kLine));
     r.fill({rightX, g.contentY, 1, g.contentH}, c(col::kLine));

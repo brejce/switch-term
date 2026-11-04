@@ -21,6 +21,9 @@ struct AppState {
     int layer = 0;                 // 层下标 0=ALPHA 1=NUM 2=SYM（L3 循环，LAYOUT-v2 §2）
     // v2 物理场：每侧一个指针。snap = 吸附的键（全局 0..29，-1 = 无），hover = 无吸附时最近的键
     int snapLeft = -1, snapRight = -1;
+    // 换键那一下的"弹一下"：1 = 刚吸上，约 150ms 衰减到 0。
+    // 选中键的尺寸 = 静止尺寸 ×(1 + 它×kPulseAmp)，落回静止尺寸就是弹簧感
+    float snapPulseL = 0, snapPulseR = 0;
     int hoverLeft = -1, hoverRight = -1;
     float ptrLeftX = 0, ptrLeftY = 0, ptrRightX = 0, ptrRightY = 0;  // 设计像素（= 摄像机）
     // 引力渐变用的坐标 = 物理场的真实指针位置。摄像机被夹取/吸附后会和它对不上，
@@ -80,13 +83,13 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
                          int panelW, int panelH);
 
 // 一只手的面板：panelX/Y/W/H = 可视矩形（也当裁剪矩形）；ptrX/ptrY = 该手指针（世界坐标）；
-// first = 这手在 ui.keys 里的起点（左 0 / 右 15）；snap/hover = 高亮键下标（全局 0..29，-1 = 无）。
+// first = 这手在 ui.keys 里的起点（左 0 / 右 20）；snap/hover = 高亮键下标（全局，-1 = 无）。
 // attractRadius = 引力半径：键按「离指针多远」点亮（强度 = 物理场真实受力），0 = 不画动效。
 // 每键屏位 = 面板中心 + (键中心 - 指针)，所以吸附住的键正好落在窗口中心，窗外的部分被裁掉。
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                  int layer, int first, int panelX, int panelY, int panelW, int panelH,
                  float ptrX, float ptrY, int snap, int hover, float attractRadius,
-                 float pullX, float pullY);
+                 float snapPulse, float pullX, float pullY);
 // v2 左右键区整块：面板底 + 两手滑窗键区（含高亮/引力点亮）+ 左 DPAD 簇 / 右 ABXY 簇。
 // 文字只来自 ui.lua 的标题（dpad_title / abxy_title），这里不写键字符。
 void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,

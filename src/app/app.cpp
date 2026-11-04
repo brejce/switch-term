@@ -410,6 +410,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // 弹簧带一点欠阻尼：推过头会多走一点，然后自己弹回来。
     float camVx = 0, camVy = 0, camRVx = 0, camRVy = 0;
     float camHomeOffY = 0;  // 准心偏置：home 行相对键场中线的纵向差
+    int prevSnapL = -2, prevSnapR = -2;  // 上一帧的吸附键（换键时触发"弹一下"）
     auto resetFields = [&] {
         const float half = float(uic.keySize) * 0.5f;  // ui.keys 是键帽左上角
         for (int i = 0; i < cfg::kKeyV2Count; ++i) {
@@ -770,6 +771,22 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         st.lang = (eng.imeEnabled && ime.chinese) ? "ZH" : "EN";
         st.layer = layerIdx;  // L3 循环，不再跟 Shift 锁定走
         st.layerName = kLayerNames[layerIdx];
+        // 换键那一下的弹跳：换键瞬间把脉冲拉到 1，150ms 内衰减到 0（渲染侧拿它放大键块）。
+        // 尺寸最后会落回静止值，这就是"弹簧"的观感来源。
+        {
+            constexpr float kPulseSec = 0.15f;
+            const float dec = (1.f / 60.f) / kPulseSec;
+            st.snapPulseL = std::fmax(0.f, st.snapPulseL - dec);
+            st.snapPulseR = std::fmax(0.f, st.snapPulseR - dec);
+            if (ptrL.snapped != prevSnapL) {
+                if (ptrL.snapped >= 0) st.snapPulseL = 1.f;
+                prevSnapL = ptrL.snapped;
+            }
+            if (ptrR.snapped != prevSnapR) {
+                if (ptrR.snapped >= 0) st.snapPulseR = 1.f;
+                prevSnapR = ptrR.snapped;
+            }
+        }
         st.snapLeft = ptrL.snapped;
         st.snapRight = ptrR.snapped;
         st.hoverLeft = ptrL.hovered;
