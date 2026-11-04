@@ -810,3 +810,66 @@ ssh brejce@<switch> 'fc-cache -f && fc-match "Maple Mono NF CN"'
 
 **排查教训**：先在无头后端复现（`--backend headless --out f.png --run "bash /tmp/t.sh"`），
 再用像素量一遍——所有字符起点步距都是 8px，就能立刻排除"渲染错位"，把方向锁到字体本身。
+
+## 13. 能不能自己构建镜像 + 塞 DRM/DRI？（2026-11-04 实测结论）
+
+**问题**：switchroot 支持自定义镜像吗？能不能顺手把 DRM/DRI 装进去，换来 `/dev/dri`？
+
+**结论分两半**：
+
+### 13.1 自定义镜像：支持
+
+`theofficialgman/l4t-image-buildscripts`（社区维护者，就是镜像作者）两步：
+
+```bash
+# ① 造 rootfs（Kubuntu / Ubuntu-Unity 要从零造；GNOME 用官方 RPi 预装镜像）
+sudo ./scripts/nv_build_samplefs.sh --abi aarch64 --distro ubuntu --flavor kubuntu-desktop --version noble
+# ② 把 switchroot 包 + 你的定制打进 rootfs，产出 hekate 可装的 7z
+./scripts/apply.sh kde-noble        # 可选 gnome-jammy / gnome-noble / kde-noble / unity-noble
+```
+
+输出在 `output/`。中间那步 rootfs 就是个普通 Ubuntu arm64，**想装/删什么包都行**（这也是它真正的价值：
+裁掉 KDE、预装我们的依赖、固化 systemd unit 与字体、开机直接进 switch-ime-term —— 省 1.1–1.3GB 内存）。
+另有 `theofficialgman/l4t-debs` 是 switchroot 专用 deb 的 APT 源。
+
+### 13.2 但加 DRM/DRI 包没用：这台机器的内核根本没有 KMS
+
+`/proc/config.gz` 实测：
+
+```
+CONFIG_DRM=y
+# CONFIG_DRM_TEGRA is not set     ← 主线 tegra KMS 显示驱动被关掉
+CONFIG_DRM_TEGRA_UDRM=m           ← 只有「用户态 DRM」shim（nvdc 要配 libdrm_nvdc 干活）
+CONFIG_FB_TEGRA=y                 ← 显示实际走 fbdev
+```
+
+所以 `/dev/dri/card*` 永远不会出现，装多少 `libdrm-*` / `mesa` 都没用（它们已经装了：`libdrm-tegra0、
+libgl1-mesa-dri 25.2.8`，没有 KMS 设备就是摆设）。`libdrm_nvdc.so.orig` 的存在说明发行版把 nvdc 驱动
+换成了 l4t 版——Xorg 能跑就是靠它 + nvidia 的 EGL，与 KMS 无关。
+
+要真 KMS 只能自己编内核并补下游显示补丁（4.9 l4t 树里显示走 nvdc，不是主线 tegra-drm），代价远大于收益。
+
+### 13.3 好消息：不靠 DRM 也能拿到硬件 GL
+
+`nvidia-l4t-3d-core 32.3.1` 提供 `libEGL.so` / `libGLESv2.so`，走 `/dev/nvhost-*`（与 KMS 无关）。
+裸 TTY（Xorg 关着、我们占着 fb0 的时候）实测离屏可用：
+
+```
+EGL 1.5  vendor=NVIDIA
+GL_RENDERER = NVIDIA Tegra X1 (nvgpu)/integrated
+GL_VERSION  = OpenGL ES 3.2 NVIDIA 32.3.1
+离屏 pbuffer + glClear + glReadPixels → 像素正确
+```
+
+探针源码：`/tmp/eglprobe.c`（`gcc eglprobe.c -o eglprobe -lEGL -lGLESv2`）。要复现随时重编。
+
+### 13.4 对渲染路线的影响
+
+| 路线 | 可行性 | 说明 |
+|---|---|---|
+| A 软件渲染 → `fb0` | **现在就是** | 单缓冲 carveout，会撕裂；`DEVICE.md` §6 的脏矩形是第一步优化 |
+| B `tegra_dc_ext` + nvmap 双缓冲 + FLIP/VBLANK | 可行，**不需要 KMS** | 真 vsync、零撕裂；`/dev/tegra_dc_*` 已存在 |
+| C EGL/GLES 离屏渲染 → 贴到 B 的 buffer（或 readback → `fb0`） | 可行，已实测 | 读回像素约 3.5MB/帧；更省的是直接渲染进 nvmap surface |
+| D 标准 KMS / Wayland 合成器 / `--vo=gpu` 类 | **不可行** | 没有 `CONFIG_DRM_TEGRA`；Xorg 是 nvdc 专有路径 |
+
+顺序建议不变：先 B（去撕裂），再考虑 C（把 SoftCanvas 换成 GLES，或只把贴图/缩放交给 GPU）。
