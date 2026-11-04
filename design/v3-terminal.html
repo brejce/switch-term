@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>V3 · TERMINAL-FIRST 终端优先 — switch-ime-term 重设计</title>
+<link rel="stylesheet" href="mock.css">
+<style>
+/* ============================================================
+   V3 TERMINAL-FIRST · 键区收窄成"提示条"，终端拿回主角
+   去掉键帽底板与边框：只有字 + 一个反色块表示吸附
+   LCD 不是墨水屏：暗底保留，颜色只用来带语义（左手青 / 右手珊瑚 /
+   光标蓝 / NUM 琥珀 / 拼音紫 / 成功绿 / 错误红）
+   ============================================================ */
+:root{
+  /* 色值 = src/theme/palette.cpp 的 switch 主题，稿子不另造一套 */
+  --bg:#05070c; --panel:#151a24; --term:#0b0f16;
+  --ink:#ccd2dc; --mid:#8891a1; --faint:#5a6272; --rule:#3e4756;
+  --cyan:#46c5d3; --coral:#e87e66; --blue:#5f9fd0; --amber:#d9ab5c;
+  --violet:#a78bea; --green:#5cc98f; --red:#e87e66;
+  --snapbg:#ccd2dc; --snapfg:#05070c;
+}
+body{background:#040506;color:var(--ink)}
+.screen{background:var(--bg)}
+
+/* ---------- 顶栏 ---------- */
+.top{height:32px;flex:0 0 32px;display:flex;align-items:center;padding:0 14px;
+  font-size:11px;letter-spacing:.04em;border-bottom:1px solid var(--rule)}
+.brand{color:var(--mid);letter-spacing:.14em;font-weight:700}
+.brand span{color:var(--faint);font-weight:400}
+.tabs{display:flex;align-items:center;margin-left:18px;gap:0}
+.tab{padding:0 11px;font-size:11px;color:var(--faint);cursor:pointer;position:relative;
+  max-width:116px;white-space:nowrap;overflow:hidden}
+.tab+.tab{border-left:1px solid var(--rule)}
+.tab.on{color:var(--ink)}
+.tab.on::before{content:"▸";color:var(--blue);margin-right:5px;font-size:9px}
+.tab.plus{color:var(--faint)}
+.spacer{flex:1}
+.top .clock{color:var(--mid);font-variant-numeric:tabular-nums;margin-right:12px}
+.top .bat{color:var(--green);opacity:.85;letter-spacing:.06em}
+
+/* ---------- 三分区 ---------- */
+.main{flex:1;display:flex;min-height:0}
+.panel{width:176px;flex:0 0 176px;display:flex;flex-direction:column;position:relative;
+  background:var(--panel)}
+.panel[data-side="left"]{border-right:1px solid var(--rule)}
+.panel[data-side="right"]{border-left:1px solid var(--rule)}
+/* 左右手各一个语义色 */
+.panel[data-side="left"]{--acc:var(--cyan)}
+.panel[data-side="right"]{--acc:var(--coral)}
+/* 活跃侧：内缘一个箭头，不做色块 */
+.panel::after{content:"";position:absolute;top:50%;width:0;height:0;border:5px solid transparent;
+  opacity:0}
+.panel.active::after{opacity:1}
+.panel[data-side="left"].active::after{right:-1px;border-right-color:var(--acc);
+  transform:translateY(-50%)}
+.panel[data-side="right"].active::after{left:-1px;border-left-color:var(--acc);
+  transform:translateY(-50%)}
+.panel.active .phead .name{color:var(--acc)}
+.panel .pad{opacity:.72}
+.panel.active .pad{opacity:1}
+
+.phead{display:flex;align-items:baseline;gap:6px;padding:11px 10px 0;font-size:9.5px;
+  color:var(--faint);letter-spacing:.02em}
+.phead .name{color:var(--mid)}
+.phead .meta{margin-left:auto;color:var(--faint);letter-spacing:.04em}
+
+.shoulders{display:flex;gap:12px;padding:7px 10px 0;font-size:10.5px}
+.sh{display:flex;align-items:center;gap:4px;background:none;border:0;padding:0;font:inherit;
+  color:var(--faint);cursor:pointer}
+.sh b{font-weight:400;color:var(--mid)}
+.panel.active .sh b{color:var(--acc)}
+
+/* 键区：只有字。吸附键 = 唯一反色块 */
+.pad{display:grid;grid-template-columns:repeat(3,var(--k,48px));grid-auto-rows:var(--k,48px);
+  column-gap:10px;row-gap:14px;justify-content:center;margin:22px auto 0;flex:0 0 auto}
+.key{position:relative;width:var(--k,48px);height:var(--k,48px);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;padding:0;cursor:pointer;background:none;border:0;
+  border-radius:3px;color:var(--ink);font:400 25px/1 'Maple Mono NF CN','JetBrains Mono',monospace;
+  opacity:calc(.12 + .88*var(--fade,1));transform:scale(var(--shrink,1));
+  transition:opacity .12s linear,transform .14s ease-out,background .1s,color .1s}
+.key .s{font:400 11px/1 'Maple Mono NF CN','JetBrains Mono',monospace;color:var(--faint);
+  margin-top:2px}
+.key.snap{background:var(--snapbg);color:var(--snapfg);font-weight:700}
+.key.snap .s{color:#6a7688}
+/* 反色块是唯一实心块；层色靠它的底色调传达 */
+.screen.layer-num .key.snap{background:var(--amber)}
+.key.hover{box-shadow:inset 0 0 0 1px var(--faint)}
+.key:active{background:#1b2126}
+.screen.nograb .key{opacity:calc(.5 + .5*var(--fade,1))}
+
+/* 按钮簇：dpad 画成真十字（中心一个点定形），别跟提示挤在一块 */
+.cluster{margin-top:24px;padding:0 10px}
+.ptitle{font-size:9.5px;color:var(--faint);letter-spacing:.08em;margin-bottom:10px}
+.dpad,.abxy{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:28px;gap:2px;
+  place-items:center;width:138px;margin:0 auto;font-size:10.5px;color:var(--mid)}
+.dpad button,.abxy button{background:none;border:0;padding:0;font:inherit;color:inherit;
+  cursor:pointer;width:100%;height:100%;display:grid;place-items:center;border-radius:3px}
+.dpc{width:5px;height:5px;border-radius:50%;opacity:.7;background:var(--acc)}
+.gap{width:5px;height:5px}
+/* 修饰符按下：只加一条底边线，不抢吸附块的存在感 */
+.dpad button.on{color:var(--acc);box-shadow:inset 0 -1px 0 var(--acc)}
+.abxy{grid-auto-rows:30px;font-size:15px}
+/* A 是主操作（确认）：右手色；B/X/Y 只是功能键，留中性 */
+.abxy .a{color:var(--coral)}
+.abxy .b,.abxy .x,.abxy .y{color:var(--mid)}
+/* 提示表锚在面板底部：键|功能 两列，行距拉开，不再压着 dpad */
+.hints{margin-top:auto;padding:12px 10px 14px;display:grid;grid-template-columns:auto 1fr;
+  column-gap:9px;row-gap:7px;font-size:10px;color:var(--faint);line-height:1.5;
+  white-space:nowrap;border-top:1px solid var(--rule)}
+.hints b{font-weight:400;color:var(--mid);text-align:right}
+
+/* ---------- 终端 ---------- */
+.term{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;
+  background:var(--term);padding:14px 24px 0 18px}
+.lines{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:flex-start;
+  font-size:13px;line-height:1.78;color:var(--mid);white-space:pre;overflow:hidden}
+.lines .who{color:var(--green)} .lines .pth{color:var(--blue)} .lines .sig{color:var(--faint)}
+.lines .cmd{color:var(--ink)} .lines .err{color:var(--red)}
+.lines .ok{color:var(--green)}
+/* 滚动指示条（触摸上下滑）：只是位置参考，不是滚动条控件 */
+.vb{position:absolute;right:6px;top:14px;bottom:70px;width:3px;border-radius:2px;
+  background:#14181c}
+.vb i{position:absolute;left:0;width:3px;height:34%;top:26%;border-radius:2px;
+  background:var(--blue);opacity:.5}
+.vb::after{content:"↕";position:absolute;left:-3px;bottom:-15px;font-size:9px;
+  color:var(--faint)}
+.composer{border-top:1px solid var(--rule);padding:7px 0 9px}
+.inrow{font-size:13px;line-height:1.7;white-space:pre;display:flex;flex-wrap:wrap;
+  align-items:baseline;color:var(--ink)}
+.cmp{color:var(--blue);border-bottom:1px dotted var(--blue)}
+.caret{display:inline-block;width:1px;height:16px;background:var(--ink);margin:0 1px;
+  transform:translateY(2px);animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.crow{display:flex;align-items:baseline;min-height:22px;font-size:13px;gap:0 18px;flex-wrap:wrap}
+.cands{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 18px}
+.cand{display:flex;align-items:baseline;gap:5px;cursor:pointer;padding:0 0 1px;
+  border-bottom:1px solid transparent}
+.ci{font-size:9.5px;color:var(--faint);transform:translateY(-2px)}
+.ct{color:var(--mid)}
+.cp{font-size:10.5px;color:var(--violet);opacity:.75}
+.cand.on .ci{color:var(--blue)}
+.cand.on .ci::before{content:"›";margin-right:3px;color:var(--blue)}
+.cand.on .ct{color:#fff}
+.cand.on .cp{color:var(--mid)}
+.cand.on{border-bottom-color:var(--blue)}
+.page{margin-left:auto;font-size:10px;color:var(--faint);letter-spacing:.06em}
+.screen.nocand .crow{display:none}
+
+/* ---------- 底栏：vim statusline ---------- */
+.bottom{height:26px;flex:0 0 26px;display:flex;align-items:stretch;font-size:10px;
+  letter-spacing:.06em;border-top:1px solid var(--rule);background:var(--bg)}
+.mode{display:flex;align-items:center;padding:0 14px;background:var(--blue);color:#0a0b0c;
+  letter-spacing:.16em;font-weight:700}
+.screen.layer-num .mode{background:var(--amber)}
+/* lang/ime 合并成一个字段：拼音 / 英文直通 */
+.bottom .ime b{font-weight:400;color:var(--ink)}
+.bottom .ime b::after{content:"拼音"}
+.screen:not(.zh) .bottom .ime b::after{content:"英文·直通"}
+.screen:not(.zh) .bottom .ime i{color:var(--faint)}
+.bottom .field{display:flex;align-items:center;gap:6px;padding:0 13px;color:var(--faint)}
+.bottom .field i{font-style:normal;color:var(--mid)}
+.bottom .field i.zh{color:var(--ink)}
+.bottom .spacer{flex:1}
+.bottom .mods i.on{color:var(--ink)}
+</style>
+</head>
+<body>
+<figure class="stage"><div class="screen" data-side="left">
+
+  <header class="top">
+    <span class="brand">sit<span>/0.1</span></span>
+    <nav class="tabs">
+      <b class="tab on">brejce@switch:~…</b>
+      <b class="tab">vim ui.lua</b>
+      <b class="tab">journalctl -f</b>
+      <b class="tab plus">+</b>
+    </nav>
+    <span class="spacer"></span>
+    <span class="clock" data-clock>20:43</span>
+    <span class="bat">BAT 100%+</span>
+  </header>
+
+  <div class="main">
+    <aside class="panel active" data-side="left">
+      <div class="phead"><span class="name">left</span><span class="meta">L3 · 3×4</span></div>
+      <div class="shoulders">
+        <button class="sh" data-act="commit"><b>L</b>上屏</button>
+        <button class="sh" data-act="space"><b>ZL</b>空格</button>
+      </div>
+      <div class="pad" data-hand="left"></div>
+      <div class="cluster">
+        <div class="ptitle">// dpad · 修饰符</div>
+        <div class="dpad">
+          <span class="gap"></span><button data-act="tab">Tab</button><span class="gap"></span>
+          <button data-act="ctrl">Ctrl</button><span class="dpc"></span><button data-act="shift">Shift</button>
+          <span class="gap"></span><button data-act="alt">Alt</button><span class="gap"></span>
+        </div>
+      </div>
+      <div class="hints">
+        <b>L3</b><span>ALPHA ↔ NUM</span>
+        <b>Tab</b><span>候选翻页</span>
+        <b>Shift</b><span>双击锁定</span>
+        <b>ZR</b><span>选词 · 右移</span>
+        <b>R</b><span>左移一格</span>
+      </div>
+    </aside>
+
+    <section class="term">
+      <div class="lines">
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd">git log --oneline -3</span></div>
+        <div>b422c2b docs: MANUAL 进行手册</div>
+        <div>5b06da9 fix(rumble): 自动回中时不震</div>
+        <div>4eed347 fix(rumble): FF 设备改成阻塞打开</div>
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd">./build/switch-ime-term --print-config</span></div>
+        <div>sink=pty   backend=fbdev   1280x720   rotate=270</div>
+        <div>panel 220   key 64   window 3x4   layer ALPHA</div>
+        <div class="sig">提案：panel 176  key 48（终端多 44 列，见 UI_DESIGN §三）</div>
+        <div>gamepad: Combined Joy-Cons (event8)</div>
+        <div>ime: builtin pinyin   cand/page 7   ngram on</div>
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd">ls -la src/ui</span></div>
+        <div>-rw-r--r-- 1 brejce brejce  5412 11月 4 13:51 screen.cpp</div>
+        <div>-rw-r--r-- 1 brejce brejce  3571 11月 4 13:51 screen.h</div>
+        <div>-rw-r--r-- 1 brejce brejce  1888 11月 4 13:51 char_grid.h</div>
+        <div>-rw-r--r-- 1 brejce brejce  3186 11月 4 13:51 panels.cpp</div>
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd">cd src/ui &amp;&amp; wc -l screen.cpp</span></div>
+        <div>445 screen.cpp</div>
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd">./build/switch-ime-term -audit</span></div>
+        <div><span class="ok">✓</span> keymap 40 键 / 26 字母　<span class="ok">✓</span> snap 不闪　<span class="ok">✓</span> mask 50→230</div>
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd"></span></div>
+      </div>
+      <div class="vb"><i></i></div>
+      <div class="composer">
+        <div class="inrow"><span class="who">brejce@brejce-switch</span><span class="pth">:~/src/sit</span><span class="sig">$</span>&nbsp;<span data-typed></span><span data-compose></span></div>
+        <div class="crow"><span class="cands" data-cands></span><span class="page" data-page>1/3</span></div>
+      </div>
+    </section>
+
+    <aside class="panel" data-side="right">
+      <div class="phead"><span class="name">right</span><span class="meta">ABXY</span></div>
+      <div class="shoulders">
+        <button class="sh" data-act="cursor-l"><b>R</b>左</button>
+        <button class="sh" data-act="cursor-r"><b>ZR</b>右</button>
+      </div>
+      <div class="pad" data-hand="right"></div>
+      <div class="cluster">
+        <div class="ptitle">// abxy</div>
+        <div class="abxy">
+          <span></span><button class="x" data-act="delete">X</button><span></span>
+          <button class="y" data-act="esc">Y</button><span class="dpc"></span><button class="a" data-act="enter">A</button>
+          <span></span><button class="b" data-act="backspace">B</button><span></span>
+        </div>
+      </div>
+      <div class="hints">
+        <b>A</b><span>回车 · 上屏</span>
+        <b>B</b><span>退格</span>
+        <b>X</b><span>Del</span>
+        <b>Y</b><span>Esc</span>
+        <b>Shift+肩</b><span>上下翻行</span>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="bottom">
+    <span class="mode" data-f-layer>ALPHA</span>
+    <span class="field ime"><i>IME</i><b></b></span>
+    <span class="field">3 tabs</span>
+    <span class="spacer"></span>
+    <span class="field mods">MODS <i data-f-mods>—</i></span>
+    <span class="field">b422c2b</span>
+  </footer>
+
+</div></figure>
+
+<div class="hud">
+  <div class="row ver">
+    <a href="index.html">总览</a>
+    <a href="v1-paper.html">01 纸白</a>
+    <a href="v2-instrument.html">02 仪表</a>
+    <a class="on" href="v3-terminal.html">03 终端优先</a>
+    <a href="v4-arcade.html">04 霓虹</a>
+  </div>
+  <div class="row">
+    <button data-hud="layer">层 ALPHA</button>
+    <button data-hud="nograb">无吸附</button>
+    <button data-hud="caps">上档</button>
+    <button data-hud="nocand">无候选</button>
+    <button data-hud="lang">英文</button>
+    <button data-hud="side">活跃侧</button>
+  </div>
+</div>
+
+<script src="mock.js"></script>
+</body>
+</html>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>V1 · PAPER 纸白 — switch-ime-term 重设计</title>
+<link rel="stylesheet" href="mock.css">
+<style>
+/* ============================================================
+   V1 PAPER · 明亮纸面 / 印刷感 / 高对比
+   键帽=白卡片，吸附=墨块反色；颜色只用在终端语义与"活跃侧"一点朱红
+   ============================================================ */
+:root{
+  --paper:#e8e5de; --panel:#efece5; --term:#fbfaf6;
+  --ink:#14161a; --mid:#575d66; --faint:#9c988d; --rule:#d2cec3;
+  --red:#bf4a34; --green:#3a6f52; --blue:#39618c;
+}
+body{background:#7d7a72;color:var(--ink)}
+.screen{background:var(--paper)}
+
+/* ---------- 顶栏 ---------- */
+.top{height:32px;flex:0 0 32px;display:flex;align-items:center;padding:0 16px;
+  border-bottom:1px solid var(--rule);font-size:11px;letter-spacing:.05em}
+.brand{font-weight:700;letter-spacing:.18em;color:var(--ink)}
+.tabs{display:flex;gap:2px;margin-left:20px}
+.tab{padding:0 11px;height:22px;display:flex;align-items:center;font-size:11px;
+  color:var(--mid);letter-spacing:.02em;cursor:pointer;border-radius:3px;max-width:120px;
+  white-space:nowrap;overflow:hidden}
+.tab.on{color:var(--ink);background:#fff;box-shadow:0 0 0 1px var(--rule)}
+.tab.plus{color:var(--faint);width:22px;justify-content:center;padding:0}
+.spacer{flex:1}
+.top .clock{color:var(--ink);font-variant-numeric:tabular-nums}
+.top .dot{color:var(--faint);margin:0 8px}
+.top .bat{color:var(--green);letter-spacing:.06em}
+
+/* ---------- 三分区 ---------- */
+.main{flex:1;display:flex;min-height:0}
+.panel{width:220px;flex:0 0 220px;display:flex;flex-direction:column;background:var(--panel);
+  position:relative}
+.panel[data-side="left"]{border-right:1px solid var(--rule)}
+.panel[data-side="right"]{border-left:1px solid var(--rule)}
+
+/* 活跃侧：内边一条朱红细线 + 上屏键反色（一眼知道 LB 从哪边出字） */
+.panel.active::after{content:"";position:absolute;top:0;bottom:0;width:2px;background:var(--red);opacity:.75}
+.panel[data-side="left"].active::after{right:0}
+.panel[data-side="right"].active::after{left:0}
+
+/* 肩键提示 */
+.shoulders{height:34px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11px;
+  color:var(--mid);border-bottom:1px solid transparent}
+.sh{display:flex;align-items:center;gap:5px;background:none;border:0;font:inherit;color:inherit;
+  cursor:pointer;padding:2px 0}
+.sh b{font-weight:700;color:var(--ink);letter-spacing:.02em}
+.sh:active{opacity:.5}
+.panel.active .sh:first-child{background:var(--ink);color:var(--paper);padding:2px 7px;border-radius:3px}
+.panel.active .sh:first-child b{color:var(--paper)}
+
+/* 键窗：3 列 × 4 行，间距照 ui.lua（键 64 / 横 76 / 纵 82） */
+.pad{display:grid;grid-template-columns:repeat(3,var(--k,64px));grid-auto-rows:var(--k,64px);
+  column-gap:12px;row-gap:18px;justify-content:center;margin:44px auto 0;flex:0 0 auto}
+.key{position:relative;width:var(--k,64px);height:var(--k,64px);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:0;padding:0;cursor:pointer;
+  background:#fff;border:1px solid var(--rule);border-radius:9px;color:var(--ink);
+  font:700 33px/1 'Maple Mono NF CN','JetBrains Mono',monospace;
+  opacity:calc(.17 + .83*var(--fade,1));transform:scale(var(--shrink,1));
+  transition:opacity .12s linear,transform .14s ease-out,background .1s,border-color .1s;
+  box-shadow:0 1px 0 rgba(0,0,0,.04)}
+.key .s{font:400 16px/1 'Maple Mono NF CN','JetBrains Mono',monospace;color:var(--faint);margin-top:1px}
+.key.snap{background:var(--ink);border-color:var(--ink);color:var(--paper);
+  box-shadow:0 2px 0 rgba(0,0,0,.14)}
+.key.snap .s{color:#b6b1a5}
+.key.hover{background:#fff;border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+.key:active{transform:scale(.97)}
+.screen.nograb .key{opacity:calc(.55 + .45*var(--fade,1))}
+
+/* 按钮簇：无框，纯字符 */
+.cluster{margin-top:auto;border-top:1px solid var(--rule);padding:14px 12px 0}
+.ptitle{font-size:10px;letter-spacing:.2em;color:var(--faint);margin-bottom:8px}
+.dpad,.abxy{display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:26px;
+  place-items:center;font-size:11px;color:var(--mid)}
+.dpad button,.abxy button{background:none;border:0;font:inherit;color:inherit;cursor:pointer;
+  padding:0;width:100%;height:100%;display:grid;place-items:center;border-radius:3px}
+.dpad .mid{color:var(--faint)}
+.abxy{font-size:20px;font-weight:700}
+.abxy .a{color:var(--ink)} .abxy .b{color:var(--mid)} .abxy .x{color:var(--mid)} .abxy .y{color:var(--mid)}
+.dpad button.on{background:var(--ink);color:var(--paper)}
+.hints{margin-top:14px;padding:0 12px 14px;display:flex;flex-direction:column;gap:3px;
+  font-size:10px;color:var(--faint);line-height:1.5}
+.hints b{font-weight:400;color:var(--mid);display:inline-block;min-width:20px}
+
+/* ---------- 终端 ---------- */
+.term{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--term);
+  padding:12px 16px 0}
+.lines{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:flex-start;
+  font-size:12.5px;line-height:1.72;color:var(--mid);white-space:pre;overflow:hidden}
+.lines .who{color:var(--green)} .lines .pth{color:var(--blue)} .lines .sig{color:var(--faint)}
+.lines .cmd{color:var(--ink)} .lines .ok{color:var(--green)}
+.composer{border-top:1px solid var(--rule);padding:5px 0 7px}
+.inrow{font-size:12.5px;line-height:1.72;white-space:pre;color:var(--ink);display:flex;flex-wrap:wrap;
+  align-items:baseline}
+.cmp{color:var(--blue);border-bottom:1px solid var(--blue)}
+.caret{display:inline-block;width:1px;height:15px;background:var(--blue);margin:0 1px;
+  transform:translateY(2px);animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.crow{display:flex;align-items:baseline;min-height:21px;font-size:12.5px}
+.cands{display:flex;flex-wrap:wrap;align-items:baseline}
+.cand{display:flex;align-items:baseline;gap:5px;padding:0 10px;cursor:pointer;
+  border-right:1px solid var(--rule)}
+.cand:first-child{padding-left:0}
+.cand:last-child{border-right:0}
+.ci{font-size:9px;color:var(--faint);transform:translateY(-2px)}
+.ct{color:var(--ink)}
+.cp{font-size:10px;color:var(--faint);font-style:italic}
+.cand.on{background:var(--ink);color:var(--paper)}
+.cand.on .ct{color:var(--paper)} .cand.on .ci{color:#a8a49a} .cand.on .cp{color:#b5b1a6}
+.page{margin-left:auto;font-size:10px;color:var(--mid);letter-spacing:.04em}
+.screen.nocand .crow{display:none}
+
+/* ---------- 底栏 ---------- */
+.bottom{height:26px;flex:0 0 26px;display:flex;align-items:center;gap:18px;padding:0 16px;
+  font-size:10px;letter-spacing:.05em;color:var(--faint);border-top:1px solid var(--rule);
+  background:var(--paper)}
+.bottom b{font-weight:400;color:var(--faint);letter-spacing:.14em;margin-right:6px}
+.bottom i{font-style:normal;color:var(--ink)}
+.bottom .mods i{color:var(--mid)}
+.bottom .mods i.on{color:var(--ink)}
+.bottom .spacer{flex:1}
+</style>
+</head>
+<body>
+<figure class="stage"><div class="screen" data-side="left">
+
+  <header class="top">
+    <span class="brand">SYS.TERM</span>
+    <nav class="tabs">
+      <b class="tab on">brejce@switch:~…</b>
+      <b class="tab">vim ui.lua</b>
+      <b class="tab">journalctl -f</b>
+      <b class="tab plus">+</b>
+    </nav>
+    <span class="spacer"></span>
+    <span class="clock" data-clock>20:43</span><span class="dot">·</span>
+    <span class="bat">BAT 100%+</span>
+  </header>
+
+  <div class="main">
+    <aside class="panel active" data-side="left">
+      <div class="shoulders">
+        <button class="sh" data-act="commit"><b>L</b>上屏</button>
+        <button class="sh" data-act="space"><b>ZL</b>空格</button>
+      </div>
+      <div class="pad" data-hand="left"></div>
+      <div class="cluster">
+        <div class="ptitle">// DPAD</div>
+        <div class="dpad">
+          <span></span><button data-act="tab">Tab</button><span></span>
+          <button data-act="ctrl">Ctrl</button><span class="mid">·</span><button data-act="shift">Shift</button>
+          <span></span><button data-act="alt">Alt</button><span></span>
+        </div>
+        <div class="hints">
+          <span><b>L3</b>层 ALPHA↔NUM</span>
+          <span><b>Tab</b>候选翻页</span>
+          <span><b>Shift</b>双击锁上档</span>
+        </div>
+      </div>
+    </aside>
+
+    <section class="term">
+      <div class="lines">
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd">git log --oneline -3</span></div>
+        <div>b422c2b docs: MANUAL 进行手册</div>
+        <div>5b06da9 fix(rumble): 自动回中时不震</div>
+        <div>4eed347 fix(rumble): FF 设备改成阻塞打开</div>
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd">./build/switch-ime-term --print-config</span></div>
+        <div>sink=pty   backend=fbdev   1280x720   rotate=270</div>
+        <div>panel 220   key 64   window 3x4   layer ALPHA</div>
+        <div>gamepad: Combined Joy-Cons (event8)</div>
+        <div>ime: builtin pinyin   cand/page 7   ngram on</div>
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd">ls -la src/ui</span></div>
+        <div>-rw-r--r-- 1 brejce brejce  5412 11月 4 13:51 screen.cpp</div>
+        <div>-rw-r--r-- 1 brejce brejce  3571 11月 4 13:51 screen.h</div>
+        <div>-rw-r--r-- 1 brejce brejce  1888 11月 4 13:51 char_grid.h</div>
+        <div>-rw-r--r-- 1 brejce brejce  3186 11月 4 13:51 panels.cpp</div>
+        <div><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span> <span class="cmd"></span></div>
+      </div>
+      <div class="composer">
+        <div class="inrow"><span class="who">brejce@brejce-switch</span><span class="pth">:~/Project/switch-ime-term</span><span class="sig">$</span>&nbsp;<span data-typed></span><span data-compose></span></div>
+        <div class="crow"><span class="cands" data-cands></span><span class="page" data-page>1/3</span></div>
+      </div>
+    </section>
+
+    <aside class="panel" data-side="right">
+      <div class="shoulders">
+        <button class="sh" data-act="cursor-l"><b>R</b>左</button>
+        <button class="sh" data-act="cursor-r"><b>ZR</b>右</button>
+      </div>
+      <div class="pad" data-hand="right"></div>
+      <div class="cluster">
+        <div class="ptitle">// ABXY</div>
+        <div class="abxy">
+          <span></span><button class="x" data-act="delete">X</button><span></span>
+          <button class="y" data-act="esc">Y</button><span></span><button class="a" data-act="enter">A</button>
+          <span></span><button class="b" data-act="backspace">B</button><span></span>
+        </div>
+        <div class="hints">
+          <span><b>A</b>回车 &nbsp;<b>B</b>退格</span>
+          <span><b>X</b>Del &nbsp;<b>Y</b>Esc</span>
+          <span><b>R/ZR</b>组字中选词</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="bottom">
+    <span><b>LAYER</b><i data-f-layer>ALPHA</i></span>
+    <span><b>LANG</b><i data-f-lang class="on">ZH</i></span>
+    <span><b>IME</b><i>PINYIN</i></span>
+    <span class="spacer"></span>
+    <span class="mods"><b>MODS</b><i data-f-mods>—</i></span>
+  </footer>
+
+</div></figure>
+
+<div class="hud">
+  <div class="row ver">
+    <a href="index.html">总览</a>
+    <a class="on" href="v1-paper.html">01 纸白</a>
+    <a href="v2-instrument.html">02 仪表</a>
+    <a href="v3-terminal.html">03 终端优先</a>
+    <a href="v4-arcade.html">04 霓虹</a>
+  </div>
+  <div class="row">
+    <button data-hud="layer">层 ALPHA</button>
+    <button data-hud="nograb">无吸附</button>
+    <button data-hud="caps">上档</button>
+    <button data-hud="nocand">无候选</button>
+    <button data-hud="lang">英文</button>
+    <button data-hud="side">活跃侧</button>
+  </div>
+</div>
+
+<script src="mock.js"></script>
+</body>
+</html>

@@ -1,0 +1,45 @@
+/* mockup 公共底座：只放结构和舞台缩放，配色/排版全在各版 <style> 里 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body { height: 100%; overflow: hidden; background: #050506; }
+
+body {
+  display: grid;
+  place-items: center;
+  font-family: 'Maple Mono NF CN', 'JetBrains Mono', 'Fira Code', 'Noto Sans Mono CJK SC', monospace;
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.stage { width: 1280px; height: 720px; transform-origin: center center; }
+
+.screen {
+  width: 1280px; height: 720px;
+  display: flex; flex-direction: column;
+  overflow: hidden; position: relative;
+}
+
+[hidden] { display: none !important; }
+
+/* 按键反馈：只做视觉回弹，不改布局 */
+.screen .hit { animation: hit .2s steps(2); }
+@keyframes hit { 0% { opacity: .45; filter: brightness(1.8); } 100% { opacity: 1; filter: none; } }
+
+/* ---- 只给评审用的控制条（不属于设计稿本身） ---- */
+.hud {
+  position: fixed; right: 14px; bottom: 14px; z-index: 99;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  font: 10px/1 'Maple Mono NF CN', monospace; letter-spacing: .06em;
+  opacity: .35; transition: opacity .18s;
+}
+.hud:hover, .hud.live { opacity: 1; }
+.hud .row { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; max-width: 640px; }
+.hud button, .hud a {
+  padding: 5px 9px; background: #12131a; color: #6b7280;
+  border: 1px solid #23252f; font: inherit; text-decoration: none;
+  cursor: pointer; white-space: nowrap;
+}
+.hud button:hover, .hud a:hover { color: #d7d9e2; border-color: #454a5a; }
+.hud button.on { background: #16241c; border-color: #4ade80; color: #4ade80; }
+.hud a.on { background: #141d26; border-color: #4ab8e6; color: #4ab8e6; }
+body.embed .hud { display: none; }

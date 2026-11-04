@@ -170,6 +170,20 @@ DPAD 修饰。
 7. `engine.log` / `engine.ime.ngram` 仍只解析不生效（死配置清单见 `docs/ARCH.md` §6.7）。
 8. tab 组合键（先把 `ime_route.cpp` 的 ctrl/shift 判断顺序倒过来，或只用 shell 打不出来的组合）。
 
+### D2. UI 收尾（设计已定，未实现）
+
+规格全在 `UI_DESIGN.md`（设计稿：`design/v3-terminal.html`），这里只排优先级：
+
+| 编号 | 任务 | 现状 | 规格 |
+|---|---|---|---|
+| U1 | 历史回看：右侧 3px 指示条 + 触摸上下滑 + `SCROLL n/total` | `engine.terminal.scrollback` 有数据，但活路径（`app.cpp` 的 `drawGrid`）不画滚动、也不收触摸 | `UI_DESIGN.md` §七 |
+| U2 | 候选跟光标：像桌面输入法那样贴着正在打的那行 | 高度预留已做了（`ui.ime_rows=2` 从 PTY 行数里扣），但候选固定钉在终端区底部 | `UI_DESIGN.md` §六 |
+| U3 | 底栏 `LANG` + `IME` 合并成一个字段 | `screen.cpp:drawBottomBar` 还在同时打两个（`LANG ZH` + `IME PINYIN`） | `UI_DESIGN.md` §八 |
+| U4 | 默认 cwd = 登录用户 home，提示符缩写 `~` | 现在是进程启动时的 cwd，`src/` 里没有任何 HOME/getpwuid 处理 | `UI_DESIGN.md` §九 |
+
+U4 最便宜（开工就做），U3 次之（一个函数），U2 与 U1 都在终端区渲染层，
+建议同一次改（都要动 `drawGrid` 的行映射）。
+
 ### E. 已定路线（不用再讨论）
 
 - 图形软件塞进 tab：**只有路线 1（库级 offscreen → RGBA → `drawImage`）现实**；cage/weston 换 VT、

@@ -3,6 +3,8 @@
 > **核心架构**：三分区纯字符 UI + 可插拔终端解析器 + Lua 启动装配 + 运行时纯 C++ 状态机。
 > **目标**：打造极致的、可运行在 Switchroot / Linux 终端下的手柄输入法。
 > **字体基准**：Maple Mono NF CN（等宽，汉字 2 格），回落 Noto Sans CJK SC。
+> **视觉基调**：`docs/DESIGN-BRIEF.md`（white.execute 来稿的 LCD 彩色改编）；**屏幕规格**：
+> `UI_DESIGN.md`（几何/颜色语义/候选区规则）；颜色值只在 `src/theme/palette.cpp`。
 
 ---
 
@@ -16,10 +18,10 @@
 ├──────────────┬────────────────────────┬──────────────────┤
 │              │                        │                  │
 │ 左侧手柄面板 │ 中间终端区域           │ 右侧手柄面板     │
-│ (30 键键区)  │ (TerminalParser 接口)  │ (光标/ABXY)      │
+│ (20 键键区)  │ (TerminalParser 接口)  │ (光标/ABXY)      │
 │              │                        │                  │
 ├──────────────┴────────────────────────┴──────────────────┤
-│ 底部状态栏 (Layer / Mods / IME状态)                      │
+│ 底部状态栏 (LAYER / IME / MODS)                          │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -51,60 +53,70 @@
 ## 二、 视觉规范 (Visual Spec)
 
 *   **字体**：`Maple Mono NF CN`（ASCII 等宽、汉字正好占 2 格，1:2 网格合格）；缺字回落 `Noto Sans CJK SC`。
-*   **颜色规范**：
-    *   背景底色：`#08080c` (极深黑)
-    *   面板底色：`#0c0c14` (深灰黑)
-    *   主文本/普通状态：`#c8c8d4` (灰白)
-    *   左手柄高亮：青 `#22d3ee` / 右手柄高亮：红 `#ff6b5a`
-    *   符号层/魔法键：紫 `#a855f7`
-    *   聚焦/弹窗选中：蓝 `#4ab8e6` (反色/下划线/底色)
+*   **颜色规范**：全部来自主题令牌（`src/theme/palette.cpp`，默认 `switch`；另有 `light` / `gruvbox`）。
+    调用点只写 `col::kXxx`，**不许在渲染代码里出现裸 hex**。完整语义表见 `UI_DESIGN.md` §二。
+
+    | 令牌 | `switch` 值 | 语义 |
+    |---|---|---|
+    | `kBg` / `kPanel` / `kTerm` | `#05070c` / `#151a24` / `#0b0f16` | 底 / 面板（凸）/ 终端（凹）：**结构靠明度分层** |
+    | `kLine` | `#3e4756` | 所有 1px 分隔线（键框、区带） |
+    | `kText` / `kDim` / `kFaint` | `#ccd2dc` / `#8891a1` / `#5a6272` | 主文 / 次文 / 装饰 |
+    | `kCyan` / `kRed` | `#46c5d3` / `#e87e66` | 左手 / 右手（活跃侧强调、受力点亮） |
+    | `kBlue` | `#5f9fd0` | 光标、组字下划线、候选选中 |
+    | `kYellow` / `kPurple` / `kGreen` | `#d9ab5c` / `#a78bea` / `#5cc98f` | 修饰键与数字层 / 符号层 / 成功・电量 |
+
+*   **颜色只带语义**：同屏实心色块最多 2 个（吸附键 + 选中候选/模式 chip）；禁止渐变发光、
+    扫描线纹理、悬浮卡片。
 *   **无边框原则**：所有按键、网格、面板，只通过字符本身的颜色、反色（背景色）和排版留白来区分，杜绝任何实线或圆角绘制。
+
+> 注：本节以前抄的是 `#08080c / #22d3ee / #4ab8e6` 那套老值，已随主题重做作废；
+> 对比度标准（bg/panel 1.16:1、line/键面 1.64:1、text/bg 13.3:1）写在 `palette.cpp` 的注释里。
 
 ---
 
 ## 三、 手柄交互逻辑映射
 
-### 3.1 键区：双摇杆 + 魔法键
+### 3.1 键区：双摇杆 + 引力吸附
 
-*   **左/右摇杆**：各驱动一个指针，在各自 5×3 的键场里按引力场运动（`docs/PHYSICS.md`）。
-    死区外推杆量决定速度（内圈慢→中段快→推满最快），松手 0.3s 后滑回零位 `d` / `k`。
-*   **吸附**：离键心够近就吸附，整键反色；邻近键按真实引力强度点亮，方向不用十字准星也能看出来。
-*   **LB（魔法键）**：上屏**活跃侧**吸附住的字符（没吸附就不动作）。
-*   **选字**：组字时按**数字层里的候选编号**（同一颗魔法键），或回车打拼音原样。
-*   **LT（空格）**：永远是普通空格，不动组字串。
+*   **左/右摇杆**：各驱动一个指针，在各自 5 列 × 4 行（20 键）的键场里按引力场运动（`docs/PHYSICS.md`）。
+    死区外推杆量决定速度（内圈慢→中段快→推满最快），松手后滑回零位（左 `d` / 右 `j`）。
+*   **吸附**：指针是有半径的球，球边缘碰到键（`snap_radius + pointer_radius`）就吸附，整键反色；
+    邻键按真实受力点亮，所以推力方向不用十字准星也能看出来。吸附期间"就近换键"，滑动不闪。
+*   **窗口**：一屏只露 3 列 × 4 行，列跟着吸附键水平滑，行一次全露（数字行永远在屏上，靠遮罩压暗）。
+    几何与字符表 → `docs/LAYOUT-v2.md`。
+*   **LB**：上屏**活跃侧**吸附住的字符（带 `Shift` 取上档），没吸附就不动作。
+*   **LT**：组字中 = 上屏当前选中的候选；否则 = 空格。
+*   **RB / RT**：组字中 = 移动候选选中项；Tab 窗口内（DPAD_UP 后 1.2s）= 切 tab；
+    带 `Shift` = 光标上/下；其余 = 光标左/右。
 *   **L3**：键区层循环 ALPHA → NUM → SYM。
-*   **DPAD（十字键）—— 修饰符**：上 = `Tab`；左 = `Ctrl` / 下 = `Alt` / 右 = `Shift`；
-    双击锁定该修饰符，底部状态栏亮起提示，再双击解锁。
+*   **DPAD（十字键）—— 修饰符**：上 = `Tab`（顺带开 tab 窗口）/ 左 = `Shift` / 右 = `Alt` / 下 = `Ctrl`；
+    单击 = 一次性（sticky），双击 = 锁定/解锁；锁定时面板上那颗变实心块、底栏亮 `MODS`。
+*   **＋（START）**：`onboard`，拉起屏幕键盘（桌面模式被打断时兜底）。
 
-### 3.2 右手区：鼠标与全局控制
-*   **RB (右肩键) = 鼠标左键 / RT (右扳机) = 鼠标右键**：已实现。走 `/dev/uinput` 建一个
-    "switch-ime-term virtual mouse" 虚拟设备，只发 `BTN_LEFT`/`BTN_RIGHT` 的按下+抬起，
-    **不移动指针** —— 指针位置留给真鼠标，手柄只负责点。
-*   **右摇杆 = 鼠标移动**：**暂缓，不再回头做**。理由是验证路径太折腾——本机得用键鼠去操作
-   "摇杆模拟鼠标"，绕一圈证明不了什么。RB/RT 点击即止，不再加测试。
-   动作名 `mouse_move` 已绑定（`keymap.bind_axis("STICK_R", "mouse_move")`），C++ 侧故意不实现。
-*   **ABXY**：
-    *   `A` = 回车 (Enter)
-    *   `B` = 退格 (Backspace)
-    *   `X` = 删除 (Del)
-    *   `Y` = 取消 (Esc)
+### 3.2 右手区：ABXY 与虚拟鼠标
+
+*   **ABXY**：`A` = 回车 / `B` = 退格 / `X` = Del / `Y` = Esc（真机摆位：X 上、Y 左、A 右、B 下）。
+*   **虚拟鼠标（可选，默认没绑）**：动作 `mouse_left` / `mouse_right` 在 `app.cpp` 里是"只点不移动"
+    （`/dev/uinput` 发 `BTN_LEFT` / `BTN_RIGHT`）。`config/keymap.lua` 默认把 RB/RT 绑给了光标左/右，
+    要换回鼠标改两行即可；但 `/dev/uinput` 是 `0600 root:root`，打不开只会打一行警告、点了没反应
+    （`STATUS.md` §3.5）。
+*   **右摇杆 = 鼠标移动**：**暂缓，不再回头做**（得用本机键鼠去操作"摇杆模拟鼠标"，绕一圈证明不了什么）。
+    动作名 `mouse_move` 已绑定（`keymap.bind_axis("STICK_R", "mouse_move")`），C++ 侧故意不实现。
 
 ### 3.3 修饰键与组合键规则
 
-小屏幕手柄没有修饰键，电脑又必须有 —— 用**两条互不干扰的路径**解决：
+小屏幕手柄没有修饰键，电脑又必须有。现在只有**一条**路径：摇杆选键 + LB 上屏。
 
-| 路径 | 何时用 | 组合键能不能用 |
-|---|---|---|
-| 数字序列（网格态空格） | 打中文/英文正文 | 不能（数字没有大小写/控制码之分） |
-| 明确字母（LB 弹窗） | 精确选字母、控制键 | **能**：Ctrl/Alt + 字母 → `0x03` / `ESC+字母` |
-
-*   **Ctrl/Alt + 字母只在英文态生效**。中文态不抢字母，否则拼音根本打不出来。
+*   **单击 = 一次性（sticky），双击 400ms 内 = 锁定/解锁**；锁定态在左面板点亮、底栏亮 `MODS [CTRL]`。
+    ⚠「用完自动释放」还没实现：`sticky` 只翻转不清零，按一下等于锁死（`STATUS.md` §3.1）。
+*   **Ctrl/Alt + 字母只在英文态生效**；中文态不抢字母，否则拼音打不出来。
 *   **中文态大写自动按小写组字**：锁了 Shift 打 `Nihao` 仍然组 `nihao`。
 *   **组字中收到不认识的控制字节（0x01~0x1a）直接吞掉**，不污染 shell。
-*   **Ctrl+C 的打法**：按一下 Ctrl（sticky，意图是「用完自动释放」）→ LB 进弹窗 → 摇杆选到 `c` → LB 上屏。
-    ⚠ **注意：「用完自动释放」目前还未实现**，`sticky` 只翻转不清零，按一下等于锁死（见 `STATUS.md` E2）。
-    桌面模式（`sink=uinput`）下还有第二个坑：`0x01~0x1a` 在 `asciiToKey()` 里没有映射，Ctrl+A/C/V/D 会被静默丢弃（见 `STATUS.md` E1）。
-*   十字键：单击 = 一次性修饰（sticky），双击 400ms 内 = 锁定/解锁。
+*   **Ctrl+C**：按一下 DPAD_DOWN（Ctrl sticky）→ 摇杆选 `c` → LB 上屏。
+*   **中英切换**：只由 `Ctrl+空格`（DPAD_DOWN + LT）翻转，`keymap.lua` 里没有也不提供 `ime` 动作。
+
+> 旧的「数字序列（网格态空格）/ LB 弹窗」两条路径已随九键弹窗一起删除（2026-11），
+> 不要再按那套写文档或加回动作名。
 
 ---
 
@@ -156,7 +168,7 @@
 | `ui.title` | `"SYS.TERM"` | 顶部状态栏左侧标题 |
 | `ui.panel_w` | 220 | 左/右面板宽度 |
 | `ui.top_bar_h` / `bot_bar_h` | 32 / 26 | 顶部、底部状态栏高度 |
-| `ui.stick_box` | 180 | 旧九宫格外框边长（v2 不用） |
+| `ui.stick_box` | 180 | legacy 九宫格遗留：只喂旧路径的 `keyCell`，v2 渲染不读 |
 | `ui.dpad_cell` / `abxy_cell` / `shoulder_h` | 28 / 30 / 20 | 十字键格、ABXY 格、肩键条高度 |
 | `ui.term_pad_x` / `term_pad_top` / `term_pad_bot` | 14 / 10 / 8 | 终端网格区四周留白 |
 | `ui.cell_w` / `cell_h` | 8 / 21 | 终端字符格（决定列数/行数） |
@@ -165,23 +177,29 @@
 
 ### 4.3 看得见：`config/keymap.lua`
 
-键名：`LB LT RB RT A B X Y DPAD_UP DPAD_DOWN DPAD_LEFT DPAD_RIGHT`；
-动作名见 `src/config/lua_config.cpp` 的 `kActions`（`magic/space/tab/enter/backspace/
-delete/escape/mod_*/lock_*/mouse_left/mouse_right`）。
+键名：`LB LT RB RT A B X Y DPAD_UP DPAD_DOWN DPAD_LEFT DPAD_RIGHT L3 START`
+（`src/config/lua_config.cpp` 的 `kKeys`）；
+动作名见同文件 `kActions`：`none magic space tab enter backspace delete escape
+mod_ctrl/mod_alt/mod_shift lock_ctrl/lock_alt/lock_shift cursor_left/cursor_right
+layer_next onboard mouse_left/mouse_right next_tab/prev_tab/new_tab/close_tab`。
 
 ```lua
-keymap.bind("LB", "magic")        -- 网格 ↔ 弹窗 ↔ 上屏（连击）
-keymap.bind("LT", "space")        -- 网格态 = 敲数字，否则 = 上屏首候选
+-- 实际内容见 config/keymap.lua（这里是摘录，以那个文件为准）
+keymap.bind("LB", "magic")        -- 上屏活跃侧吸附住的字符（Shift 取上档）
+keymap.bind("LT", "space")        -- 组字中 = 上屏选中候选，否则 = 空格
+keymap.bind("L3", "layer_next")   -- ALPHA → NUM → SYM
 keymap.bind("DPAD_UP", "tab")
-keymap.bind("DPAD_LEFT", "mod_ctrl")
-keymap.bind("DPAD_RIGHT", "mod_shift")
-keymap.bind_double("DPAD_RIGHT", "lock_shift")   -- 双击锁定 = 符号层
+keymap.bind("DPAD_LEFT", "mod_shift")
+keymap.bind("DPAD_RIGHT", "mod_alt")
+keymap.bind("DPAD_DOWN", "mod_ctrl")
+keymap.bind_double("DPAD_LEFT", "lock_shift")    -- 双击锁定修饰（不是切层）
 keymap.bind("A", "enter")
 keymap.bind("B", "backspace")
 keymap.bind("X", "delete")
 keymap.bind("Y", "escape")
-keymap.bind("RB", "mouse_left")
-keymap.bind("RT", "mouse_right")
+keymap.bind("RB", "cursor_left")                 -- R：光标左 / 候选选中项上一条
+keymap.bind("RT", "cursor_right")                -- ZR：光标右 / 候选选中项下一条
+keymap.bind("START", "onboard")
 keymap.bind_axis("STICK_R", "mouse_move")        -- 已注册，C++ 侧故意不实现
 ```
 
