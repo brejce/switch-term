@@ -162,10 +162,12 @@ void installPathShims() {
 }
 
 // 应答 fish 的设备属性查询（否则启动会卡住等超时）
+// 只认 ESC [ c 和 ESC [ 0 c：以前写成「ESC [ 0」也算，于是每条 \x1b[0m 颜色复位
+// 都会换来一次 DA 应答，再被行规程回显成屏上的 "62;22c"
 void answerDA(term::Pty& pty, const char* buf, long n) {
-    for (long i = 0; i + 1 < n; ++i) {
-        if (buf[i] == 0x1b && buf[i + 1] == '[' &&
-            (i + 2 < n && (buf[i + 2] == 'c' || buf[i + 2] == '0'))) {
+    for (long i = 0; i + 2 < n; ++i) {
+        if (buf[i] != 0x1b || buf[i + 1] != '[') continue;
+        if (buf[i + 2] == 'c' || (buf[i + 2] == '0' && i + 3 < n && buf[i + 3] == 'c')) {
             const char* reply = "\x1b[?62;22c";
             pty.writeMaster(reply, std::strlen(reply));
             return;
@@ -294,6 +296,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // eng.imeEnabled = false → 直通 routeRaw（只转 Ctrl/Alt/Shift，完全不组字）
     const bool routeTrace = std::getenv("SIT_DEBUG") != nullptr;  // 排障：每个键被吃成什么
     auto route = [&, routeTrace](char ch, int mods) -> RouteResult {
+        if ((mods & 1) && ch == ' ') ch = 0x00;  // 手柄 Ctrl+空格 = 切中英（实体键盘终端本来就给 0x00）
         RouteResult r = eng.imeEnabled ? routeKey(ime, ch, mods) : routeRaw(ch, mods);
         if (routeTrace)
             std::fprintf(stderr, "[route] ch=%02x zh=%d composing=%d consumed=%d bytes=%zu\n",
