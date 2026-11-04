@@ -184,8 +184,7 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
 
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                  int layer, int first, int panelX, int panelY, int panelW, int panelH,
-                 float ptrX, float ptrY, int snap, int hover, float attractRadius,
-                 float pointerRadius) {
+                 float ptrX, float ptrY, int snap, int hover, float attractRadius) {
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
     const int sub = (L + 1) % cfg::kLayerCount;  // 副字符 = 下一层同位置（LAYOUT-v2 §3）
@@ -232,16 +231,6 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         r.textInBox({box.x, ty + mainH + gap, box.w, subH}, uic.layers[sub][k], f.keySub, subCol,
                     render::Align::Center);
     }
-    // 指针球：球心 = 面板中心（世界坐标的指针就画在这里）。renderer 没圆 API，用实心点 + 空心方框近似。
-    const int pr = std::max(0, px(pointerRadius));
-    if (pr > 0) {
-        const disp::Color pc = c(first == 0 ? col::kCyan : col::kRed);
-        r.fill({cx - S(2, s), cy - S(2, s), S(5, s), S(5, s)}, pc);  // 球心点
-        r.fill({cx - pr, cy - pr, 2 * pr, std::max(1, S(1, s))}, pc);          // 上边
-        r.fill({cx - pr, cy + pr - std::max(1, S(1, s)), 2 * pr, std::max(1, S(1, s))}, pc);  // 下边
-        r.fill({cx - pr, cy - pr, std::max(1, S(1, s)), 2 * pr}, pc);          // 左边
-        r.fill({cx + pr - std::max(1, S(1, s)), cy - pr, std::max(1, S(1, s)), 2 * pr}, pc);  // 右边
-    }
     r.clearClip();
 }
 
@@ -252,10 +241,9 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
     r.fill({0, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
     r.fill({rightX, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
     drawKeyHand(r, f, uic, g, st.layer, 0, 0, g.contentY, g.panelW, g.contentH, st.ptrLeftX,
-                st.ptrLeftY, st.snapLeft, st.hoverLeft, st.attractRadius, st.pointerRadius);
+                st.ptrLeftY, st.snapLeft, st.hoverLeft, st.attractRadius);
     drawKeyHand(r, f, uic, g, st.layer, 15, rightX, g.contentY, g.panelW, g.contentH,
-                st.ptrRightX, st.ptrRightY, st.snapRight, st.hoverRight, st.attractRadius,
-                st.pointerRadius);
+                st.ptrRightX, st.ptrRightY, st.snapRight, st.hoverRight, st.attractRadius);
     // 竖分隔线画在键之后：滚到窗边的键不该盖住面板边界
     r.fill({g.panelW - 1, g.contentY, 1, g.contentH}, c(col::kLine));
     r.fill({rightX, g.contentY, 1, g.contentH}, c(col::kLine));

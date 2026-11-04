@@ -734,7 +734,6 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         st.ptrRightX = ptrR.x;
         st.ptrRightY = ptrR.y;
         st.attractRadius = eng.physics.attractRadius;  // 键窗的点亮半径 = 物理场的引力半径
-        st.pointerRadius = eng.physics.pointerRadius;  // 指针球半径：渲染画球 + 吸附判定
         st.compose = ime.preedit();
         st.cands.clear();
         // 候选取当前页那一段：ime.cands() 是整页池，不切片的话 Tab 翻页会显示同一批

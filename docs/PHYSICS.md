@@ -44,7 +44,9 @@ struct Field {         // 一侧 15 键
 5. **边界**：把 `pos` 夹在本场 15 键的包围盒外扩 `hover_radius`
 6. **吸附判定**：取最近的键 `n`，距离 `dn`
    - `dn < snap_radius` 且无吸附 → `snapped = n`，发 `snap`
-   - 已吸附且 `dn > snap_radius * release_ratio`（默认 1.6）或玩家输入方向背离该键且 `|v| > release_power * max_speed` → `snapped = -1`，发 `release`
+   - 已吸附且 `d > snap_radius * release_ratio + pointer_radius` → `snapped = -1`，发 `release`
+     （**只看距离**；原来还有「推的方向背离该键」的判据，它与引力打架会导致吸附键逐帧闪，见 §9.8）
+   - 吸附中若另一个键明显更近（近 2px 以上）→ 直接换键，滑动时选中项跟着指针走
    - 无吸附时 `hovered = (dn < hover_radius) ? n : -1`；变化时发 `hover_changed`
 7. **零位回落**：输入 `mag < 0.15` 持续 0.3s 且无吸附 → 施加向 `home` 的弱引力（`home_pull`），让它自己滑回 `d`/`k`
 
@@ -71,25 +73,45 @@ struct PhysEventData { PhysEvent kind; int key; float x, y; };
 | `damping` | 0.35 | 惯性衰减：越小越跟手 |
 | `attract_power` | 90 | 引力强度：每帧加多少 px/s（键心 6px 内淡出，所以加大不会抖） |
 | `attract_radius` | 70 | 引力作用半径（px）＝键窗点亮半径（够到邻键中心） |
-| `snap_radius` | 30 | 吸附半径（px）；键 64 → 内切圆 32，即指针进键面就吸 |
+| `snap_radius` | 30 | 吸附半径（px）；实际判据是 `snap_radius + pointer_radius` = 51，键距 70 |
 | `release_ratio` | 1.3 | 脱开距离 = `snap_radius × 它` = 39px |
 | `hover_radius` | 34 | 弱高亮半径：只比 snap 大 4px，「变亮」≈「马上吸附」 |
-| `max_speed` | 800 | px/s，推到底的时速（最快） |
+| `max_speed` | 1600 | px/s，推到底的时速（最快） |
 | `deadzone` | 0.1 | 曲线起点（= `engine.input.deadzone`，app 里同步，不单独配） |
 | `speed_slow_end` | 0.5 | 微操段结束的推杆量（半径 10 的 5） |
-| `speed_low` | 0.3 | 微操段顶端的速度（× max_speed） |
+| `speed_power` | 1.6 | 外段曲线指数：1 = 线性，>1 = 越靠外斜率越大（旧实现用 smoothstep，斜率到边缘归零，推到底和八成一样快） |
+| `speed_low` | 0.15 | 微操段顶端的速度（× max_speed）：×1600 ≈ 240px/s，内圈手感与旧值不变 |
 | `home_pull` | 0.6 | 零位回落：每帧收回剩余距离的比例 |
-| `pointer_radius` | 12 | **指针球半径**（px）。0 = 原点模型（旧行为）。>0 时吸附/悬停/脱开判据一律变成 `球心距 < 该半径 + pointer_radius`，即**球边缘碰键**才算 |
+| `pointer_radius` | 21 | **指针球半径**（px）。0 = 原点模型（旧行为）。>0 时吸附/悬停/脱开判据一律变成 `球心距 < 该半径 + pointer_radius`，即**球边缘碰键**才算 |
 | ~~`release_power`~~ | 0.35 | **已废弃**，保留字段只为旧配置不报错，见 §9.8 |
 
 调手感的对应关系（实测）：
 
 | 想要 | 改哪个 |
 |---|---|
-| 更"咔"、更早吸住 | `pointer_radius` ↑（12→16~20）或 `snap_radius` ↑ |
+| 更"咔"、更早吸住 | `pointer_radius` ↑（现 21 ≈ 键宽 2/3；再大会吃掉两键之间的过渡）或 `snap_radius` ↑ |
 | 太糊、误吸邻键 | `pointer_radius` ↓（→0 退回原点模型） |
 | 更跟手、少滑行 | `damping` ↓（0.35→0.25） |
+| 外圈还想更猛 | `speed_power` ↑（1.6→2.0）或 `max_speed` ↑ |
 | 吸住后换键更费劲 / 更松 | `release_ratio` ↑ / ↓ |
+
+## 4.5 震动（`engine.rumble`）
+
+Joy-Con 走 evdev FF（`--audit-input` 不管这个；实测 `event8` 支持 `FF_RUMBLE`）。
+两份效果各占一个 FF 槽，互不打断：
+
+| 键 | 现用 | 含义 |
+|---|---|---|
+| `enabled` | true | 关掉就完全不开 FF 设备 |
+| `move_max` | 0.30 | 移动底噪最大强度 |
+| `move_speed_ref` | 500 | 指针速度到这么多 px/s 算推满 → 映射到 `move_max` |
+| `move_smooth_ms` | 60 | **底噪一阶低通时间常数**：摇杆速度逐帧跳变，直接喂马达会一档一档地顿 |
+| `rate_hz` | 40 | 底噪刷新率上限（每帧 ioctl 太重） |
+| `snap_strong` | 0.55 | 吸附那一下：强马达（低频"咚"） |
+| `snap_weak` | 0.30 | 吸附那一下：弱马达（高频"嗒"） |
+| `snap_ms` | 55 | 持续时长；太长会和下一颗键的"咚"糊在一起 |
+
+改这几项要 `systemctl restart switch-ime-term`（FF 槽在启动时上传，热重载不覆盖）。
 
 ## 5. 可测性（硬要求）
 
