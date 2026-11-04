@@ -204,7 +204,7 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                  int layer, int first, int panelX, int panelY, int panelW, int panelH,
                  float ptrX, float ptrY, int snap, int hover, float attractRadius,
-                 float snapPulse) {
+                 float snapPulse, float pullX, float pullY) {
     // 中心遮罩：只有画面中心的键是清楚的，往外逐渐沉入背景（"走向幕后阴影"）。
     // 软件光栅器没有高斯模糊，所以做成往面板底色淡出 + 淡到一定程度直接不画。
     // 半径是设计像素，和键距同一套：相邻键 70/76，对角 103。
@@ -233,10 +233,13 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         // 再往右 g 才亮；松手回零位时亮度跟着退回 d。吸附键已反色，不再叠加。
         const float kcx = float(uic.keysV2[k].x) + float(uic.keySize) * 0.5f;
         const float kcy = float(uic.keysV2[k].y) + float(uic.keySize) * 0.5f;
+        // 亮度按「指针离键心多近」算（不是摄像机）：指针被引力收进键心后自然全灭，
+        // 移动过程中才点亮，指针静止时不残留莫名其妙的边框
         const float pull =
             isSnap || attractRadius <= 0.f
                 ? 0.f
-                : std::clamp(1.f - std::hypot(kcx - ptrX, kcy - ptrY) / attractRadius, 0.f, 1.f);
+                : std::clamp(1.f - std::hypot(kcx - pullX, kcy - pullY) / attractRadius, 0.f,
+                             1.f);
         disp::Color edge = c(isSnap || isHover ? col::kText : col::kLine);
         disp::Color bg = c(isSnap ? col::kText : col::kKkBg);
         disp::Color mainCol = c(isSnap ? col::kBg : col::kText);
@@ -303,10 +306,11 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
     r.fill({0, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
     r.fill({rightX, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
     drawKeyHand(r, f, uic, g, st.layer, 0, 0, g.contentY, g.panelW, g.contentH, st.ptrLeftX,
-                st.ptrLeftY, st.snapLeft, st.hoverLeft, st.attractRadius, st.snapPulseL);
+                st.ptrLeftY, st.snapLeft, st.hoverLeft, st.attractRadius, st.snapPulseL,
+                st.pullLeftX, st.pullLeftY);
     drawKeyHand(r, f, uic, g, st.layer, 15, rightX, g.contentY, g.panelW, g.contentH,
                 st.ptrRightX, st.ptrRightY, st.snapRight, st.hoverRight, st.attractRadius,
-                st.snapPulseR);
+                st.snapPulseR, st.pullRightX, st.pullRightY);
     // 竖分隔线画在键之后：滚到窗边的键不该盖住面板边界
     r.fill({g.panelW - 1, g.contentY, 1, g.contentH}, c(col::kLine));
     r.fill({rightX, g.contentY, 1, g.contentH}, c(col::kLine));

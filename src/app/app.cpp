@@ -841,6 +841,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         st.ptrLeftY = camLy;
         st.ptrRightX = camRx;
         st.ptrRightY = camRy;
+        st.pullLeftX = ptrL.x;
+        st.pullLeftY = ptrL.y;
+        st.pullRightX = ptrR.x;
+        st.pullRightY = ptrR.y;
         st.attractRadius = eng.physics.attractRadius;  // 键窗的点亮半径 = 物理场的引力半径
         st.compose = ime.preedit();
         st.cands.clear();

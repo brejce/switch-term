@@ -24,7 +24,10 @@ struct AppState {
     // 吸附那一下的"弹一下"：1 = 刚吸上，随时间衰减到 0（约 140ms）
     float snapPulseL = 0, snapPulseR = 0;
     int hoverLeft = -1, hoverRight = -1;
-    float ptrLeftX = 0, ptrLeftY = 0, ptrRightX = 0, ptrRightY = 0;  // 设计像素
+    float ptrLeftX = 0, ptrLeftY = 0, ptrRightX = 0, ptrRightY = 0;  // 设计像素（= 摄像机）
+    // 引力渐变用的坐标 = 物理场的真实指针位置。摄像机被夹取/吸附后会和它对不上，
+    // 用摄像机算亮度会让静止时也有键莫名其妙亮着边框。
+    float pullLeftX = 0, pullLeftY = 0, pullRightX = 0, pullRightY = 0;
     float attractRadius = 60;     // engine.physics.attract_radius：键窗的点亮半径跟着物理场走
     std::string lang = "ZH";      // ZH | EN
     std::string imeName = "PINYIN";
@@ -85,7 +88,7 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                  int layer, int first, int panelX, int panelY, int panelW, int panelH,
                  float ptrX, float ptrY, int snap, int hover, float attractRadius,
-                 float snapPulse);
+                 float snapPulse, float pullX, float pullY);
 // v2 左右键区整块：面板底 + 两手滑窗键区（含高亮/引力点亮）+ 左 DPAD 簇 / 右 ABXY 簇。
 // 文字只来自 ui.lua 的标题（dpad_title / abxy_title），这里不写键字符。
 void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
