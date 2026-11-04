@@ -59,7 +59,7 @@ struct KeyV2 {
     int x = 0, y = 0;
 };
 
-constexpr int kKeyV2Count = 30;
+constexpr int kKeyV2Count = 40;  // 每手 5 列 × 4 行 = 20，共 40（真实键盘的行列组织）
 constexpr int kLayerCount = 3;  // 0=alpha 1=num 2=sym，层序循环见 LAYOUT-v2 §2
 
 struct Ui {
@@ -71,9 +71,11 @@ struct Ui {
     // v2：键位顺序 = 左场 row-major(3×5) 再接右场 row-major(3×5)；缺键/缺层保持空
     KeyV2 keysV2[kKeyV2Count];
     int keySize = 64;  // 键帽边长（设计像素），来自 ui.key_size
-    // 面板一屏露几列几行（滑窗可见范围），来自 ui.key_window；左右手各是一个 5×3 的世界
+    // 面板一屏露几列几行（滑窗可见范围），来自 ui.key_window；左右手各是一个 5×4 的世界
     int keyWindowCols = 3, keyWindowRows = 3;
-    std::string layers[kLayerCount][kKeyV2Count];  // 每键一个 UTF-8 字符（ASCII 是 1 字节）
+    std::string layers[kLayerCount][kKeyV2Count];  // 每键一个 UTF-8 字符（下档）
+    // 上档字符（Shift / 锁定 Shift 时用）：ui.shifts.<alpha|num|sym>，缺省为空 = 该键没上档
+    std::string shifts[kLayerCount][kKeyV2Count];
     std::string dpadTitle = "// DPAD (MODS)", abxyTitle = "// ABXY";
 };
 

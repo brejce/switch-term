@@ -394,8 +394,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     // 物理场（docs/PHYSICS.md）：两个摇杆各驱动一个指针。坐标是设计像素，与渲染缩放无关，
     // 所以键中心只在 ui.lua 变化（启动/热重载）时重算一次。
-    const app::physics::Field fieldL{0, 7};    // 左场：键 0..14，零位 d
-    const app::physics::Field fieldR{15, 22};  // 右场：键 15..29，零位 k
+    // 每场 = 一手 5 列 × 4 行 = 20 键；零位按真实键盘指法（左 f / 右 j）
+    const app::physics::Field fieldL{0, 13};   // 左场：键 0..19，零位 f
+    const app::physics::Field fieldR{20, 31};  // 右场：键 20..39，零位 j
     app::physics::Pointer ptrL, ptrR;
     int activeSide = 0;  // 0=左 1=右：L 上屏取哪一侧（最近推过、推得更狠的那根摇杆）
     int layerIdx = 0;    // 0=ALPHA 1=NUM 2=SYM（L3 循环）
@@ -430,7 +431,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         // 只有 3 行 5 列，所以最多上下各走一格、左右各走两格，再远就没有键可居中。
         camMinX = camMaxX = keyCx[0];
         camMinY = camMaxY = keyCy[0];
-        for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {  // 左场 0..14 就是一份完整局部坐标
+        for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {  // 左场 0..19 就是一份完整局部坐标
             camMinX = std::fmin(camMinX, keyCx[i]);
             camMaxX = std::fmax(camMaxX, keyCx[i]);
             camMinY = std::fmin(camMinY, keyCy[i]);
@@ -500,13 +501,22 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                     if (routeTrace) std::fprintf(stderr, "[magic] 丢弃：snapped=-1，指针在键缝里\n");
                     break;
                 }
-                const std::string& ch = uic.layers[layerIdx][p.snapped];
+                // Shift（一次性或锁定）优先取上档字符；该键没有上档就退回下档
+                const bool sh = ((bd->sticky | bd->locks) & 2) != 0;
+                const std::string& ch = (sh && !uic.shifts[layerIdx][p.snapped].empty())
+                                            ? uic.shifts[layerIdx][p.snapped]
+                                            : uic.layers[layerIdx][p.snapped];
                 if (ch.empty()) {
                     if (routeTrace) std::fprintf(stderr, "[magic] 丢弃：键 %d 在当前层是空格\n",
                                                  p.snapped);
                     break;
                 }
-                pending += route(ch[0], bd->sticky | bd->locks).bytes;
+                if (ch.size() == 1 && (unsigned char)ch[0] < 0x80) {
+                    pending += route(ch[0], bd->sticky | bd->locks).bytes;
+                } else {  // 多字节（中文标点）：先提交组字串，再把整串送出去
+                    if (ime.composing()) pending += ime.commit(-1);
+                    pending += ch;
+                }
                 break;
             }
             case cfg::kSpace: pending += route(' ', bd->sticky | bd->locks).bytes; break;

@@ -235,14 +235,14 @@ void readKeysV2(lua_State* L, KeyV2 out[kKeyV2Count]) {
 }
 
 // 读 ui.layers.<alpha|num|sym>：每层 30 个单字符
-void readLayers(lua_State* L, std::string out[kLayerCount][kKeyV2Count]) {
+void readLayersAt(lua_State* L, const char* table, std::string out[kLayerCount][kKeyV2Count]) {
     static const char* names[kLayerCount] = {"alpha", "num", "sym"};
     lua_getglobal(L, "ui");
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);
         return;
     }
-    lua_getfield(L, -1, "layers");
+    lua_getfield(L, -1, table);
     if (lua_istable(L, -1)) {
         for (int l = 0; l < kLayerCount; ++l) {
             lua_getfield(L, -1, names[l]);
@@ -257,6 +257,10 @@ void readLayers(lua_State* L, std::string out[kLayerCount][kKeyV2Count]) {
         }
     }
     lua_pop(L, 2);
+}
+
+void readLayers(lua_State* L, std::string out[kLayerCount][kKeyV2Count]) {
+    readLayersAt(L, "layers", out);
 }
 
 }  // namespace
@@ -304,7 +308,8 @@ bool loadUi(const char* path, Ui& out) {
     out.keyWindowRows = uiSubInt(L, "key_window", "rows", out.keyWindowRows);
     out.title = istr(L, "title", out.title.c_str());
     readKeysV2(L, out.keysV2);
-    readLayers(L, out.layers);
+    readLayersAt(L, "layers", out.layers);
+    readLayersAt(L, "shifts", out.shifts);
     lua_close(L);
     return true;
 }

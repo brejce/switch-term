@@ -498,8 +498,8 @@ static int auditPhysics() {
         kx[i] = float(uic.keysV2[i].x) + half;
         ky[i] = float(uic.keysV2[i].y) + half;
     }
-    const app::physics::Field left{0, 7};    // 左场：键 0..14，零位 d
-    const app::physics::Field right{15, 22};  // 右场：键 15..29，零位 k
+    const app::physics::Field left{0, 13};   // 左场：键 0..19，零位 f
+    const app::physics::Field right{20, 31};  // 右场：键 20..39，零位 j
 
     int bad = 0;
     auto ck = [&](const char* n, bool ok, const std::string& got, const std::string& exp) {
@@ -548,9 +548,9 @@ static int auditPhysics() {
     // 1. 零位静止 → 吸附在 home
     Run still = run(left, 30, [](int, float&, float&) {});
     Run stillR = run(right, 30, [](int, float&, float&) {});
-    ck("零位吸附 左 d(7)", still.p.snapped == left.home, std::to_string(still.p.snapped), "7");
-    ck("零位吸附 右 k(22)", stillR.p.snapped == right.home, std::to_string(stillR.p.snapped),
-       "22");
+    ck("零位吸附 左 f(13)", still.p.snapped == left.home, std::to_string(still.p.snapped), "13");
+    ck("零位吸附 右 j(31)", stillR.p.snapped == right.home, std::to_string(stillR.p.snapped),
+       "31");
 
     // 2. 向右推半程 0.5s → 吸附键下标递增
     Run push = run(left, 30, [](int, float& ix, float& iy) {
@@ -560,17 +560,19 @@ static int auditPhysics() {
     int maxSnap = -1;
     for (const auto& e : push.ev)
         if (e.kind == app::physics::PhysEvent::Snap) maxSnap = std::max(maxSnap, e.key);
-    ck("右推 0.5s 下标递增", maxSnap > left.home, "最大 snap=" + std::to_string(maxSnap), ">7");
+    ck("右推 0.5s 下标递增", maxSnap > left.home, "最大 snap=" + std::to_string(maxSnap),
+       ">" + std::to_string(left.home));
     ck("右推 0.5s 指针右移", push.p.x > push.x0, "Δx=" + n1(push.p.x - push.x0), ">0");
 
     // 3. 速度曲线三段（PHYSICS.md §2.1）：中段最快，推杆 0.2 / 1.0 两端都更慢（微操）
-    const float threeKeys = kx[left.home + 2] - kx[left.home];
+    // 量的距离 = 同一行里相邻一键的横向间距（home 在第 3 列，右边还有一列，够测）
+    const float oneKey = kx[left.home + 1] - kx[left.home];
     auto crossFrames = [&](float ix) {
         app::physics::Pointer p;
         p.x = kx[left.home];
         p.y = ky[left.home];
         int n = 0;
-        while (p.x - kx[left.home] < threeKeys && n < 900) {
+        while (p.x - kx[left.home] < oneKey && n < 900) {
             app::physics::step(p, left, kx, ky, ix, 0.f, pr);
             ++n;
         }
@@ -591,7 +593,7 @@ static int auditPhysics() {
         ix = i < 12 ? 1.f : 0.f;
         iy = 0.f;
     });
-    ck("松手后回 home（home_pull）", dToHome(left, back.p) < 8.f,  // 8px ≈ 键距 70 的 1/9，肉眼看已经归位
+    ck("松手后回 home（home_pull）", dToHome(left, back.p) < 8.f,  // 8px ≈ 键距 76 的 1/9，肉眼看已经归位
        "距 home=" + n1(dToHome(left, back.p)), "<8px");
 
     // 4.5 吸附力度：关掉 home_pull，从键心右 18px 松手 → 只靠键的引力被拽回键心
@@ -1082,10 +1084,10 @@ int main(int argc, char** argv) {
             // 与主循环同一套滑窗：指针钉在各自 home 键（d / k）中心，所以两面都居中吸附
             const float half = float(uic.keySize) * 0.5f;
             ui::drawKeyHand(pr, pfonts, uic, g, L, 0, 0, tb, pw, g.screenH - tb,
-                            float(uic.keysV2[7].x) + half, float(uic.keysV2[7].y) + half, 7, -1,
+                            float(uic.keysV2[13].x) + half, float(uic.keysV2[13].y) + half, 13, -1,
                             float(app::physics::Params{}.attractRadius), 0.f);
             ui::drawKeyHand(pr, pfonts, uic, g, L, 15, g.screenW - pw, tb, pw, g.screenH - tb,
-                            float(uic.keysV2[22].x) + half, float(uic.keysV2[22].y) + half, 22, -1,
+                            float(uic.keysV2[31].x) + half, float(uic.keysV2[31].y) + half, 31, -1,
                             float(app::physics::Params{}.attractRadius), 0.f);
             pr.fill({pw - 1, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
             pr.fill({g.screenW - pw, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));

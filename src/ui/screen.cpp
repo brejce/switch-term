@@ -212,7 +212,7 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     constexpr float kMaskOut = 125.f; // 这个距离以外完全看不见（对角 112 只剩五分之一）
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
-    const int sub = (L + 1) % cfg::kLayerCount;  // 副字符 = 下一层同位置（LAYOUT-v2 §3）
+    const int sub = (L + 1) % cfg::kLayerCount;  // 该键没上档时，副字符退回「下一层同位置」
     const int side = S(uic.keySize, s);          // 键帽边长来自 ui.key_size
     const int b = std::max(1, S(1, s));          // 1px 边框
     const int mainH = S(26, s), subH = S(13, s), gap = S(4, s);
@@ -283,7 +283,10 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         const int ty = box.y + (ds - mH - gH - sH) / 2;
         r.textInBox({box.x, ty, box.w, mH}, uic.layers[L][k], f.keyMain, mainCol,
                     render::Align::Center, 0, 0, 0, tscale);
-        r.textInBox({box.x, ty + mH + gH, box.w, sH}, uic.layers[sub][k], f.keySub, subCol,
+        // 副字符优先画上档（Shift 会打出来的那个字），没上档才退回下一层预览
+        const std::string& subCh =
+            !uic.shifts[L][k].empty() ? uic.shifts[L][k] : uic.layers[sub][k];
+        r.textInBox({box.x, ty + mH + gH, box.w, sH}, subCh, f.keySub, subCol,
                     render::Align::Center, 0, 0, 0, tscale);
     }
     r.clearClip();

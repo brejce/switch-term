@@ -6,7 +6,7 @@ namespace app::physics {
 namespace {
 
 constexpr float kDt = 1.f / 60.f;   // §4：dt 写死、不读配置（可回放的前提）
-constexpr int kFieldKeys = 15;
+constexpr int kFieldKeys = 20;  // 每手 5 列 × 4 行
 constexpr float kIdleMag = 0.15f;   // §2.7：推杆量低于它算「松手」
 constexpr float kIdleSecs = 0.3f;   // 松手这么久之后才开始回 home
 constexpr float kHomeEps = 0.5f;    // 离 home 这么近就停住，免得在零点上抖
