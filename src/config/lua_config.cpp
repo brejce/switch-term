@@ -236,7 +236,7 @@ void readKeysV2(lua_State* L, KeyV2 out[kKeyV2Count]) {
 
 // 读 ui.layers.<alpha|num|sym>：每层 30 个单字符
 void readLayersAt(lua_State* L, const char* table, std::string out[kLayerCount][kKeyV2Count]) {
-    static const char* names[kLayerCount] = {"alpha", "num", "sym"};
+    static const char* names[kLayerCount] = {"alpha", "num"};
     lua_getglobal(L, "ui");
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);

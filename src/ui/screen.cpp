@@ -244,7 +244,7 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     constexpr float kPulseAmp = 0.14f;  // 换键瞬间额外再涨 14% 然后回落 = 弹簧感
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
-    const int sub = (L + 1) % cfg::kLayerCount;  // 该键没上档时，副字符退回「下一层同位置」
+
     const int side = S(uic.keySize, s);          // 键帽边长来自 ui.key_size
     const int b = std::max(1, S(1, s));          // 1px 边框
     // 行高必须跟字号走：keyMain 36px / keySub 18px（FontBook 里已乘 kUiFontBoost）。
@@ -265,7 +265,8 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     for (int i = 0; i < cfg::kKeyV2Count / 2; ++i) {
         const int k = first + i;
         const bool isSnap = snap == k;
-        const bool isHover = !isSnap && hover == k;  // 吸附优先：吸附键不再描边
+        // 吸附优先；而且吸附期间物理层不更新 hovered，所以这里也不能信它（会留下过期边框）
+        const bool isHover = snap < 0 && hover == k;
         // 吸附动效：亮度 = 物理场的真实受力（同一半径、同一距离），所以往右推时 f 先亮、
         // 再往右 g 才亮；松手回零位时亮度跟着退回 d。吸附键已反色，不再叠加。
         const float kcx = float(uic.keysV2[k].x) + float(uic.keySize) * 0.5f;
@@ -311,19 +312,23 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         fillRound(r, {box.x + b, box.y + b, box.w - 2 * b, box.h - 2 * b},
                   std::max(1, rad - b), bg);
         // 主字符在上（大/亮），副字符在下（小/淡）：整块字在键帽里竖向居中。
+        // 字母在真实键帽上只印大写，所以 ALPHA 层的字母标签也显示大写（实际打出来的仍是小写，
+        // 上档/大写在输入路由里处理）；副字符只显示"上档真的有别的字"的键（数字、标点）。
         // 字跟着键块一起缩（tscale = ds/side），所以外围小键里也是小字，不会撑爆。
         const float tscale = side > 0 ? float(ds) / float(side) : 1.f;
         const int mH = int(std::lround(float(mainH) * tscale));
         const int gH = int(std::lround(float(gap) * tscale));
         const int sH = int(std::lround(float(subH) * tscale));
         const int ty = box.y + (ds - mH - gH - sH) / 2;
-        r.textInBox({box.x, ty, box.w, mH}, uic.layers[L][k], f.keyMain, mainCol,
-                    render::Align::Center, 0, 0, 0, tscale);
-        // 副字符优先画上档（Shift 会打出来的那个字），没上档才退回下一层预览
-        const std::string& subCh =
-            !uic.shifts[L][k].empty() ? uic.shifts[L][k] : uic.layers[sub][k];
-        r.textInBox({box.x, ty + mH + gH, box.w, sH}, subCh, f.keySub, subCol,
-                    render::Align::Center, 0, 0, 0, tscale);
+        std::string mainCh = uic.layers[L][k];
+        if (L == 0 && mainCh.size() == 1 && mainCh[0] >= 'a' && mainCh[0] <= 'z')
+            mainCh[0] = char(mainCh[0] - 'a' + 'A');
+        r.textInBox({box.x, ty, box.w, mH}, mainCh, f.keyMain, mainCol, render::Align::Center, 0,
+                    0, 0, tscale);
+        const std::string& subCh = uic.shifts[L][k];  // 没上档就不画副字符
+        if (!subCh.empty())
+            r.textInBox({box.x, ty + mH + gH, box.w, sH}, subCh, f.keySub, subCol,
+                        render::Align::Center, 0, 0, 0, tscale);
     }
     // 径向遮罩：圆心 = 准心在屏幕上的位置；铺满整个面板（只铺窗口的话，
     // 窗口边界会留一道硬边——外面是面板色、里面是被压暗的）

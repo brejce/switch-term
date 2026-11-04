@@ -45,7 +45,7 @@ void onReload(int) { gReload = 1; }
 constexpr long long kFlashMs = 150;  // 按键提示条闪一下的时长
 
 // cfg::Ui::layers 的顺序（LAYOUT-v2 §2）：L3 循环把下标换成底部状态栏的名字
-const char* const kLayerNames[cfg::kLayerCount] = {"ALPHA", "NUM", "SYM"};
+const char* const kLayerNames[cfg::kLayerCount] = {"ALPHA", "NUM"};
 
 // 拉起外部程序（onboard 这类），不等待也不算子 tab：setsid 后 exec，失败只说一句
 void spawnDetached(const char* prog) {
@@ -161,6 +161,22 @@ void installPathShims() {
     const char* old = std::getenv("PATH");
     std::string p = dir + ":" + (old ? old : "/usr/local/bin:/usr/bin:/bin");
     ::setenv("PATH", p.c_str(), 1);
+}
+
+// 中文态下 ASCII 标点走全角，和拼音输入法的行为一致；英文态原样送出。
+// 这样 NUM 层就不用再单独摆一份"，。；："——两个输入法状态各自负责自己的标点。
+const char* cjkPunct(const std::string& s) {
+    static const struct {
+        const char* ascii;
+        const char* cjk;
+    } kMap[] = {
+        {",", "，"}, {".", "。"}, {";", "；"}, {":", "："}, {"?", "？"}, {"!", "！"},
+        {"(", "（"}, {")", "）"}, {"[", "【"}, {"]", "】"}, {"\\", "、"}, {"<", "《"},
+        {">", "》"}, {"'", "‘"}, {"\"", "“"},
+    };
+    for (const auto& m : kMap)
+        if (s == m.ascii) return m.cjk;
+    return nullptr;
 }
 
 // 应答 fish 的设备属性查询（否则启动会卡住等超时）
@@ -521,11 +537,16 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                                                  p.snapped);
                     break;
                 }
-                if (ch.size() == 1 && (unsigned char)ch[0] < 0x80) {
-                    pending += route(ch[0], bd->sticky | bd->locks).bytes;
+                // 中文态：ASCII 标点先换成全角（。，；：？！（）【】、 等），英文态原样
+                std::string out = ch;
+                if (ime.chinese) {
+                    if (const char* cj = cjkPunct(ch)) out = cj;
+                }
+                if (out.size() == 1 && (unsigned char)out[0] < 0x80) {
+                    pending += route(out[0], bd->sticky | bd->locks).bytes;
                 } else {  // 多字节（中文标点）：先提交组字串，再把整串送出去
                     if (ime.composing()) pending += ime.commit(-1);
-                    pending += ch;
+                    pending += out;
                 }
                 break;
             }

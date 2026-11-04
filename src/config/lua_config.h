@@ -60,7 +60,7 @@ struct KeyV2 {
 };
 
 constexpr int kKeyV2Count = 40;  // 每手 5 列 × 4 行 = 20，共 40（真实键盘的行列组织）
-constexpr int kLayerCount = 3;  // 0=alpha 1=num 2=sym，层序循环见 LAYOUT-v2 §2
+constexpr int kLayerCount = 2;  // 0=alpha（字母+数字）1=num（主键区放不下的标点）
 
 struct Ui {
     int panelW = 220, topBarH = 32, botBarH = 26;
