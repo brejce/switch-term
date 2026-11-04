@@ -40,7 +40,7 @@ void fillRound(render::Renderer& r, disp::Rect b, int rad, disp::Color col) {
 void vignette(render::Renderer& r, disp::Rect area, float ccx, float ccy, float r0, float r1,
               disp::Color col) {
     if (r1 <= r0) return;
-    constexpr int kCell = 4;
+    constexpr int kCell = 6;
     const float inv = 1.f / (r1 - r0);
     for (int y = area.y; y < area.bottom(); y += kCell) {
         const float dy = float(y) + kCell * 0.5f - ccy;
@@ -250,6 +250,13 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     const int cx = win.x + win.w / 2, cy = win.y + win.h / 2;  // 面板中心 = 指针位置
     auto px = [s](float v) { return int(std::lround(v * s)); };
     const disp::Color acc = c(first == 0 ? col::kCyan : col::kRed);  // 左手青 / 右手红
+    // 准心 = 选中键的键心（没吸附时退回指针）。衰减必须按它算，不能按摄像机：
+    // 摄像机被 camHomeOffY 顶高了 41px，用它算会让 d（41px）和 e（41px）距离相等 —— 静止时大小就没区别。
+    float retX = ptrX, retY = ptrY;
+    if (snap >= 0 && snap < cfg::kKeyV2Count) {
+        retX = float(uic.keysV2[snap].x) + float(uic.keySize) * 0.5f;
+        retY = float(uic.keysV2[snap].y) + float(uic.keySize) * 0.5f;
+    }
     r.setClip(win);  // 窗外的键画不出去，终端区不会被脏到
     for (int i = 0; i < cfg::kKeyV2Count / 2; ++i) {
         const int k = first + i;
@@ -277,7 +284,7 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         }
         // 离准心越远越淡：这里只决定"缩小多少"和"远到看不见就不画"，
         // 真正的变暗交给画完之后铺的径向遮罩（逐键整体降透明度会有整块感，很假）
-        const float dmask = std::hypot(kcx - ptrX, kcy - ptrY);
+        const float dmask = std::hypot(kcx - retX, kcy - retY);
         const float fade =
             1.f - std::clamp((dmask - kMaskIn) / (kMaskOut - kMaskIn), 0.f, 1.f);
         if (fade <= 0.02f) continue;  // 完全沉下去：连框带字都不画
@@ -316,20 +323,16 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         r.textInBox({box.x, ty + mH + gH, box.w, sH}, subCh, f.keySub, subCol,
                     render::Align::Center, 0, 0, 0, tscale);
     }
-    // 径向遮罩：圆心 = 选中键现在所在的屏幕位置（没吸附时用窗口中心）
-    {
-        float ccx = float(cx), ccy = float(cy);
-        if (snap >= 0) {
-            const float skx = float(uic.keysV2[snap].x) + float(uic.keySize) * 0.5f;
-            const float sky = float(uic.keysV2[snap].y) + float(uic.keySize) * 0.5f;
-            ccx = float(cx + px(skx - ptrX));
-            ccy = float(cy + px(sky - ptrY));
-        }
-        // 遮罩色 = 面板底色再暗 10%（往黑里压），外圈才真的"更黑"而不是跟底色同色
-        const disp::Color veil = disp::mix(c(col::kPanel), disp::rgb(0x000000), 0.10f);
-        vignette(r, win, ccx, ccy, kMaskIn, kMaskOut, veil);
-    }
+    // 径向遮罩：圆心 = 准心在屏幕上的位置；铺满整个面板（只铺窗口的话，
+    // 窗口边界会留一道硬边——外面是面板色、里面是被压暗的）
     r.clearClip();
+    {
+        const float ccx = float(cx + px(retX - ptrX));
+        const float ccy = float(cy + px(retY - ptrY));
+        // 遮罩色 = **背景色**（键淡出就是"透明地沉进背景"），再往黑里压 10% 让外圈更沉
+        const disp::Color veil = disp::mix(c(col::kBg), disp::rgb(0x000000), 0.10f);
+        vignette(r, disp::Rect{panelX, panelY, panelW, panelH}, ccx, ccy, kMaskIn, kMaskOut, veil);
+    }
 }
 
 void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
