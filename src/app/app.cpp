@@ -409,12 +409,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     };
     resetFields();
 
-    // ui.lua 里没写 keys 就是配置缺失：键区会是空的，启动时说一句（没有别的面板可退回了）
-    for (const cfg::KeyV2& k : uic.keysV2)
-        if (!k.x && !k.y) {
-            std::fprintf(stderr, "警告：ui.lua 没有 keys，左右键区是空的\n");
-            break;
-        }
+    // ui.lua 里没写 keys 就是配置缺失：键区会是空的，启动时说一句（没有别的面板可退回了）。
+    // 判最后一颗而不是第一颗：第一颗的局部坐标本来就是 (0,0)，那是合法值
+    if (!uic.keysV2[cfg::kKeyV2Count - 1].x && !uic.keysV2[cfg::kKeyV2Count - 1].y)
+        std::fprintf(stderr, "警告：ui.lua 没有 keys，左右键区是空的\n");
 
     ui::AppState st;
     st.imeName = !eng.imeEnabled ? "OFF" : (ime.chinese ? "PINYIN" : "EN");

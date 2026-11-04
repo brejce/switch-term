@@ -1,8 +1,9 @@
 # STATUS · 交接（现在能跑什么 / 已知 bug / 下一步）
 
-> 最后更新：2026-11-03。定位：**一眼看清现在在哪、下一步做什么**。历史过程已删。
+> 最后更新：2026-11-04。定位：**一眼看清现在在哪、下一步做什么**。历史过程已删。
 > 模块边界与配置 → `docs/ARCH.md`；机器实测事实 → `docs/DEVICE.md`；上机流程 → `docs/SWITCHROOT.md`；
-> 布局权威规格 → `docs/LAYOUT-v2.md`；按键映射 → `config/keymap.lua`（`--print-config` 可打印）。
+> 布局权威规格 → `docs/LAYOUT-v2.md`；按键映射 → `config/keymap.lua`（`--print-config` 可打印）；
+> 字体 → `docs/FONTS.md`。
 
 环境：**本机就是目标机**——Switch 2017 / switchroot Ubuntu 24.04.4 (noble) / kernel 4.9.140-l4t /
 arm64 / 3.9Gi，自然会话已关（`multi-user.target`，无 KDE/Xorg），桌面未卸载；`/dev/dri` 不存在。
@@ -10,11 +11,12 @@ arm64 / 3.9Gi，自然会话已关（`multi-user.target`，无 KDE/Xorg），桌
 
 ## 1. 当前状态（四句话）
 
-- **能跑**：双摇杆引力选键 + 内置拼音 IME + 多 tab + 三分区绘制 + 配置热重载。
-- **fbdev 已在 Switch 上跑通**：软件旋转 270°（`engine.display.rotate`），
-  `--preview-keys --backend fbdev` 可直接画到屏幕。
-- **布局 v2 只做了静态键帽**：`ui.keys`/`ui.layers` + `drawKeyGrid`，只经 `--preview-keys` 触发，**没接管主循环**。
-- **旧九键面板已整体删除**（2026-11）：状态机/弹窗/九键配置全删，`--audit-input` 保留了手柄映射那部分。
+- **能跑**：双摇杆引力选键 + 内置拼音 IME（空格上屏选中候选 / R·ZR 选词）+ 多 tab + 三分区绘制 + 配置热重载。
+- **开机就是它，不启 Xorg**：`switch-ime-term.service`（`multi-user.target` 默认 + `/dev/tty1` + 背光强制
+  255 + 等 Joy-Con 出现再起）。重启即进界面，`systemctl restart switch-ime-term` 换版本。
+- **布局 v2 已接管主循环**：`config/ui.lua` 的 30 键 + 三层，摇杆物理场决定吸附，LB 上屏。
+- **旧九键面板已整体删除**（2026-11）：状态机/弹窗/九键配置全删；`--legacy` 的输入层也已并到
+  `keymap.lua` + `routeKey`（2026-11-04），C++ 里不再有第二张键位表。
 
 ## 2. 现在能跑什么
 
@@ -49,16 +51,16 @@ sudo apt install cmake build-essential pkg-config libfreetype-dev libfontconfig1
 | PTY + libvterm | 能跑 | bash/fish 提示符、命令输出、nano 全屏（含中文与底部快捷键栏） |
 | 键盘输入 | 能跑 | 修饰键、F1–F12、方向/Home/End/PgUp/Delete、Shift+Tab、Esc |
 | 多 tab | 能跑（未在真 shell 验过） | `term 名字` / `quit` / `exit`，点 tab 条切换，点 `+` 新建，上限 16 |
-| 内置拼音 | 能跑 | `Ctrl+Space` 切中英；候选自绘在终端底部固定 2 行；注音带声调 |
+| 内置拼音 | 能跑 | `Ctrl+Space` 切中英（手柄 = DPAD_LEFT + ZL）；**空格上屏选中候选**、R/ZR 在候选条里移动；候选自绘在终端底部固定 2 行；注音带声调 |
 | n-gram 重排 | 能跑 | 30 万条 bigram；`知` 之后打 `shi` → 首候选「识」 |
 | 鼠标 demo | 能跑 | 左键选格、右键 = 魔法键、悬停即选中；只改 UI 状态，不写 PTY |
-| 虚拟鼠标 | 能跑 | RB/RT 只点不动；右摇杆移指针**不做** |
+| 光标键 | 能跑 | R=左 / ZR=右；带 Shift（单击一次 / 双击锁定）变上/下；右摇杆移指针**不做** |
 | 输出口 | 能跑 | `sink=pty`（默认）/ `uinput`（打给前台程序，打不开自动回落 pty） |
 | 配置热重载 | 能跑 | `kill -USR1`（`-HUP` 同）或窗口内 `Ctrl+Shift+R`，全量重读重建 |
 | 缩放 | 能跑 | 窗口尺寸变化自动重排 + 重建字体 + PTY resize |
 | 主题 | 能跑 | `src/theme/palette.cpp` 3 套（switch/light/gruvbox），UI 与 ANSI 0-15 同一来源 |
 | fbdev 后端 | 能跑（本机跑通） | 软件旋转 + 居中贴图；键盘走 stdin raw，Ctrl+Q 退出 |
-| v2 分体键盘 | **只有静态键帽** | `--preview-keys`；数据在 `config/ui.lua` |
+| v2 分体键盘 | 能跑（接管主循环） | 数据在 `config/ui.lua`；`--preview-keys` 仍可单画键帽 |
 | 剪贴板 / 选区 / 滚轮回看 | 只有 `--legacy` | 新路径空实现，见 §3.5 |
 | fcitx5 | 进不来 | `display_sdl.cpp:99` 无条件 `SDL_StopTextInput()` |
 | 词级候选 | 缺 | `nihao` 第 2 候选是「你号」（单字交叉组合，非词表） |
@@ -80,14 +82,15 @@ sudo apt install cmake build-essential pkg-config libfreetype-dev libfontconfig1
 1. **uinput 静默丢控制码**：`src/input/uinput_kbd.cpp:23-66` 的 `asciiToKey()` 不认 `0x01~0x1f`，
    `tap()` 首行 `!keycode` 直接返回（`:120`）→ **桌面模式（sink=uinput）下 Ctrl+A/C/V/D 一个键都不发**。
    PTY 模式本来就对。修法约 15 行（`KeyStroke` 加 `ctrl`，`tap()` 夹 `KEY_LEFTCTRL`）。
-2. **sticky 从不清零**：`src/app/app.cpp:408-410` 只有 `sticky ^= …`，按一下就等于锁定，
-   与 `panels.cpp:92` 注释「只作用于下一个键」不符。修法 3 行（以「真产出了字节」为消耗判据）。
+2. ~~sticky 从不清零~~ —— **已修**（`7bdc6f7` 前一笔）：`doAction` 之后 `clearSticky()`，键盘路径每键清；
+   锁定的修饰键现在还会在左面板点亮（`st.modCtrl/modShift/modAlt` 之前从没被赋值）。
 3. **中文态 Ctrl 被吞**：`src/app/ime_route.cpp:11` 让中文态 Ctrl+c 走到「字母起组字」（`:109`），
    Ctrl 静默失效、底栏却还亮着 CTRL。桌面模式不受影响。
 
 ### 3.2 手柄
 
-- 十字键键码已修，但**未上机复验**；`--list-gamepad` 也还没在这台机上跑过。
+- 十字键键码**已在真机复验**（`--audit-input` 全 OK，`--list-gamepad` 认出 `Combined Joy-Cons` =
+  `event8`）。注意服务启动时 Joy-Con 还在串口握手，所以 unit 里 `ExecStartPre` 会等设备出现再起。
 - 「手柄不可用」的真相是**左滑轨只连上了一边**（不是驱动问题）：必须有 `event6 + event7 + event8`，
   排查命令见 `docs/DEVICE.md` §1.3。
 - `config/keymap.lua:7` 的 `LT` 实际映射 `BTN_TL2` = 物理 **ZL**（命名错位，不影响功能）。
@@ -100,8 +103,11 @@ sudo apt install cmake build-essential pkg-config libfreetype-dev libfontconfig1
 - **`/dev/dri` 不存在、没有 KMS**：Wayland 不可能，只能 X11 或 fbdev 裸机。
 - **有合成器时不要对 `/dev/fb0` 做 `FBIOPUT_VSCREENINFO`** —— 2026-11-03 15:46 硬复位，
   详见 `docs/DEVICE.md` §5。
-- 字体：`theme.h:35` 写死 `Maple Mono NF CN`，本机 0 命中，回退 `Noto Sans CJK SC`（非等宽），
-  1:2 网格与 Nerd 图标没了。
+- ~~字体回退~~ —— **已修**：`MapleMono-NF-CN-{Regular,Bold}.ttf` 已装进 `~/.local/share/fonts`，
+  `FontManager::get()` 在「请求族名 ≠ 实际族名」时会打 `fontconfig: 要 'X' 实际拿到 'Y'`。
+  背景与装法 → `docs/FONTS.md`、`docs/DEVICE.md` §12。
+- **背光会被压到 23/255（9%）**：Xorg 退出、或写 `/sys/class/graphics/fb0/blank` 都会留下这个值，
+  屏看起来是纯黑。unit 的 `ExecStartPre` 每次启动强制 255，systemd-backlight 存的值也改成 255 了。
 - `--backend fbdev` 下 `fbcon=map:9` —— 切 TTY 没有文字，程序崩了只能靠 SSH。
 
 ### 3.4 渲染坑
@@ -159,7 +165,7 @@ DPAD 修饰。
 2. **删 legacy UI**：`src/ui/panels.*` / `layout_lua.*` / 根 `layout.lua` / `main.cpp` 的 `--legacy`。
    删前先把 legacy 独有能力（点击 HitTest、选区、剪贴板、滚轮回看、SDL 写 `sticky`）搬进新路径。
 3. **脏矩形 + 软件双缓冲**：`docs/DEVICE.md` §6 有收益表与 8 步改动清单（`present(damage)`）。
-4. 修 §3.1 的三条（uinput 控制码 / sticky 清零 / 中文态 Ctrl）。
+4. 修 §3.1 剩下的两条（uinput 控制码 / 中文态 Ctrl）——sticky 那条已修。
 5. 符号层专属弹窗布局（现在按字符数截断同一张表）。
 7. `engine.log` / `engine.ime.ngram` 仍只解析不生效（死配置清单见 `docs/ARCH.md` §6.7）。
 8. tab 组合键（先把 `ime_route.cpp` 的 ctrl/shift 判断顺序倒过来，或只用 shell 打不出来的组合）。

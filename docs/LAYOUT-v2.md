@@ -86,38 +86,39 @@ z  x  c  v  ,                 b  n  m  .  ?
 | 左摇杆 | 左手区 15 键的物理指针（原点 `d`） |
 | 右摇杆 | 右手区 15 键的物理指针（原点 `j`） |
 | **LB（L）** | 上屏**活跃侧**当前 `snap` 的字符；`hover` 只做弱高亮，**永不上屏**；无 snap 则不动作 |
-| **L3（摇杆按下）** | 层循环 ALPHA→NUM→SYM；双击锁层 |
+| **L3（摇杆按下）** | 层循环 ALPHA→NUM→SYM |
 | **A / B / X / Y** | 回车 / 退格 / Delete / Esc |
-| **R / ZR** | 光标右 / 左（`ESC[C` / `ESC[D`）；锁 Shift 时扩选 |
-| **ZL（LT）** | 空格 |
-| **RB（R）** | 保留（原鼠标左键），暂无用途 |
-| **−（MINUS）** | 待定 |
-| **＋（PLUS）** | 待定 |
+| **R / ZR** | 光标左 / 右（`ESC[D` / `ESC[C`）；带 Shift（单击 sticky 一次 / 双击锁定）变上 / 下（`ESC[A` / `ESC[B`）——手柄没别的键发上下箭头 |
+| **组字出候选时** | R / ZR 不光标，而是在候选条里移动选中项（候选优先级高于上下） |
+| **ZL（LT）** | 空格；**组字中 = 上屏当前选中的候选** |
+| **＋（PLUS）** | `onboard`：拉起屏幕键盘（桌面模式下 KDE 抢先时的兜底） |
 | **⭕（CAPTURE）** | 待定 |
 | **🏠（HOME）** | 待定 |
-| DPAD ←/→/↓/↑ | 一次性 Ctrl / Shift / Alt / Tab，双击锁定 |
+| DPAD ←/→/↓/↑ | 一次性 Ctrl / Shift / Alt / Tab，双击锁定（锁定的会在左面板点亮） |
+| DPAD_LEFT + ZL（Ctrl+空格） | 切中英（等价键盘 `Ctrl+Space`）；组字中的拼音原样落下 |
 | L3 键码备注 | `BTN_THUMBL(318)`；`BTN_THUMBR(319)` 在设备上不存在 |
 
 ## 6. 物理参数（`config/engine.lua`）
 
-```lua
-engine.physics = {
-    dt            = 1/60,  -- 固定步长，无随机，可离线回放
-    damping       = 0.88,  -- 松手滑行衰减
-    attract_power = 2.4,   -- 引力，随距离衰减
-    snap_radius   = 18,    -- 进入即吸附（只高亮）
-    release_power = 1.8,   -- 反向推力超过才脱开
-    max_speed      = 800,  -- px/s，推到底最快
-    speed_slow_end = 0.5,  -- 推杆 5/10 之前是微操段
-    speed_low      = 0.3,  -- 微操段顶端速度（× max_speed）
-    hover_radius  = 26,    -- 无吸附时的最近键判定
-}
+**参数只有一处真相：`config/engine.lua` 的 `engine.physics`。** 本文不再抄一份（抄过，已经漂了：
+文档写 `damping 0.88 / attract_power 2.4`，代码里是 `0.35 / 60`）。看现值：
+
+```fish
+grep -A 14 "engine.physics" config/engine.lua
+./build/switch-ime-term --audit-physics   # 零位/推进/穿越速度/回落/脱开 + 确定性
 ```
+
+只在文档里固定「不打算当旋钮」的东西：
+
+- `dt` **写死在 C++（1/60）**，不进配置——同一输入序列要能确定性回放。
+- 左右两个场完全独立，共用同一套 30 键局部坐标；`home` 各是一个键（左 `d` / 右 `j` 附近）。
+- 吸附与脱开是**两套阈值**（进得快、出得黏），高亮半径 ≠ 吸附半径。
+- 摇杆死区在**进物理场之前**滤（`engine.input.deadzone`），否则松手回不到零位。
 
 ## 7. 与旧布局的关系
 
 - 旧的九键面板、弹窗、状态机、旧的自检开关：**已整体删除**（2026-11），
-  选字改由魔法键在数字层按候选编号完成；空格永远是普通空格
+  选字改为 R/ZR 在候选条里移动选中项 + 空格上屏（数字键仍可用，但要切到 NUM 层）
 
 - 旧 `layout.lua`（legacy 路径）：随 legacy 一起删
 
