@@ -3,7 +3,10 @@
 > 版本：v1.2
 > 定位：手柄驱动的跨平台虚拟终端 + 可插拔中文输入法
 > 目标平台：Nintendo Switch（Switchroot Linux）、x86-64 桌面 Linux、其他 fbdev/DRM/EGL Linux
-> 配套：`IMPLEMENTATION.md`（实现规范）、`ui-mockup.html`（视觉基准）
+> 配套：`docs/ARCH.md`（实现规范）、`ui-mockup.html`（视觉基准）
+>
+> **历史文档（2026-10 计划书）**：文中 epoll/D-Bus/TOML/ScreenBuffer 等已被现实取代，
+> 现行架构看 `docs/ARCH.md`，现状看 `STATUS.md`。本文只作目标与取舍的存档，不再维护。
 
 ---
 
@@ -31,7 +34,7 @@
 5. **事件驱动重绘**：只在 PTY 数据、输入事件、定时器到期时重绘。
 6. **单线程事件循环**：epoll 统一管理 PTY、手柄、键盘、指针、D-Bus、定时器。
 7. **配置驱动**：按键映射、手柄归一化、IME 选择、显示后端全部 Lua 配置
-   （`config/ui.lua` / `keymap.lua` / `engine.lua`，规范见 `DESIGN.md` §4）。
+   （`config/ui.lua` / `keymap.lua` / `engine.lua`，规范见 `docs/ARCH.md` §6）。
 8. **接口预留，内容后补**：Overlay 只留接口，registry 为空，不阻塞主目标。
 
 ---
@@ -65,13 +68,13 @@
 
 ## 4. 系统架构
 
-见 `IMPLEMENTATION.md` 第 1 节架构图。四类可插拔后端 + 输入三源，单线程 epoll 事件循环。
+见 `docs/ARCH.md` §1（现行分层）与 §10.1（早期 epoll/D-Bus 草案，已作废）。四类可插拔后端 + 输入三源。
 
 ---
 
 ## 5. 模块设计
 
-详见 `IMPLEMENTATION.md`。要点：
+详见 `docs/ARCH.md`。要点（下面是当时的设想，现行以 ARCH 为准）：
 
 - **显示**：`DisplayBackend` 接口，`fillRect`/`drawTexture` 两类绘制命令，后端矩阵 fbdev/drm/egl_gles/glx/headless。
 - **终端**：Pty + libvterm + ScreenBuffer，底部 1 行输入法状态栏。
@@ -87,7 +90,7 @@
 > UI 层规范已独立到 `UI_DESIGN.md`（纯字符网格，无图形块）。本文档中的 `[ui]` 配置项只覆盖 IME 候选栏。
 
 
-见 `IMPLEMENTATION.md` 第 9 节完整结构。关键默认值：
+见 `docs/ARCH.md` §6（现行 Lua 配置）与 §10.2（早期 TOML 规范，已作废）。关键默认值：
 
 - `ime.backend = "builtin"`
 - `input.keyboard.route = "pty"`
@@ -98,13 +101,13 @@
 - `ui.titlebar = false`（fbdev/drm 上），`ui.statusbar = "row"`
 - `input.hysteresis_deg = 8`
 
-布局推导规则见 `IMPLEMENTATION.md` 第 13 节，摇杆字母表见第 14 节。**15 节列出的 D1–D11 未拍板前，对应模块不要动工。**
+布局推导规则见 `docs/ARCH.md` §10.3，摇杆字母表见 §10.4，D1–D11 见 §10.5（多数已被 v2 布局解决）。
 
 ---
 
 ## 7. 目录结构
 
-见 `IMPLEMENTATION.md` 第 10 节。
+见 `docs/ARCH.md` §2（现行模块）与 §8（legacy 双栈）。
 
 ---
 
@@ -213,7 +216,7 @@ CI 只跑 headless，实机手动触发。
 - 分支：`main` 保护，功能分支 `feat/<milestone>-<topic>`，PR 过 CI（编译 + 单元 + headless 像素回归）。
 - 提交：Conventional Commits。
 - 接口稳定性：四类后端接口合并进 `main` 后，新增字段用可选虚函数默认实现。
-- 文档同步：接口变更必须更新 `IMPLEMENTATION.md` 和 `PLAN.md`。
+- 文档同步：接口变更必须更新 `docs/ARCH.md` 和 `PLAN.md`。
 
 ---
 

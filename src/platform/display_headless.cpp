@@ -31,6 +31,8 @@ public:
                      disp::Color tint) override {
         canvas_.drawTexture(id, src, dst, tint);
     }
+    void setClip(const disp::Rect& r) override { canvas_.setClip(r); }
+    void clearClip() override { canvas_.clearClip(); }
     void endFrame() override {}
     bool captureFrame(const std::string& path) override { return writePng(path); }
     const char* name() const override { return "headless"; }

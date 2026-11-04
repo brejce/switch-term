@@ -5,7 +5,6 @@
 
 #include "ime/ngram.h"
 #include "ime/pinyin_index.h"
-#include "ime/t9_en.h"
 
 namespace ime {
 
@@ -37,12 +36,6 @@ public:
     }
 
     const std::string& preedit() const { return buf_; }
-    bool digitsBuffer() const {  // 当前组字串是不是 T9 数字序列
-        if (buf_.empty()) return false;
-        for (char c : buf_)
-            if (c < '0' || c > '9') return false;
-        return true;
-    }
     const std::vector<Cand>& cands() const { return cands_; }
     int page() const { return page_; }
     int pageCount() const;
@@ -58,7 +51,6 @@ public:
 
 private:
     void refresh();
-    T9En en_;
     PinyinIndex idx_;
     NgramTable ng_;
     std::string buf_;

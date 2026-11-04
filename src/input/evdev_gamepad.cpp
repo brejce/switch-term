@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 
 
@@ -62,14 +63,27 @@ void GamepadMapper::onEvent(const input_event& ev, const GamepadHandlers& h) {
         }
     } else if (ev.type == EV_KEY && ev.value == 1) {  // 只处理按下
         switch (ev.code) {
-            case BTN_SOUTH: if (h.bytes) h.bytes("\r"); break;          // A = 回车
-            case BTN_EAST: if (h.bytes) h.bytes("\x7f"); break;         // B = 退格
+            case BTN_SOUTH: if (h.bytes) h.bytes("\x7f"); break;         // 物理 B（下）= 退格
+            case BTN_EAST: if (h.bytes) h.bytes("\r"); break;           // 物理 A（右）= 回车
             case BTN_NORTH: if (h.bytes) h.bytes("\x1b[3~"); break;     // X = Delete
             case BTN_WEST: if (h.bytes) h.bytes("\x1b"); break;         // Y = ESC
             case BTN_TL: if (h.action) h.action(kGpActLayer); break;    // L = 切层
             case BTN_TR: if (h.bytes) h.bytes(" "); break;              // R = 空格
             case BTN_TL2: if (h.action) h.action(kGpActCursorLeft); break;
             case BTN_TR2: if (h.action) h.action(kGpActCursorRight); break;
+            // joycond 合成设备没有 HAT 轴，十字键走 BTN_DPAD_*（AUDIT-x11-kde §1）
+            case BTN_DPAD_LEFT:
+                if (h.action) dpadKey(1, kGpActStickyCtrl, kGpActLockCtrl, 2,
+                                      kGpActStickyShift, kGpActLockShift, h);
+                break;
+            case BTN_DPAD_RIGHT:
+                if (h.action) dpadKey(2, kGpActStickyCtrl, kGpActLockCtrl, 2,
+                                      kGpActStickyShift, kGpActLockShift, h);
+                break;
+            case BTN_DPAD_UP: if (h.bytes) h.bytes("\t"); break;
+            case BTN_DPAD_DOWN:
+                if (h.action) dpadKey(4, kGpActStickyAlt, kGpActLockAlt, 4, 0, 0, h);
+                break;
             default: break;
         }
     } else if (ev.type == EV_SYN && ev.code == SYN_REPORT) {
@@ -104,6 +118,12 @@ void PadState::setAxisRange(int code, int minV, int maxV) {
     }
 }
 
+bool PadState::stickVec(bool right, float& dx, float& dy) const {
+    dx = norm(right ? rxV_ : lxV_, right ? rx_ : lx_);
+    dy = -norm(right ? ryV_ : lyV_, right ? ry_ : ly_);  // evdev 上 = 最小 → 数学坐标上 = +
+    return dx != 0.f || dy != 0.f;
+}
+
 void PadState::onEvent(const input_event& ev, const PadHandlers& h) {
     if (ev.type == EV_ABS) {
         switch (ev.code) {
@@ -128,10 +148,16 @@ void PadState::onEvent(const input_event& ev, const PadHandlers& h) {
             case BTN_TR: btn = kPadRB; break;
             case BTN_TL2: btn = kPadLT; break;
             case BTN_TR2: btn = kPadRT; break;
-            case BTN_SOUTH: btn = kPadA; break;
-            case BTN_EAST: btn = kPadB; break;
+            case BTN_SOUTH: btn = kPadB; break;  // Joy-Con 物理 B 在下方
+            case BTN_EAST: btn = kPadA; break;   // Joy-Con 物理 A 在右方（Xbox 相反）
             case BTN_NORTH: btn = kPadX; break;
             case BTN_WEST: btn = kPadY; break;
+            case BTN_DPAD_UP: btn = kPadUp; break;
+            case BTN_DPAD_DOWN: btn = kPadDown; break;
+            case BTN_DPAD_LEFT: btn = kPadLeft; break;
+            case BTN_DPAD_RIGHT: btn = kPadRight; break;
+            case BTN_THUMBL: btn = kPadL3; break;  // 摇杆按下（BTN_THUMBR 设备上不存在）
+            case BTN_START: btn = kPadPlus; break;  // 右手柄 +：呼出 onboard（KDE 抢手柄时的兜底）
             default: break;
         }
         if (btn >= 0 && h.onButton) h.onButton(btn);
@@ -196,6 +222,22 @@ void EvdevGamepad::close() {
     names_.clear();
     mappers_.clear();
     pads_.clear();
+}
+
+bool EvdevGamepad::stickVec(bool right, float& dx, float& dy) const {
+    // 默认轴范围下「回中」算出来是 1.5e-5 而不是 0，所以按噪声水平当零处理。
+    // 不这么滤的话，只有左摇杆的那半个 Joy-Con 会用这个噪声值抢掉右摇杆的结果。
+    constexpr float kStill = 1e-3f;
+    dx = dy = 0.f;
+    for (const PadState& p : pads_) {
+        float x = 0, y = 0;
+        if (!p.stickVec(right, x, y)) continue;
+        if (std::fabs(x) < kStill && std::fabs(y) < kStill) continue;
+        dx = x;
+        dy = y;
+        return true;
+    }
+    return false;
 }
 
 bool EvdevGamepad::pollPad(const PadHandlers& h) {

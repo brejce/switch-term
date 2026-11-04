@@ -19,6 +19,10 @@ public:
     void endFrame();
 
     void fill(disp::Rect r, disp::Color c);
+    // 裁剪：后续 fill/text 只在 r 里落地（textInBox/textBaseline 走 drawTexture，逐字形被裁）；
+    // clearClip 回到整块画布。调用方成对用，别跨帧漏掉。
+    void setClip(disp::Rect r) { bd_->setClip(r); }
+    void clearClip() { bd_->clearClip(); }
 
     int textWidth(const std::string& utf8, const FontFace* f, int charSpacing = 0);
     void textBaseline(int x, int baselineY, const std::string& utf8, const FontFace* f,

@@ -26,20 +26,20 @@ add_executable(switch-ime-term
     src/render/glyph_atlas.cpp
     src/render/renderer.cpp
     src/term/pty.cpp
+    src/term/osc_filter.cpp
     src/input/gamepad.cpp
     src/input/uinput_kbd.cpp
     src/input/evdev_gamepad.cpp
     src/input/uinput_mouse.cpp
     src/ime/pinyin_index.cpp
     src/ime/ngram.cpp
-    src/ime/t9_en.cpp
     src/ime/builtin_ime.cpp
-    src/modules/ime/t9_ime.cpp
     src/term/vterm_bridge.cpp
     src/ui/layout.cpp
     src/ui/layout_lua.cpp
     src/app/app.cpp
     src/app/ime_route.cpp
+    src/app/physics.cpp
     src/ui/screen.cpp
     src/ui/panels.cpp
     src/ui/terminal_view.cpp

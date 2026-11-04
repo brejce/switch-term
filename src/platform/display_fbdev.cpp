@@ -98,24 +98,34 @@ public:
                      disp::Color tint) override {
         canvas_.drawTexture(id, src, dst, tint);
     }
+    void setClip(const disp::Rect& r) override { canvas_.setClip(r); }
+    void clearClip() override { canvas_.clearClip(); }
 
     void endFrame() override {
+        // rot_ = 90/180/270 时做软件旋转（面板原生 720x1280 竖装，画布是 1280x720）
         const uint8_t* px = canvas_.pixels().data();
-        for (int y = 0; y < fbH_; ++y) {
-            int fy = y + oy_;
-            if (fy < 0 || fy >= yres_) break;
-            uint8_t* dst = fb_ + size_t(fy) * stride_ + size_t(ox_) * (bpp_ / 8);
-            const uint8_t* src = px + size_t(y) * fbW_ * 4;
-            if (bpp_ == 32) {
-                for (int x = 0; x < fbW_; ++x, src += 4, dst += 4) {  // XRGB8888 小端
+        const int CW = fbW_, CH = fbH_;
+        const int bpc = bpp_ / 8;
+        for (int y = 0; y < CH; ++y) {
+            const uint8_t* src = px + size_t(y) * size_t(CW) * 4;
+            for (int x = 0; x < CW; ++x, src += 4) {
+                int fx, fy;
+                switch (rot_) {
+                    case 90: fx = CH - 1 - y; fy = x; break;
+                    case 180: fx = CW - 1 - x; fy = CH - 1 - y; break;
+                    case 270: fx = y; fy = CW - 1 - x; break;
+                    default: fx = x + ox_; fy = y + oy_; break;
+                }
+                if (fx < 0 || fx >= xres_ || fy < 0 || fy >= yres_) continue;
+                uint8_t* dst = fb_ + size_t(fy) * size_t(stride_) + size_t(fx) * bpc;
+                if (bpp_ == 32) {  // XRGB8888 小端
                     dst[0] = src[2];
                     dst[1] = src[1];
                     dst[2] = src[0];
                     dst[3] = 0;
-                }
-            } else {  // RGB565
-                for (int x = 0; x < fbW_; ++x, src += 4, dst += 2) {
-                    uint16_t v = uint16_t(((src[0] >> 3) << 11) | ((src[1] >> 2) << 5) | (src[2] >> 3));
+                } else {  // RGB565
+                    uint16_t v =
+                        uint16_t(((src[0] >> 3) << 11) | ((src[1] >> 2) << 5) | (src[2] >> 3));
                     dst[0] = uint8_t(v & 0xFF);
                     dst[1] = uint8_t(v >> 8);
                 }
@@ -133,6 +143,8 @@ public:
         ox_ = std::max(0, (xres_ - w) / 2);
         oy_ = std::max(0, (yres_ - h) / 2);
     }
+
+    void setRotation(int deg) override { rot_ = ((deg % 360) + 360) % 360; }
 
     // 控制台键盘：stdin 已在 raw 模式，Ctrl+Q 退出，其余原样送 PTY
     bool pump(std::string& keys, std::vector<disp::ClickEvent>& clicks) override {
@@ -169,6 +181,7 @@ private:
     size_t mapLen_ = 0;
     int xres_ = 0, yres_ = 0, bpp_ = 32, stride_ = 0;
     int ox_ = 0, oy_ = 0;
+    int rot_ = 0;  // engine.display.rotate，由 app 在 init 后调 setRotation
     int fbW_ = 0, fbH_ = 0;
     disp::SoftCanvas canvas_;
     termios old_{};

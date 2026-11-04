@@ -13,11 +13,13 @@
 #include <sys/stat.h>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "app/app.h"
 #include "app/ime_route.h"
+#include "app/physics.h"
+#include "app/tabs.h"
 #include "input/uinput_mouse.h"
-#include "modules/ime/t9_ime.h"
 #include "config/lua_config.h"
 #include "ui/screen.h"
 #include "input/evdev_gamepad.h"
@@ -27,11 +29,11 @@
 #include "ime/builtin_ime.h"
 #include "input/gamepad.h"
 #include "render/renderer.h"
+#include "term/osc_filter.h"
 #include "term/pty.h"
 #include "term/vterm_bridge.h"
 #include "ui/layout.h"
 #include "ui/panels.h"
-#include "ui/t9_popup.h"
 #include "ui/terminal_view.h"
 #include "ui/theme.h"
 
@@ -45,6 +47,7 @@ void usage() {
         "  --backend <name>   sdl | headless（默认按环境自动选）\n"
         "  --out <path>       输出 PNG（headless），默认 frame.png\n"
         "  --run <cmd>        启动后先执行一条命令（截图/CI 用）\n"
+        "  --tabs <n>         启动时开 n 个终端 tab（默认 1，截图验多 tab 用）\n"
         "  --list-backends    列出已注册后端\n"
         "  --list-gamepad     列出 /dev/input 设备与程序选中了哪些（手柄排障用）\n"
         "  --theme <name>     配色主题（--list-themes 可查）\n"
@@ -55,9 +58,12 @@ void usage() {
         "  --no-gamepad       不打开 evdev 手柄（默认自动扫 /dev/input/event*）\n"
         "  --print-config     打印从 config/*.lua 装配出来的原生结构\n"
         "  --audit-ime        逐条核对输入法行为（标准输入法对照表）\n"
-        "  --audit-t9         核对 T9 状态机 + 手柄按键映射（合成事件）\n"
+        "  --audit-input      核对手柄按键/摇杆映射 + keymap 装配（合成事件）\n"
+        "  --audit-physics    核对引力场：零位/推进/穿越速度/回落/脱开 + 确定性（PHYSICS.md §5）\n"
         "  --ui-preview <png> 只渲染新 UI（M0）到 PNG，不启 PTY\n"
-        "  --preview-key <0..8> 预览弹窗态：锁定该格并展开字符键（验布局表）\n"
+
+        "  --preview-keys     配合 --ui-preview：只画 v2 的 30 键静态键帽\n"
+        "  --preview-layer <0|1|2>  --preview-keys 时画哪一层（0=ALPHA 1=NUM 2=SYM）\n"
         "  --legacy           走旧 UI（新架构调试用）\n"
         "  --scale <f>        预览用缩放（默认 1）\n"
         "  --selftest         PTY + 摇杆自检\n"
@@ -216,6 +222,60 @@ static int selfTest() {
     }
     bool ok = got.find("hello-pty") != std::string::npos;
     std::printf("[selftest] pty %s (%zu bytes)\n", ok ? "OK" : "FAIL", got.size());
+    return ok ? 0 : 1;
+}
+
+// 多 tab 下标自检：切/关都只动下标，循环与边界靠断言验
+static int tabsSelfTest() {
+    bool ok = app::tabStep(0, 3, -1) == 2 && app::tabStep(2, 3, 1) == 0 &&
+              app::tabStep(0, 1, 1) == 0 && app::tabAfterClose(2, 3) == 1 &&
+              app::tabAfterClose(0, 2) == 0 && app::tabAfterClose(0, 1) == 0;
+    std::printf("[selftest] tabs %s  回绕 0-1→2 2+1→0 只1个不动；关闭 最后→前一个 其余不变\n",
+                ok ? "OK" : "FAIL");
+    return ok ? 0 : 1;
+}
+
+// OSC 过滤器自检：term/quit/标题三类标记必须剥掉，其他字节一个不漏、不跨边界丢
+static int oscSelfTest() {
+    std::vector<term::OscEvent> ev;
+    std::string pend;
+    auto feed = [&](const char* s, size_t n) {
+        ev.clear();
+        return term::oscFilter(pend, s, n, &ev);
+    };
+    const char* quitSeq = "\033]1337;quit\a";
+    const char* titleSeq = "ab\033]0;前端\a";
+    const char* newSeq = "\033]1337;newtab=二号\a";
+    const char* mixSeq = "x\033]1337;quit\ay";
+
+    std::string o1 = feed(quitSeq, std::strlen(quitSeq));
+    bool a1 = o1.empty() && ev.size() == 1 && ev[0].kind == term::OscEvent::Quit;
+
+    std::string o2 = feed(titleSeq, std::strlen(titleSeq));
+    bool a2 = o2 == "ab" && ev.size() == 1 && ev[0].kind == term::OscEvent::Title &&
+              ev[0].arg == "前端";
+    std::string t2 = ev.empty() ? "" : ev[0].arg;
+
+    size_t half = std::strlen(newSeq) / 2;  // 序列被切成两次 read
+    std::string o3a = feed(newSeq, half);
+    size_t n3a = ev.size();
+    std::string o3b = feed(newSeq + half, std::strlen(newSeq) - half);
+    bool a3 = o3a.empty() && n3a == 0 && o3b.empty() && ev.size() == 1 &&
+              ev[0].kind == term::OscEvent::NewTab && ev[0].arg == "二号";
+
+    std::string o4 = feed(mixSeq, std::strlen(mixSeq));
+    bool a4 = o4 == "xy" && ev.size() == 1 && ev[0].kind == term::OscEvent::Quit;
+
+    bool ok = a1 && a2 && a3 && a4;
+    std::printf("[selftest] osc %s\n", ok ? "OK" : "FAIL");
+    std::printf("  ① 单发 quit：透传=%zu 字节 事件=1(Quit) → %s\n", o1.size(),
+                a1 ? "OK" : "FAIL");
+    std::printf("  ② 文本+标题：透传=\"%s\" 标题=\"%s\" → %s\n", o2.c_str(), t2.c_str(),
+                a2 ? "OK" : "FAIL");
+    std::printf("  ③ 跨 read：前半 透传=%zu 事件=%zu；后半 透传=%zu 事件=%zu 名字=\"%s\" → %s\n",
+                o3a.size(), n3a, o3b.size(), ev.size(), a3 ? "二号" : "?", a3 ? "OK" : "FAIL");
+    std::printf("  ④ 夹在文本中：透传=\"%s\" 事件=1(Quit) → %s\n", o4.c_str(),
+                a4 ? "OK" : "FAIL");
     return ok ? 0 : 1;
 }
 
@@ -382,9 +442,13 @@ static int gamepadEvdevSelfTest() {
     bool ok = s1;
 
     bytes.clear();
-    ev(EV_KEY, BTN_SOUTH, 1);  // A
+    ev(EV_KEY, BTN_EAST, 1);  // 物理 A（Joy-Con 上在右边）→ 回车
     int aA = (bytes == "\r");
     ok = ok && aA;
+
+    bytes.clear();
+    ev(EV_KEY, BTN_SOUTH, 1);  // 物理 B（下）→ 退格
+    ok = ok && (bytes == "\x7f");
 
     bytes.clear();
     ev(EV_KEY, BTN_WEST, 1);  // Y = ESC
@@ -406,6 +470,11 @@ static int gamepadEvdevSelfTest() {
     ev(EV_KEY, BTN_TL, 1);  // L
     int aL = (action == input::kGpActLayer);
     ok = ok && aL;
+
+    action = -1;
+    ev(EV_KEY, BTN_DPAD_RIGHT, 1);  // 无 HAT 轴的 joycond：十字键走 BTN_DPAD_*
+    int aDpad = (action == input::kGpActStickyShift);
+    ok = ok && aDpad;
     bool s5 = false;
 
     bytes.clear();
@@ -426,11 +495,230 @@ static int gamepadEvdevSelfTest() {
 static std::string exeDir;
 static std::string findRes(const std::string& rel) {
     if (std::ifstream(rel).good()) return rel;
-    for (const std::string dir : {exeDir, exeDir + "/.."}) {  // 二进制在 build/ 时数据在上一级
+    for (const std::string& dir : {exeDir, exeDir + "/.."}) {  // 二进制在 build/ 时数据在上一级
         std::string p = dir + "/" + rel;
         if (std::ifstream(p).good()) return p;
     }
     return rel;  // 都没有就返回原路径，让调用方报错
+}
+
+// --audit-physics：docs/PHYSICS.md §5 的断言 + 确定性。键位取 ui.lua、旋钮取 engine.lua，
+// 所以调配置后这里会直接反映出来；跑两遍才能验的确定性也在这里一次性验完。
+static int auditPhysics() {
+    cfg::Ui uic;
+    if (!cfg::loadUi(findRes("config/ui.lua").c_str(), uic)) return 1;
+    cfg::Engine eng;
+    cfg::loadEngine(findRes("config/engine.lua").c_str(), eng);
+    eng.physics.deadzone = eng.deadzone;  // 和 app 主循环一致：曲线起点 = 死区边缘
+    const app::physics::Params& pr = eng.physics;
+
+    // 物理场吃键中心：ui.keys 是键帽左上角，边长 ui.key_size
+    float kx[cfg::kKeyV2Count], ky[cfg::kKeyV2Count];
+    const float half = float(uic.keySize) * 0.5f;
+    for (int i = 0; i < cfg::kKeyV2Count; ++i) {
+        kx[i] = float(uic.keysV2[i].x) + half;
+        ky[i] = float(uic.keysV2[i].y) + half;
+    }
+    const app::physics::Field left{0, 7};    // 左场：键 0..14，零位 d
+    const app::physics::Field right{15, 22};  // 右场：键 15..29，零位 k
+
+    int bad = 0;
+    auto ck = [&](const char* n, bool ok, const std::string& got, const std::string& exp) {
+        if (!ok) ++bad;
+        std::printf("  %-24s %s 实得=%s 期望=%s\n", n, ok ? "OK  " : "FAIL", got.c_str(),
+                    exp.c_str());
+    };
+    auto n1 = [](float v) {  // 一位小数的打印格式
+        char b[32];
+        std::snprintf(b, sizeof b, "%.1f", double(v));
+        return std::string(b);
+    };
+    auto dToHome = [&](const app::physics::Field& f, const app::physics::Pointer& p) {
+        const float dx = p.x - kx[f.home], dy = p.y - ky[f.home];
+        return std::sqrt(dx * dx + dy * dy);
+    };
+    auto nRel = [&](const std::vector<app::physics::PhysEventData>& ev) {
+        int n = 0;
+        for (const auto& e : ev)
+            if (e.kind == app::physics::PhysEvent::Release) ++n;
+        return n;
+    };
+
+    struct Run {
+        app::physics::Pointer p;
+        std::vector<app::physics::PhysEventData> ev;
+        float x0 = 0;  // 起点 = 零位键中心
+    };
+    // 固定脚本跑 frames 帧：每帧回调给 (ix, iy)，语义同 stickVec（上 = +y）
+    auto run = [&](const app::physics::Field& f, int frames,
+                   const std::function<void(int, float&, float&)>& in) {
+        Run r;
+        r.p.x = r.x0 = kx[f.home];
+        r.p.y = ky[f.home];
+        for (int i = 0; i < frames; ++i) {
+            float ix = 0, iy = 0;
+            in(i, ix, iy);
+            app::physics::step(r.p, f, kx, ky, ix, iy, pr,
+                                [&](const app::physics::PhysEventData& e) { r.ev.push_back(e); });
+        }
+        return r;
+    };
+
+    std::printf("引力场（ui.lua 键位 + engine.physics 参数）：\n");
+
+    // 1. 零位静止 → 吸附在 home
+    Run still = run(left, 30, [](int, float&, float&) {});
+    Run stillR = run(right, 30, [](int, float&, float&) {});
+    ck("零位吸附 左 d(7)", still.p.snapped == left.home, std::to_string(still.p.snapped), "7");
+    ck("零位吸附 右 k(22)", stillR.p.snapped == right.home, std::to_string(stillR.p.snapped),
+       "22");
+
+    // 2. 向右推半程 0.5s → 吸附键下标递增
+    Run push = run(left, 30, [](int, float& ix, float& iy) {
+        ix = 0.5f;
+        iy = 0.f;
+    });
+    int maxSnap = -1;
+    for (const auto& e : push.ev)
+        if (e.kind == app::physics::PhysEvent::Snap) maxSnap = std::max(maxSnap, e.key);
+    ck("右推 0.5s 下标递增", maxSnap > left.home, "最大 snap=" + std::to_string(maxSnap), ">7");
+    ck("右推 0.5s 指针右移", push.p.x > push.x0, "Δx=" + n1(push.p.x - push.x0), ">0");
+
+    // 3. 速度曲线三段（PHYSICS.md §2.1）：中段最快，推杆 0.2 / 1.0 两端都更慢（微操）
+    const float threeKeys = kx[left.home + 2] - kx[left.home];
+    auto crossFrames = [&](float ix) {
+        app::physics::Pointer p;
+        p.x = kx[left.home];
+        p.y = ky[left.home];
+        int n = 0;
+        while (p.x - kx[left.home] < threeKeys && n < 900) {
+            app::physics::step(p, left, kx, ky, ix, 0.f, pr);
+            ++n;
+        }
+        return n;
+    };
+    const int tMicro = crossFrames(0.3f), tFast = crossFrames(0.8f), tFull = crossFrames(1.f);
+    // 接缝两侧（微操段末端 0.5 附近）用不同推杆量跑，耗时应几乎一样 = 没有速度阶跃
+    const int tSeamA = crossFrames(0.48f), tSeamB = crossFrames(0.52f);
+    auto fr = [](int n) { return " " + std::to_string(n) + " 帧"; };
+    ck("内圈微操慢于快速段", tMicro > tFast, fr(tMicro) + " vs" + fr(tFast), "0.3>0.8 帧");
+    ck("快速段越推越快", tSeamA > tFast, fr(tSeamA) + " vs" + fr(tFast), "0.48>0.8 帧");
+    ck("推满最快", tFull < tFast, fr(tFull) + " vs" + fr(tFast), "1.0<0.8 帧");
+    ck("两段接缝平滑（无速度阶跃）", std::abs(tSeamA - tSeamB) <= 2,
+       fr(tSeamA) + " vs" + fr(tSeamB), "差 ≤2 帧");
+
+    // 4. 右推后松手：home_pull > 0 → 松手 0.3s 后自己滑回 home（§5.4）
+    Run back = run(left, 12 + 60, [](int i, float& ix, float& iy) {
+        ix = i < 12 ? 1.f : 0.f;
+        iy = 0.f;
+    });
+    ck("松手后回 home（home_pull）", dToHome(left, back.p) < 8.f,  // 8px ≈ 键距 70 的 1/9，肉眼看已经归位
+       "距 home=" + n1(dToHome(left, back.p)), "<8px");
+
+    // 4.5 吸附力度：关掉 home_pull，从键心右 18px 松手 → 只靠键的引力被拽回键心
+    {
+        app::physics::Params p0 = pr;
+        p0.homePull = 0.f;  // 只看键的引力，不看零位回落
+        app::physics::Pointer p;
+        p.x = kx[left.home] + 18.f;
+        p.y = ky[left.home];
+        int n = -1;
+        for (int i = 0; i < 90; ++i) {
+            app::physics::step(p, left, kx, ky, 0.f, 0.f, p0);
+            if (n < 0 && dToHome(left, p) < 2.f) n = i + 1;
+        }
+        ck("引力把球吸到键心", n > 0, "距键心=" + n1(dToHome(left, p)) + "  " + std::to_string(n) + " 帧到位",
+           "<2px");
+    }
+
+    // 4.6 不许抖：拨 6 帧再松手，球在键心附近不能一直摆（常量引力会留下 2px 极限环 → 键窗跟着抖）
+    {
+        app::physics::Params p0 = pr;
+        p0.homePull = 0.f;  // 只看引力本身，别让零位回落替它收尾
+        app::physics::Pointer p;
+        p.x = kx[left.home];
+        p.y = ky[left.home];
+        float lo = 1e9f, hi = -1e9f;
+        for (int i = 0; i < 200; ++i) {
+            app::physics::step(p, left, kx, ky, i < 6 ? 0.6f : 0.f, 0.f, p0);
+            if (i > 100) {
+                lo = std::fmin(lo, p.x);
+                hi = std::fmax(hi, p.x);
+            }
+        }
+        ck("松手后不抖（无极限环）", hi - lo < 0.5f, "摆幅=" + n1(hi - lo) + "px", "<0.5px");
+    }
+
+    // 5. 向左推再反向 → 触发 release
+    Run rev = run(left, 40, [](int i, float& ix, float& iy) {
+        ix = i < 20 ? -1.f : 1.f;
+        iy = 0.f;
+    });
+    ck("反向触发 release", nRel(rev.ev) > 0, "release×" + std::to_string(nRel(rev.ev)), ">0");
+
+    // §5 末条：同一输入序列跑两次，事件与坐标逐位相同
+    auto script = [](int i, float& ix, float& iy) {
+        if (i < 30) {
+            ix = 0.8f, iy = 0.f;
+        } else if (i < 45) {
+            ix = 0.f, iy = 0.f;
+        } else if (i < 75) {
+            ix = -0.6f, iy = 0.4f;  // 左上（数学坐标上 = +y）
+        } else {
+            ix = 0.f, iy = 0.f;
+        }
+    };
+    Run d1 = run(left, 120, script), d2 = run(left, 120, script);
+    auto sameF = [](float a, float b) { return std::memcmp(&a, &b, sizeof a) == 0; };
+    bool same = d1.ev.size() == d2.ev.size() && sameF(d1.p.x, d2.p.x) && sameF(d1.p.y, d2.p.y) &&
+                sameF(d1.p.vx, d2.p.vx) && sameF(d1.p.vy, d2.p.vy) &&
+                sameF(d1.p.idle, d2.p.idle) && d1.p.snapped == d2.p.snapped &&
+                d1.p.hovered == d2.p.hovered;
+    for (size_t i = 0; same && i < d1.ev.size(); ++i)
+        same = d1.ev[i].kind == d2.ev[i].kind && d1.ev[i].key == d2.ev[i].key &&
+               sameF(d1.ev[i].x, d2.ev[i].x) && sameF(d1.ev[i].y, d2.ev[i].y);
+    ck("同序列两次逐位相同", same, "事件 " + std::to_string(d1.ev.size()) + " 条", "完全一致");
+
+    // pad.stickVec 与 step 的 ix/iy 是同一套坐标：数学坐标，上 = +y（推上应让指针 y 变小）
+    {
+        input::PadState pad;
+        for (int code : {ABS_X, ABS_Y, ABS_RX, ABS_RY}) pad.setAxisRange(code, 0, 255);
+        auto ev = [&](int t, int c, int v) {
+            input_event e{};
+            e.type = t;
+            e.code = c;
+            e.value = v;
+            pad.onEvent(e, input::PadHandlers{});
+        };
+        ev(EV_ABS, ABS_X, 255);  // 左摇杆：右上
+        ev(EV_ABS, ABS_Y, 0);
+        ev(EV_SYN, SYN_REPORT, 0);
+        float dx = 0, dy = 0;
+        bool vec = pad.stickVec(false, dx, dy) && dx > 0.99f && dy > 0.99f;
+        ev(EV_ABS, ABS_RX, 0);  // 右摇杆：左中
+        ev(EV_ABS, ABS_RY, 127);
+        ev(EV_SYN, SYN_REPORT, 0);
+        float rx = 0, ry = 0;
+        vec = pad.stickVec(true, rx, ry) && rx < -0.99f && std::fabs(ry) < 0.01f && vec;
+        ck("摇杆向量 右=+x 上=+y", vec, "左=" + n1(dx) + "/" + n1(dy) + " 右=" + n1(rx) + "/" + n1(ry),
+           "+1/+1 和 -1/0");
+    }
+
+    // 输入侧死区：松手时的漂移必须滤成 0，否则回不了零位；死区外原样交给速度曲线
+    {
+        float ax = 0.05f, ay = 0.03f;
+        app::physics::applyDeadzone(ax, ay, eng.deadzone);
+        float bx = 1.f, by = 0.f;
+        app::physics::applyDeadzone(bx, by, eng.deadzone);
+        float cx = eng.deadzone, cy = 0.f;
+        app::physics::applyDeadzone(cx, cy, eng.deadzone);
+        ck("死区内漂移滤成 0", ax == 0.f && ay == 0.f, n1(ax) + "/" + n1(ay), "0/0");
+        ck("死区边界滤成 0", cx == 0.f, n1(cx), "0");
+        ck("死区外推杆量不缩放", bx == 1.f, n1(bx), "1");
+    }
+
+    std::printf("结果：%s（%d 项失败）\n", bad ? "有偏差" : "全部符合", bad);
+    return bad ? 1 : 0;
 }
 
 // 信号触发的布局重载：kill -HUP / kill -USR1，不用点窗口
@@ -452,17 +740,19 @@ int main(int argc, char** argv) {
     bool legacy = false;
     std::string typeText;
     std::string uiPreview;
-    int previewKey = -1;  // --preview-key：预览哪个格子的弹窗（-1 = 不开弹窗）
+    bool previewKeys = false;   // --preview-keys：只画 v2 键帽，不画顶栏/终端/面板
+    int previewLayer = 0;       // --preview-layer：0=ALPHA 1=NUM 2=SYM
     float previewScale = 1.0f;
     std::string out = "frame.png";
     std::string runCmd;
+    int tabs = 1;  // --tabs：无输入的环境下靠它截多 tab 的画面
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(); return 0; }
         if (a == "--selftest") return selfTest() + gamepadSelfTest() + imeSelfTest() + fbdevSelfTest() + themeSelfTest() +
                scrollSelfTest() + switchSelfTest() + selectSelfTest() + gamepadEvdevSelfTest() +
-               configSelfTest() + uinputSelfTest();
+               configSelfTest() + uinputSelfTest() + tabsSelfTest() + oscSelfTest();
         if (a == "--list-backends") {
             for (auto& n : disp::DisplayRegistry::instance().names()) std::printf("%s\n", n.c_str());
             return 0;
@@ -514,71 +804,17 @@ int main(int argc, char** argv) {
             std::printf("左键点击：已发出 BTN_LEFT 按下+抬起\n");
             return found ? 0 : 1;
         }
-        if (a == "--audit-t9") {
+        if (a == "--audit-physics") return auditPhysics();
+        if (a == "--audit-input") {
             cfg::Ui uic;
             if (!cfg::loadUi(findRes("config/ui.lua").c_str(), uic)) return 1;
             int bad = 0;
-            ime::T9Ime t9;
-            t9.setKeys(uic.t9Alpha);
             auto ck = [&](const char* n, bool ok, const std::string& got, const std::string& exp) {
                 if (!ok) ++bad;
                 std::printf("  %-24s %s 实得=%s 期望=%s\n", n, ok ? "OK  " : "FAIL", got.c_str(),
                             exp.c_str());
             };
-            std::printf("T9 状态机：\n");
-            // 焦点：默认 5(JKL)=4；九宫格内移动，越界不循环
-            ck("默认焦点 5(JKL)", t9.focus() == 4, std::to_string(t9.focus()), "4");
-            t9.stick(0);  // E  → 6(MNO)
-            ck("右→6(MNO)", t9.focus() == 5, std::to_string(t9.focus()), "5");
-            t9.stick(6);  // S  → 9(WXYZ)
-            ck("下→9(WXYZ)", t9.focus() == 8, std::to_string(t9.focus()), "8");
-            t9.stick(4);  // W  → 8(TUV)
-            ck("左→8(TUV)", t9.focus() == 7, std::to_string(t9.focus()), "7");
-            t9.stick(0);  // → 9(WXYZ)
-            ck("再右→9(WXYZ)", t9.focus() == 8, std::to_string(t9.focus()), "8");
-            t9.stick(0);  // 已在最右列，不应移动
-            ck("最右列不动", t9.focus() == 8, std::to_string(t9.focus()), "8");
-            t9.reset();
-            // 魔法键：Grid → Popup → 连击上屏
-            std::string m1 = t9.magic();
-            ck("LB 进弹窗", t9.popup() && m1.empty(), t9.popup() ? "popup" : "grid", "popup");
-            std::string m2 = t9.magic();
-            ck("LB 上屏首字母 J", m2 == "J", m2, "J(5=JKL)");
-            t9.stick(0);  // 弹窗内右 → 下一个字母
-            std::string m3 = t9.magic();
-            ck("摇杆右后上屏 K", m3 == "K", m3, "K");
-            t9.stick(4);  // 弹窗内左 → 回退
-            std::string m4 = t9.magic();
-            ck("摇杆左后回 J", m4 == "J", m4, "J");
-            ck("连击不退出弹窗", t9.popup(), t9.popup() ? "popup" : "grid", "popup");
-            // 无选中（鼠标在虚无处 = letterIdx -1）：不上屏，摇杆左右从第一个字母起
-            t9.setLetter(-1);
-            ck("无选中 letterIdx=-1", t9.letterIdx() == -1, std::to_string(t9.letterIdx()), "-1");
-            ck("无选中 currentLetter=0", t9.currentLetter() == 0,
-               std::to_string(int(t9.currentLetter())), "0");
-            std::string m5 = t9.magic();
-            ck("无选中 LB 不上屏", m5.empty() && t9.popup(), m5.empty() ? "空" : m5, "空");
-            t9.stick(0);  // 无选中后右 → 从 J 起算 = K
-            std::string m6 = t9.magic();
-            ck("无选中后摇杆右→K", m6 == "K", m6, "K");
-            t9.leavePopup();
-            ck("Esc 类退出弹窗", !t9.popup(), "grid", "grid");
-
-            // 弹窗布局表：占位数与字符数一致，且锁定格必然落在自己的占位表里
-            // （弹窗默认选中就是它，所以不用动就能直接上屏）
-            std::printf("弹窗布局（锁定格自身默认为选中）：\n");
-            for (int f = 0; f < 9; ++f) {
-                const std::string& ls = uic.t9Alpha[f].letters;
-                int cnt = ui::popupCellCount(f);
-                int self = ui::popupLetterIdx(f, f);
-                bool ok = cnt == int(ls.size()) && self >= 0 && ui::popupCellFor(f, self) == f;
-                if (!ok) ++bad;
-                std::printf("  %-3s 锁 %-4s → %d 格，默认 %c(cell %d)\n",
-                            ok ? "OK" : "FAIL", ls.c_str(), cnt, self >= 0 ? ls[size_t(self)] : '?',
-                            f);
-            }
-
-            // 手柄事件 → PadButton/扇区（合成 evdev 事件）
+            // 手柄事件 → PadButton（合成 evdev 事件）
             std::printf("手柄映射：\n");
             input::PadState pad;
             for (int code : {ABS_X, ABS_Y, ABS_RX, ABS_RY}) pad.setAxisRange(code, 0, 255);
@@ -586,7 +822,8 @@ int main(int argc, char** argv) {
             input::PadHandlers ph{[&](int b) {
                                       static const char* nm[] = {"LB", "LT", "RB", "RT", "A",
                                                                  "B",  "X",  "Y",  "UP",
-                                                                 "DOWN", "LEFT", "RIGHT"};
+                                                                 "DOWN", "LEFT", "RIGHT", "L3",
+                                                                 "START"};
                                       got = nm[b];
                                   },
                                   [&](int sec) { got = "Lstick" + std::to_string(sec); },
@@ -596,17 +833,35 @@ int main(int argc, char** argv) {
                 e.type = t; e.code = c; e.value = v;
                 pad.onEvent(e, ph);
             };
-            ev(EV_KEY, BTN_SOUTH, 1);
+            ev(EV_KEY, BTN_EAST, 1);  // Joy-Con 物理 A 在右边 = BTN_EAST
             ck("A 键", got == "A", got, "A");
             ev(EV_KEY, BTN_TL, 1);
             ck("左上肩=L", got == "LB", got, "LB");
             ev(EV_ABS, ABS_HAT0X, -1);
             ck("十字左", got == "LEFT", got, "LEFT");
             got.clear();
+            ev(EV_KEY, BTN_DPAD_DOWN, 1);  // joycond 合成设备：没有 HAT 轴
+            ck("十字下(BTN_DPAD_DOWN)", got == "DOWN", got, "DOWN");
+            got.clear();
+            ev(EV_KEY, BTN_THUMBL, 1);  // 摇杆按下 → L3（v2 层循环）
+            ck("摇杆按下(BTN_THUMBL)=L3", got == "L3", got, "L3");
+            got.clear();
+            ev(EV_KEY, BTN_START, 1);  // 右手柄 + → onboard（兜底）
+            ck("右手柄 +(BTN_START)=START", got == "START", got, "START");
+            got.clear();
             ev(EV_ABS, ABS_X, 255);
             ev(EV_ABS, ABS_Y, 127);
             ev(EV_SYN, SYN_REPORT, 0);
             ck("左摇杆推右→扇区0", got == "Lstick0", got, "Lstick0");
+
+            // keymap.lua 真装配上了：键名/动作名写错只会往 stderr 打一行，这里直接验落表结果
+            cfg::KeyMap km;
+            const bool kmOk = cfg::loadKeymap(findRes("config/keymap.lua").c_str(), km);
+            ck("keymap: START→onboard（+ 号兜底）",
+               kmOk && km.single[cfg::kStart] == cfg::kOnboard,
+               kmOk ? cfg::actionName(km.single[cfg::kStart]) : "读不到 keymap.lua", "onboard");
+            ck("keymap: LB→magic", kmOk && km.single[cfg::kLB] == cfg::kMagic,
+               kmOk ? cfg::actionName(km.single[cfg::kLB]) : "读不到 keymap.lua", "magic");
             std::printf("结果：%s（%d 项失败）\n", bad ? "有偏差" : "全部符合", bad);
             return bad ? 1 : 0;
         }
@@ -634,9 +889,10 @@ int main(int argc, char** argv) {
             im.clear();
             std::string o = type("nihao");
             check("组字不落屏", o.empty() && im.preedit() == "nihao", o, "");
-            // 2 空格上屏首候选
+            // 2 空格 = 普通空格，不动组字串（选字是魔法键的活）
             o = run1(' ').bytes;
-            check("空格→首候选", o == "你好" && !im.composing(), o, "你好");
+            check("空格→普通空格（不上屏）", o == " " && im.composing() && im.preedit() == "nihao",
+                  "'" + o + "' 组字=" + im.preedit(), "' ' 组字=nihao");
             // 3 回车 → 拼音原样
             im.clear();
             type("nihao");
@@ -685,27 +941,8 @@ int main(int argc, char** argv) {
             im.clear();
             o = type("Nihao");
             check("大写也能组字", o.empty() && im.preedit() == "nihao", im.preedit(), "nihao");
-            o = run1(' ').bytes;
-            check("大写组字后上屏", o == "你好", o, "你好");
-            // 13 T9 九键：64426 → nihao → 你好
-            im.clear();
-            if (!im.chinese) im.toggle();
-            for (char d : std::string("64426")) im.push(d);
-            bool t9ok = im.digitsBuffer() && !im.cands().empty() &&
-                        im.cands()[0].text == "你好";
-            check("T9 九键 64426→你好", t9ok,
-                  im.cands().empty() ? "(无候选)" : im.cands()[0].text + " / 组字=" + im.preedit(),
-                  "你好");
-            o = run1(' ').bytes;
-            check("T9 空格上屏", o == "你好", o, "你好");
-            // 14 英文 T9：43556 → hello
-            if (im.chinese) im.toggle();  // 切英文
-            im.clear();
-            for (char d : std::string("43556")) im.push(d);
-            bool en9ok = im.digitsBuffer() && !im.cands().empty() && im.cands()[0].text == "hello";
-            check("英文 T9 43556→hello", en9ok,
-                  im.cands().empty() ? "(无候选)" : im.cands()[0].text, "hello");
-            if (!im.chinese) im.toggle();  // 切回中文
+            o = run1('1').bytes;
+            check("大写组字后选字（数字键）", o == "你好", o, "你好");
             // 15 修饰键 + 明确字母 = 组合键（Ctrl+C 这样打出来）
             if (im.chinese) im.toggle();  // 英文态
             im.clear();
@@ -740,13 +977,9 @@ int main(int argc, char** argv) {
             std::printf("装配 %s\n", ok ? "OK" : "FAIL");
             std::printf("panel_w=%d stick_box=%d cell=%dx%d title=%s\n", ui.panelW, ui.stickBox,
                         ui.cellW, ui.cellH, ui.title.c_str());
-            for (int i = 0; i < 9; i += 3)
-                std::printf("T9 %s:%s  %s:%s  %s:%s\n", ui.t9Alpha[i].num.c_str(),
-                            ui.t9Alpha[i].letters.c_str(), ui.t9Alpha[i + 1].num.c_str(),
-                            ui.t9Alpha[i + 1].letters.c_str(), ui.t9Alpha[i + 2].num.c_str(),
-                            ui.t9Alpha[i + 2].letters.c_str());
             static const char* kn[] = {"LB", "LT", "RB", "RT", "A", "B", "X", "Y",
-                                       "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT"};
+                                       "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT",
+                                       "L3", "START"};
             for (int k = 0; k < cfg::kKeyCount; ++k)
                 if (km.single[k] || km.dbl[k]) {
                     std::printf("  %-10s 单击=%s", kn[k], cfg::actionName(km.single[k]));
@@ -755,16 +988,17 @@ int main(int argc, char** argv) {
                 }
             std::printf("axis STICK_R mouse_move=%d\n", km.axisMouseMove ? 1 : 0);
             std::printf(
-                "engine: scrollback=%d cand_per_page=%d ngram=%d t9=%d ime_enabled=%d deadzone=%.2f "
+                "engine: scrollback=%d cand_per_page=%d ngram=%d ime_enabled=%d deadzone=%.2f "
                 "hysteresis_deg=%.0f double_tap_ms=%d log=%s%s%s sink=%s\n",
-                eng.scrollback, eng.candPerPage, eng.ngram, eng.t9, eng.imeEnabled ? 1 : 0,
+                eng.scrollback, eng.candPerPage, eng.ngram, eng.imeEnabled ? 1 : 0,
                 eng.deadzone, eng.hysteresisDeg, eng.doubleTapMs, eng.logLevel.c_str(),
                 eng.logPath.empty() ? "" : "@", eng.logPath.c_str(), eng.sink.c_str());
             return ok ? 0 : 1;
         }
         if (a == "--type" && i + 1 < argc) { typeText = argv[++i]; continue; }
         if (a == "--ui-preview" && i + 1 < argc) { uiPreview = argv[++i]; continue; }
-        if (a == "--preview-key" && i + 1 < argc) { previewKey = std::atoi(argv[++i]); continue; }
+        if (a == "--preview-keys") { previewKeys = true; continue; }
+        if (a == "--preview-layer" && i + 1 < argc) { previewLayer = std::atoi(argv[++i]); continue; }
         if (a == "--scale" && i + 1 < argc) { previewScale = std::atof(argv[++i]); continue; }
         if (a == "--list-themes") {
             for (const char* const* n = pal::names(); *n; ++n)
@@ -774,6 +1008,7 @@ int main(int argc, char** argv) {
         if (a == "--backend" && i + 1 < argc) { backend = argv[++i]; continue; }
         if (a == "--out" && i + 1 < argc) { out = argv[++i]; continue; }
         if (a == "--run" && i + 1 < argc) { runCmd = argv[++i]; continue; }
+        if (a == "--tabs" && i + 1 < argc) { tabs = std::atoi(argv[++i]); continue; }
         std::fprintf(stderr, "unknown arg: %s\n", a.c_str());
         usage();
         return 1;
@@ -793,18 +1028,24 @@ int main(int argc, char** argv) {
     if (!themeName.empty() && !pal::load(themeName.c_str())) {
         std::fprintf(stderr, "没有主题 '%s'，用默认 %s\n", themeName.c_str(), pal::current());
     }
-    if (!uiPreview.empty()) {  // M0：只画新 UI，验排版
+    if (!uiPreview.empty() || previewKeys) {  // M0：只画新 UI，验排版；--preview-keys 可直画到 fb0
         cfg::Ui uic;
         if (!cfg::loadUi(findRes("config/ui.lua").c_str(), uic)) {
             std::fprintf(stderr, "读不到 config/ui.lua\n");
             return 1;
         }
+        cfg::Engine peng;
+        cfg::loadEngine(findRes("config/engine.lua").c_str(), peng);  // 只为拿 display.rotate
         ui::layout::setScale(previewScale);
         ui::Geometry g;
         g.fromConfig(uic, previewScale);
 
-        disp::DisplayBackend* pb = disp::DisplayRegistry::instance().create("headless");
+        // --preview-keys 不给 --ui-preview 时走真实后端（可直接画到 Switch 的 fb0）
+        const char* pbn = (!previewKeys || !uiPreview.empty()) ? "headless" : backend.c_str();
+        disp::DisplayBackend* pb = disp::DisplayRegistry::instance().create(pbn);
         if (!pb || !pb->init(g.screenW, g.screenH)) return 1;
+        pb->setCanvasSize(g.screenW, g.screenH);
+        pb->setRotation(peng.rotate);
         render::FontManager pfm;
         if (!pfm.init()) {
             std::fprintf(stderr, "字体加载失败\n");
@@ -824,39 +1065,96 @@ int main(int argc, char** argv) {
                     {"泥", "ní"},   {"拟", "nǐ"}, {"逆", "nì"}};
         st.candPageCount = 3;
         st.modsText = "CTRL";
-        // --preview-key k：弹窗态，选中落在锁定格自己上的那个字符（＝鼠标停在锁定格字符上）
-        int pk = previewKey;
-        if (pk < 0 && std::getenv("SIT_POPUP")) pk = 4;  // 旧的弹窗预览开关
-        if (pk >= 0) {
-            st.popup = true;
-            st.popupFocus = pk;
-            st.focusIdx = pk;
-            st.selCell = pk;
-        }
-
         pr.beginFrame();
         pr.fill({0, 0, g.screenW, g.screenH}, ui::c(ui::col::kBg));
-        ui::drawTopBar(pr, pfonts, uic, g, st);
-        ui::drawT9Panel(pr, pfonts, uic, g, st);
-        ui::drawTermBackground(pr, pfonts, g);
-        // 终端区示例内容（M1 接 TerminalParser 后由网格填）
-        int ty = g.contentY + g.termPadTop;
-        int bh = (pfonts.term->ascent - pfonts.term->descent);
-        auto line = [&](int row, const std::string& t, uint32_t colr) {
-            pr.textBaseline(g.termX + g.termPadX, ty + bh + row * ui::layout::kCellH, t,
-                            pfonts.term, ui::c(colr));
-        };
-        line(0, "switch@arch:~$ echo \"你好，Switch\"", ui::col::kGreen);
-        line(1, "你好，Switch", ui::col::kText);
-        line(2, "switch@arch:~$ sudo pacman -S --needed fcitx5", ui::col::kGreen);
-        line(3, ":: 正在解析依赖关系...", ui::col::kDim);
-        ui::drawComposeLine(pr, pfonts, g, st);
-        ui::drawMousePanel(pr, pfonts, uic, g, st);
-        ui::drawBottomBar(pr, pfonts, g, st);
+        if (previewKeys) {  // 三分区版式预览：左右各一个滑窗键区 + 中终端
+            static const char* layerNames[] = {"ALPHA", "NUM", "SYM"};
+            const int L = std::clamp(previewLayer, 0, 2);
+            const int pw = int(220 * g.scale), tb = int(32 * g.scale);
+            // 分区底色（与 mockup 一致：左面板 220 / 右面板 220 / 中间终端 840）
+            pr.fill({0, tb, pw, g.screenH - tb}, ui::c(ui::col::kPanel));
+            pr.fill({g.screenW - pw, tb, pw, g.screenH - tb}, ui::c(ui::col::kPanel));
+            pr.fill({pw, tb, int(840 * g.scale), g.screenH - tb}, ui::c(ui::col::kTerm));
+            pr.fill({0, 0, g.screenW, tb}, ui::c(ui::col::kPanel));
+            pr.fill({0, tb - 1, g.screenW, 1}, ui::c(ui::col::kLine));
+            // 与主循环同一套滑窗：指针钉在各自 home 键（d / k）中心，所以两面都居中吸附
+            const float half = float(uic.keySize) * 0.5f;
+            ui::drawKeyHand(pr, pfonts, uic, g, L, 0, 0, tb, pw, g.screenH - tb,
+                            float(uic.keysV2[7].x) + half, float(uic.keysV2[7].y) + half, 7, -1,
+                            float(app::physics::Params{}.attractRadius));
+            ui::drawKeyHand(pr, pfonts, uic, g, L, 15, g.screenW - pw, tb, pw, g.screenH - tb,
+                            float(uic.keysV2[22].x) + half, float(uic.keysV2[22].y) + half, 22, -1,
+                            float(app::physics::Params{}.attractRadius));
+            pr.fill({pw - 1, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
+            pr.fill({g.screenW - pw, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
+
+            auto tx = [&](int x, int y, const char* str, uint32_t colr) {
+                pr.textBaseline(x, y, str, pfonts.kd, ui::c(colr));
+                return x + pr.textWidth(str, pfonts.kd);
+            };
+            auto shape = [&](int x, int y, bool plus, uint32_t colr) {
+                const int w = int(9 * g.scale), th = std::max(1, int(2 * g.scale));
+                pr.fill({x, y - th / 2, w, th}, ui::c(colr));
+                if (plus) pr.fill({x + w / 2 - th / 2, y - w / 2, th, w}, ui::c(colr));
+                return x + w + int(3 * g.scale);
+            };
+            // 左手面板：肩键标签 / 键区（drawKeyHand 已画）/ DPAD / 底部按键表
+            tx(int(10 * g.scale), int(50 * g.scale), "L 上屏", ui::col::kPurple);
+            tx(int(80 * g.scale), int(50 * g.scale), "ZL 空格", ui::col::kCyan);
+            tx(int(10 * g.scale), int(486 * g.scale), "// DPAD", ui::col::kCyan);
+            ui::drawDpad(pr, pfonts, int(10 * g.scale), int(500 * g.scale), int(26 * g.scale), st,
+                         g.scale);
+            const int kb = int(640 * g.scale), kl = int(19 * g.scale);
+            tx(int(10 * g.scale), kb, "L3 层循环", ui::col::kText);
+            int xm = tx(int(10 * g.scale), kb + kl, "", ui::col::kText);
+            xm = shape(xm, kb + kl - int(4 * g.scale), false, ui::col::kText);
+            tx(xm, kb + kl, " 待定", ui::col::kText);
+            tx(int(10 * g.scale), kb + 2 * kl, "DPAD ←Ctrl →Shift", ui::col::kDim);
+            tx(int(10 * g.scale), kb + 3 * kl, "↓Alt ↑Tab 双击锁", ui::col::kDim);
+
+            // 右手面板
+            tx(int(g.screenW - pw + 10 * g.scale), int(50 * g.scale), "R 光标右", ui::col::kGreen);
+            tx(int(g.screenW - pw + 82 * g.scale), int(50 * g.scale), "ZR 光标左", ui::col::kRed);
+            tx(int(g.screenW - pw + 10 * g.scale), int(486 * g.scale), "// ABXY", ui::col::kRed);
+            ui::drawAbxy(pr, pfonts, int(g.screenW - pw + 10 * g.scale), int(500 * g.scale),
+                         int(28 * g.scale), g.scale, -1);
+            tx(int(g.screenW - pw + 10 * g.scale), kb, "A 回车", ui::col::kText);
+            tx(int(g.screenW - pw + 10 * g.scale), kb + kl, "B 退格", ui::col::kText);
+            tx(int(g.screenW - pw + 10 * g.scale), kb + 2 * kl, "X Del", ui::col::kText);
+            tx(int(g.screenW - pw + 10 * g.scale), kb + 3 * kl, "Y Esc", ui::col::kText);
+            int xp = tx(int(g.screenW - pw + 110 * g.scale), kb, "", ui::col::kDim);
+            xp = shape(xp, kb - int(4 * g.scale), true, ui::col::kDim);
+            tx(xp, kb, " 待定", ui::col::kDim);
+            tx(int(g.screenW - pw + 110 * g.scale), kb + kl, "CAP 待定", ui::col::kDim);
+            tx(int(g.screenW - pw + 110 * g.scale), kb + 2 * kl, "HOME 待定", ui::col::kDim);
+
+            // 顶栏
+            pr.textInBox({int(16 * g.scale), int(9 * g.scale), 0, int(14 * g.scale)},
+                         std::string("SYS.TERM   // LAYER ") + layerNames[L], pfonts.ptitle,
+                         ui::c(ui::col::kCyan), render::Align::Left);
+        } else {
+            ui::drawTopBar(pr, pfonts, uic, g, st);
+            ui::drawKeyPanels(pr, pfonts, uic, g, st);
+            ui::drawTermBackground(pr, pfonts, g);
+            // 终端区示例内容（M1 接 TerminalParser 后由网格填）
+            int ty = g.contentY + g.termPadTop;
+            int bh = (pfonts.term->ascent - pfonts.term->descent);
+            auto line = [&](int row, const std::string& t, uint32_t colr) {
+                pr.textBaseline(g.termX + g.termPadX, ty + bh + row * ui::layout::kCellH, t,
+                                pfonts.term, ui::c(colr));
+            };
+            line(0, "switch@arch:~$ echo \"你好，Switch\"", ui::col::kGreen);
+            line(1, "你好，Switch", ui::col::kText);
+            line(2, "switch@arch:~$ sudo pacman -S --needed fcitx5", ui::col::kGreen);
+            line(3, ":: 正在解析依赖关系...", ui::col::kDim);
+            ui::drawComposeLine(pr, pfonts, g, st);
+            ui::drawBottomBar(pr, pfonts, g, st);
+        }
         pr.endFrame();
-        bool ok = pb->captureFrame(uiPreview);
-        std::printf("ui-preview: %s  %dx%d scale=%.2f\n", ok ? "OK" : "FAIL", g.screenW, g.screenH,
-                    previewScale);
+        bool ok = true;
+        if (!uiPreview.empty()) ok = pb->captureFrame(uiPreview);  // fbdev 不支持截图，跳过
+        std::printf("ui-preview: %s  %dx%d scale=%.2f backend=%s\n", ok ? "OK" : "FAIL",
+                    g.screenW, g.screenH, previewScale, pbn);
         pb->shutdown();
         delete pb;
         return ok ? 0 : 1;
@@ -898,7 +1196,7 @@ int main(int argc, char** argv) {
                  layout::kScreenW, layout::kScreenH, 13.0 * layout::kScale);
 
     if (!legacy) {  // 新架构：ui/screen + TerminalParser
-        int rc = app::run(bd, exeDir + "/..", out, runCmd);
+        int rc = app::run(bd, exeDir + "/..", out, runCmd, tabs);
         bd->shutdown();
         delete bd;
         return rc;
@@ -1108,8 +1406,8 @@ int main(int argc, char** argv) {
         if (::stat(p.c_str(), &st) != 0) return 0;
         return (long long)st.st_mtime * 1000000000LL + (long long)st.st_mtim.tv_nsec;
     };
-    long long layoutStamp = layoutMTime(layoutResolved);
-    long long nextStatMs = 0;
+    [[maybe_unused]] long long layoutStamp = layoutMTime(layoutResolved);
+    [[maybe_unused]] long long nextStatMs = 0;
 
     // 应用缩放：重排布局 → 重建字体 → 换画布 → 终端列数变了就 resize
     auto applyScale = [&](float want) {

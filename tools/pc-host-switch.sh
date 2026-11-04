@@ -14,6 +14,7 @@ SUBNET=192.168.50
 ADDR=$SUBNET.1
 
 if [[ "${1:-}" == "--down" ]]; then
+    IF=${2:-$IF}
     sudo pkill -f "dnsmasq.*--interface=$IF" 2>/dev/null || true
     sudo nft delete rule ip nat postrouting oifname "$WAN" masquerade 2>/dev/null || true
     sudo ip addr flush dev "$IF" 2>/dev/null || true

@@ -21,18 +21,11 @@ uint32_t lastCodepoint(const std::string& s) {
 bool BuiltinIme::load(const std::string& idxPath, const std::string& ngramPath) {
     if (!idx_.load(idxPath)) return false;
     ng_.load(ngramPath);  // 没有语料表也能用，只是不重排
-    // 英文 T9 词表放在 pinyin.idx 同目录
-    std::string dir = idxPath.substr(0, idxPath.find_last_of('/') + 1);
-    en_.load(dir + "t9en.txt");
     return true;
 }
 
 void BuiltinIme::push(char c) {
-    // 字母（全拼 / 弹窗多击）或数字（T9 九键）都进同一个缓冲；
-    // refresh() 按「全是数字」自动选查询方式
-    bool letter = (c >= 'a' && c <= 'z');
-    bool digit = (c >= '2' && c <= '9');
-    if (!letter && !digit) return;
+    if (c < 'a' || c > 'z') return;  // 只有全拼字母进组字串
     if (buf_.size() >= 24) return;
     buf_ += c;
     refresh();
@@ -54,21 +47,7 @@ void BuiltinIme::refresh() {
     page_ = 0;
     cands_.clear();
     if (buf_.empty()) return;
-    bool allDigits = std::all_of(buf_.begin(), buf_.end(),
-                                 [](char c) { return c >= '0' && c <= '9'; });
-    // 九键会生成很多组合：先多取一些，按 bigram 排完再截断，否则常用组合排不进来
-    size_t want = allDigits ? 400 : size_t(pageSize_) * 8;
-    if (allDigits && !chinese && en_.size()) {  // 英文态：查英文词表
-        cands_.clear();
-        for (const std::string& w : en_.query(buf_, want)) {
-            Cand c;
-            c.text = w;
-            cands_.push_back(std::move(c));
-        }
-        if (cands_.size() > size_t(pageSize_) * 8) cands_.resize(size_t(pageSize_) * 8);
-        return;
-    }
-    cands_ = allDigits ? idx_.queryDigits(buf_, want) : idx_.query(buf_, want);
+    cands_ = idx_.query(buf_, size_t(pageSize_) * 8);
     if (ng_.loaded()) {  // 词组合靠 bigram 排序：没有上下文时只算候选内部 bigram
 
         std::stable_sort(cands_.begin(), cands_.end(), [&](const Cand& a, const Cand& b) {
@@ -103,7 +82,8 @@ std::string BuiltinIme::commitRaw() {
 }
 
 std::string BuiltinIme::commit(int idx) {
-    if (cands_.empty()) return {};
+    // 组字串不合法（dd/xyz/混进数字）时没有候选：拼音原样上屏，别让用户白打的字凭空消失
+    if (cands_.empty()) return commitRaw();
     int i = idx < 0 ? page_ * pageSize_ : idx;
     if (i < 0 || i >= int(cands_.size())) return {};
     std::string out = cands_[size_t(i)].text;

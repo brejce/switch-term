@@ -2,6 +2,7 @@
 
 #include <lua.hpp>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -19,6 +20,11 @@ const ActionDef kActions[] = {
     {"mod_alt", kModAlt},   {"mod_shift", kModShift},{"lock_ctrl", kLockCtrl},
     {"lock_alt", kLockAlt}, {"lock_shift", kLockShift},
     {"mouse_left", kMouseLeft}, {"mouse_right", kMouseRight},
+    {"next_tab", kNextTab}, {"prev_tab", kPrevTab},
+    {"new_tab", kNewTab},   {"close_tab", kCloseTab},
+    {"layer_next", kLayerNext}, {"onboard", kOnboard},
+    // 光标左右：原来是面板独有动作，v2 起 R / ZR 也绑这两个（LAYOUT-v2 §5）
+    {"cursor_left", kCursorLeft}, {"cursor_right", kCursorRight},
 };
 
 struct KeyDef {
@@ -28,7 +34,8 @@ struct KeyDef {
 const KeyDef kKeys[] = {
     {"LB", kLB}, {"LT", kLT}, {"RB", kRB}, {"RT", kRT},   {"A", kA}, {"B", kB},
     {"X", kX},   {"Y", kY},   {"DPAD_UP", kDpadUp},      {"DPAD_DOWN", kDpadDown},
-    {"DPAD_LEFT", kDpadLeft}, {"DPAD_RIGHT", kDpadRight},
+    {"DPAD_LEFT", kDpadLeft}, {"DPAD_RIGHT", kDpadRight}, {"L3", kL3},
+    {"START", kStart},
 };
 
 // keymap.lua 调用的 C 函数把结果写进这里（单线程启动期，静态够用）
@@ -96,6 +103,24 @@ int inum(lua_State* L, const char* k, int def) {
     }
     lua_getfield(L, -1, k);
     int v = lua_isnumber(L, -1) ? int(lua_tointeger(L, -1)) : def;
+    lua_pop(L, 2);
+    return v;
+}
+
+// ui.<sect>.<k>：ui.key_window.cols 这种小表
+int uiSubInt(lua_State* L, const char* sect, const char* k, int def) {
+    lua_getglobal(L, "ui");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return def;
+    }
+    lua_getfield(L, -1, sect);
+    int v = def;
+    if (lua_istable(L, -1)) {
+        lua_getfield(L, -1, k);
+        if (lua_isnumber(L, -1)) v = int(lua_tointeger(L, -1));
+        lua_pop(L, 1);
+    }
     lua_pop(L, 2);
     return v;
 }
@@ -175,23 +200,32 @@ std::string estr(lua_State* L, const char* sect, const char* k, const char* def)
     return v;
 }
 
-// 读 ui.t9_alpha / t9_symbol：9 项 { "2", "ABC" }
-void readT9(lua_State* L, const char* field, T9Key out[9]) {
+
+// UTF-8 串的首字符（ui.layers 的每格是一个字符，可能是 3 字节汉字）
+std::string firstUtf8(const char* s) {
+    if (!s || !*s) return {};
+    const unsigned char b = static_cast<unsigned char>(*s);
+    const int n = b < 0x80 ? 1 : (b & 0xE0) == 0xC0 ? 2 : (b & 0xF0) == 0xE0 ? 3 : 4;
+    return std::string(s, size_t(n));
+}
+
+// 读 ui.keys：30 项 {x=,y=}
+void readKeysV2(lua_State* L, KeyV2 out[kKeyV2Count]) {
     lua_getglobal(L, "ui");
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);
         return;
     }
-    lua_getfield(L, -1, field);
+    lua_getfield(L, -1, "keys");
     if (lua_istable(L, -1)) {
-        for (int i = 1; i <= 9; ++i) {
+        for (int i = 1; i <= kKeyV2Count; ++i) {
             lua_rawgeti(L, -1, i);
             if (lua_istable(L, -1)) {
-                lua_rawgeti(L, -1, 1);
-                if (lua_isstring(L, -1)) out[i - 1].num = lua_tostring(L, -1);
+                lua_getfield(L, -1, "x");
+                if (lua_isnumber(L, -1)) out[i - 1].x = int(lua_tointeger(L, -1));
                 lua_pop(L, 1);
-                lua_rawgeti(L, -1, 2);
-                if (lua_isstring(L, -1)) out[i - 1].letters = lua_tostring(L, -1);
+                lua_getfield(L, -1, "y");
+                if (lua_isnumber(L, -1)) out[i - 1].y = int(lua_tointeger(L, -1));
                 lua_pop(L, 1);
             }
             lua_pop(L, 1);
@@ -200,17 +234,29 @@ void readT9(lua_State* L, const char* field, T9Key out[9]) {
     lua_pop(L, 2);
 }
 
-bool dofile(const char* path) {
-    lua_State* L = luaL_newstate();
-    if (!L) return false;
-    luaL_openlibs(L);
-    if (luaL_dofile(L, path) != LUA_OK) {
-        std::fprintf(stderr, "%s: %s\n", path, lua_tostring(L, -1));
-        lua_close(L);
-        return false;
+// 读 ui.layers.<alpha|num|sym>：每层 30 个单字符
+void readLayers(lua_State* L, std::string out[kLayerCount][kKeyV2Count]) {
+    static const char* names[kLayerCount] = {"alpha", "num", "sym"};
+    lua_getglobal(L, "ui");
+    if (!lua_istable(L, -1)) {
+        lua_pop(L, 1);
+        return;
     }
-    lua_close(L);
-    return true;
+    lua_getfield(L, -1, "layers");
+    if (lua_istable(L, -1)) {
+        for (int l = 0; l < kLayerCount; ++l) {
+            lua_getfield(L, -1, names[l]);
+            if (lua_istable(L, -1)) {
+                for (int i = 1; i <= kKeyV2Count; ++i) {
+                    lua_rawgeti(L, -1, i);
+                    if (lua_isstring(L, -1)) out[l][i - 1] = firstUtf8(lua_tostring(L, -1));
+                    lua_pop(L, 1);
+                }
+            }
+            lua_pop(L, 1);
+        }
+    }
+    lua_pop(L, 2);
 }
 
 }  // namespace
@@ -253,20 +299,12 @@ bool loadUi(const char* path, Ui& out) {
     out.cellW = inum(L, "cell_w", out.cellW);
     out.cellH = inum(L, "cell_h", out.cellH);
     out.imeRows = inum(L, "ime_rows", out.imeRows);
+    out.keySize = inum(L, "key_size", out.keySize);
+    out.keyWindowCols = uiSubInt(L, "key_window", "cols", out.keyWindowCols);
+    out.keyWindowRows = uiSubInt(L, "key_window", "rows", out.keyWindowRows);
     out.title = istr(L, "title", out.title.c_str());
-    readT9(L, "t9_alpha", out.t9Alpha);
-    readT9(L, "t9_symbol", out.t9Symbol);
-    lua_getglobal(L, "ui");
-    if (lua_istable(L, -1)) {  // ui.labels.t9_title
-        lua_getfield(L, -1, "labels");
-        if (lua_istable(L, -1)) {
-            lua_getfield(L, -1, "t9_title");
-            if (lua_isstring(L, -1)) out.t9Title = lua_tostring(L, -1);
-            lua_pop(L, 1);
-        }
-        lua_pop(L, 1);
-    }
-    lua_pop(L, 1);
+    readKeysV2(L, out.keysV2);
+    readLayers(L, out.layers);
     lua_close(L);
     return true;
 }
@@ -313,11 +351,23 @@ bool loadEngine(const char* path, Engine& out) {
     out.scrollback = einum(L, "terminal", "scrollback", out.scrollback);
     out.candPerPage = einum(L, "ime", "cand_per_page", out.candPerPage);
     out.ngram = ebool(L, "ime", "ngram", out.ngram);
-    out.t9 = ebool(L, "ime", "t9", out.t9);
     out.imeEnabled = ebool(L, "ime", "enabled", out.imeEnabled);
     out.deadzone = efloat(L, "input", "deadzone", out.deadzone);
     out.hysteresisDeg = efloat(L, "input", "hysteresis_deg", out.hysteresisDeg);
     out.doubleTapMs = einum(L, "input", "double_tap_ms", out.doubleTapMs);
+    out.rotate = einum(L, "display", "rotate", out.rotate);
+    out.physics.damping = efloat(L, "physics", "damping", out.physics.damping);
+    out.physics.attractPower = efloat(L, "physics", "attract_power", out.physics.attractPower);
+    out.physics.attractRadius = efloat(L, "physics", "attract_radius", out.physics.attractRadius);
+    out.physics.snapRadius = efloat(L, "physics", "snap_radius", out.physics.snapRadius);
+    out.physics.releaseRatio = efloat(L, "physics", "release_ratio", out.physics.releaseRatio);
+    out.physics.releasePower = efloat(L, "physics", "release_power", out.physics.releasePower);
+    out.physics.maxSpeed = efloat(L, "physics", "max_speed", out.physics.maxSpeed);
+    out.physics.speedSlowEnd =
+        efloat(L, "physics", "speed_slow_end", out.physics.speedSlowEnd);
+    out.physics.speedLow = efloat(L, "physics", "speed_low", out.physics.speedLow);
+    out.physics.hoverRadius = efloat(L, "physics", "hover_radius", out.physics.hoverRadius);
+    out.physics.homePull = efloat(L, "physics", "home_pull", out.physics.homePull);  // engine.physics.dt 不读：写死在 physics.cpp
     out.logLevel = estr(L, "log", "level", out.logLevel.c_str());
     out.logPath = estr(L, "log", "path", out.logPath.c_str());
     lua_getglobal(L, "engine");  // engine.sink 是顶层字段，不是表

@@ -17,17 +17,18 @@ struct CandView {
 };
 
 struct AppState {
-    std::string layer = "ALPHA";  // ALPHA | SYMBOL
+    std::string layerName = "ALPHA";  // 展示用名字：ALPHA | NUM | SYM
+    int layer = 0;                 // 层下标 0=ALPHA 1=NUM 2=SYM（L3 循环，LAYOUT-v2 §2）
+    // v2 物理场：每侧一个指针。snap = 吸附的键（全局 0..29，-1 = 无），hover = 无吸附时最近的键
+    int snapLeft = -1, snapRight = -1;
+    int hoverLeft = -1, hoverRight = -1;
+    float ptrLeftX = 0, ptrLeftY = 0, ptrRightX = 0, ptrRightY = 0;  // 设计像素
+    float attractRadius = 60;     // engine.physics.attract_radius：键窗的点亮半径跟着物理场走
     std::string lang = "ZH";      // ZH | EN
-    std::string imeName = "T9";
+    std::string imeName = "PINYIN";
     bool modCtrl = false, modShift = false, modAlt = false;  // 锁定态（底部状态栏显示）
-    int focusIdx = 4;             // T9 焦点格 0..8
-    bool popup = false;           // 魔法键弹窗状态
-    int popupFocus = -1;          // 当前弹窗锁定的格子 0..8（-1 = 没弹窗）
-    int selCell = -1;             // 弹窗内选中的字符键 cell（-1 = 无选中：鼠标在虚无）
-    int hoverCell = -1;           // 鼠标悬停的九宫格 cell（弹窗里只有字符键算实体）
-    int pressedCell = -1;         // 刚触发的字符键 cell
-    long long pressedMs = 0;      // 触发时间戳（steady_clock 毫秒），150ms 后失效
+    int pressedKey = -1;          // 刚按下的键位（cfg::InputKey），提示条闪一下
+    long long pressedKeyMs = 0;
     std::string compose;          // 组字串
     std::vector<CandView> cands;  // 候选（含注音）
     int candPage = 0, candPageCount = 1;
@@ -50,19 +51,44 @@ struct Geometry {
     void fromConfig(const cfg::Ui& uic, float scale);
 };
 
-// 九宫格 cell 0..8 的矩形。drawT9Panel 和鼠标命中测试共用这一份几何，别各算一遍
-disp::Rect t9CellRect(const Geometry& g, int idx);
+// 顶栏里的 tab 条。格宽固定、起点是常量（不量标题宽度），所以命中测试不用带 renderer；
+// drawTabBar 和 tabAt 共用 tabRect，绘制和命中只算一份几何。
+// idx = 0..n-1 是 tab，idx == n 是末尾的「+」格（那格的宽是方形的条带高）
+disp::Rect tabRect(const Geometry& g, const cfg::Ui& uic, int idx);
+// 返回 0..count-1，count = 点中「+」，-1 = 没点中
+int tabAt(const Geometry& g, const cfg::Ui& uic, int count, int x, int y);
+void drawTabBar(render::Renderer& r, const FontBook& f, const Geometry& g, const cfg::Ui& uic,
+                const std::vector<std::string>& titles, int active);
 
 void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                 const AppState& st);
 void drawBottomBar(render::Renderer& r, const FontBook& f, const Geometry& g, const AppState& st);
-void drawT9Panel(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
-                 const AppState& st);
-void drawMousePanel(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
-                    const AppState& st);
 // 中间终端区只画边框底色 + 组字串/候选两行；网格由调用方按 TerminalParser 填
 void drawTermBackground(render::Renderer& r, const FontBook& f, const Geometry& g);
 void drawComposeLine(render::Renderer& r, const FontBook& f, const Geometry& g,
                      const AppState& st);
+
+// v2 分体键盘的滑窗键区：世界比面板大（5×3 键），只露出 ui.key_window.cols×rows 那一窗，
+// 指针固定在窗口中心，摇杆滚动世界（不画准星：吸附键的整键反色 + 引力点亮就是方向指示）。
+// layer 越界按 3 取模收进 ALPHA/NUM/SYM。
+disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int panelY,
+                         int panelW, int panelH);
+
+// 一只手的面板：panelX/Y/W/H = 可视矩形（也当裁剪矩形）；ptrX/ptrY = 该手指针（世界坐标）；
+// first = 这手在 ui.keys 里的起点（左 0 / 右 15）；snap/hover = 高亮键下标（全局 0..29，-1 = 无）。
+// attractRadius = 引力半径：键按「离指针多远」点亮（强度 = 物理场真实受力），0 = 不画动效。
+// 每键屏位 = 面板中心 + (键中心 - 指针)，所以吸附住的键正好落在窗口中心，窗外的部分被裁掉。
+void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
+                 int layer, int first, int panelX, int panelY, int panelW, int panelH,
+                 float ptrX, float ptrY, int snap, int hover, float attractRadius);
+// v2 左右键区整块：面板底 + 两手滑窗键区（含高亮/引力点亮）+ 左 DPAD 簇 / 右 ABXY 簇。
+// 文字只来自 ui.lua 的标题（dpad_title / abxy_title），这里不写键字符。
+void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
+                   const AppState& st);
+// 物理按键簇（v2：画在字母区中缝里作提示）
+void drawDpad(render::Renderer& r, const FontBook& f, int x0, int y0, int cell, const AppState& st,
+              float s);
+void drawAbxy(render::Renderer& r, const FontBook& f, int x0, int y0, int cell, float s,
+              int pressedKey = -1);
 
 }  // namespace ui

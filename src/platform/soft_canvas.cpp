@@ -9,9 +9,16 @@ void SoftCanvas::resize(int w, int h) {
     w_ = w;
     h_ = h;
     fb_.assign(size_t(w) * h * 4, 0);
+    clearClip();
 }
 
-void SoftCanvas::clear() { std::fill(fb_.begin(), fb_.end(), uint8_t(0)); }
+void SoftCanvas::clear() {
+    std::fill(fb_.begin(), fb_.end(), uint8_t(0));
+    clearClip();  // 新一帧不带上一帧残留的裁剪矩形
+}
+
+void SoftCanvas::setClip(const Rect& r) { clipRect_ = r; }
+void SoftCanvas::clearClip() { clipRect_ = Rect{0, 0, w_, h_}; }
 
 TextureId SoftCanvas::createTexture(const TextureDesc& d) {
     Tex t;
@@ -41,6 +48,17 @@ Rect SoftCanvas::clip(const Rect& r) const {
     return o;
 }
 
+Rect SoftCanvas::intersect(const Rect& a, const Rect& b) const {
+    Rect o;
+    o.x = std::max(a.x, b.x);
+    o.y = std::max(a.y, b.y);
+    o.w = std::min(a.right(), b.right()) - o.x;
+    o.h = std::min(a.bottom(), b.bottom()) - o.y;
+    if (o.w < 0) o.w = 0;
+    if (o.h < 0) o.h = 0;
+    return o;
+}
+
 void SoftCanvas::blendPixel(int x, int y, Color c) {
     if (c.a == 0) return;
     uint8_t* p = &fb_[(size_t(y) * w_ + x) * 4];
@@ -56,7 +74,7 @@ void SoftCanvas::blendPixel(int x, int y, Color c) {
 }
 
 void SoftCanvas::fillRect(const Rect& r0, Color c) {
-    Rect r = clip(r0);
+    Rect r = clip(intersect(r0, clipRect_));
     if (r.empty() || c.a == 0) return;
     for (int y = r.y; y < r.bottom(); ++y)
         for (int x = r.x; x < r.right(); ++x) blendPixel(x, y, c);
@@ -64,7 +82,8 @@ void SoftCanvas::fillRect(const Rect& r0, Color c) {
 
 void SoftCanvas::drawTexture(TextureId id, const Rect& src, const Rect& dst0, Color tint) {
     const Tex& t = tex(id);
-    Rect dst = clip(dst0);
+    // 裁 dst 后仍按 dst0 换算 src：缩放在裁剪之前定下，不会因为裁剪把图拉歪
+    Rect dst = clip(intersect(dst0, clipRect_));
     if (dst.empty()) return;
     int b = bpp(t.fmt);
     for (int y = dst.y; y < dst.bottom(); ++y) {

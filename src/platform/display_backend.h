@@ -66,9 +66,14 @@ public:
     virtual void beginFrame() = 0;
     virtual void fillRect(const Rect&, Color) = 0;
     virtual void drawTexture(TextureId, const Rect& src, const Rect& dst, Color tint) = 0;
+    // 裁剪矩形：之后的 fillRect/drawTexture（含字形）只在它里面落地；clearClip = 整块画布
+    virtual void setClip(const Rect&) = 0;
+    virtual void clearClip() = 0;
     virtual void endFrame() = 0;
     // 窗口分辨率变了：重排画布（UI 会按新尺寸重画）
     virtual void setCanvasSize(int w, int h) { (void)w; (void)h; }
+    // 平台方向（engine.display.rotate）：只对 fbdev 这种“面板原生竖装”的后端有意义
+    virtual void setRotation(int deg) { (void)deg; }
     // 这个后端希望用多大缩放（画布像素 / 设计尺寸）
     virtual float scaleHint(int designW, int designH) const {
         (void)designW;

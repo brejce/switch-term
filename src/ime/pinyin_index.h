@@ -22,8 +22,6 @@ public:
     bool load(const std::string& path);
     size_t syllables() const { return map_.size(); }
     std::vector<Cand> query(const std::string& pinyin, size_t maxCand) const;
-    // T9 九键：数字串（2-9）→ 候选。先把每个音节编码成数字（abc=2 … wxyz=9）再匹配
-    std::vector<Cand> queryDigits(const std::string& digits, size_t maxCand) const;
     std::vector<std::string> syllableList() const;
 
 private:

@@ -38,18 +38,6 @@ RouteResult routeKey(ime::BuiltinIme& ime, char ch, int mods) {
     }
 
     if (ime.chinese && ime.composing()) {
-        // T9 九键：数字继续进序列（不是选词）
-        if (ime.digitsBuffer()) {
-            if (ch >= '2' && ch <= '9') {
-                ime.push(ch);
-                r.consumed = true;
-                return r;
-            }
-            if (ch == '0' || ch == '1') {  // 9 键里 1 是标点键，暂不支持
-                r.consumed = true;
-                return r;
-            }
-        }
         if (ch >= '1' && ch <= '9') {  // 数字选词：只认当前页内的候选（页大小 = engine.ime.cand_per_page）
             int idx = ch - '1';
             if (idx < ime.pageSize()) {
@@ -59,12 +47,11 @@ RouteResult routeKey(ime::BuiltinIme& ime, char ch, int mods) {
             }
             // 8/9 超出本页：不吞掉，当普通字符走下面
         }
-        if (ch == ' ') {  // 空格 = 上屏首候选
-            r.bytes = ime.commit(-1);
-            r.consumed = true;
+        if (ch == ' ') {  // 空格 = 普通空格（选字归魔法键：数字键选候选 / 回车打拼音原样）
+            r.bytes = ch;
             return r;
         }
-        if (ch == '\r') {  // 回车 = 不确认候选，拼音原样上屏（打出 nihao 本身）
+        if (ch == '\r') {  // 回车 = 拼音原样上屏（打出 nihao 本身）
             r.bytes = ime.commitRaw();
             r.consumed = true;
             return r;

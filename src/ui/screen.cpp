@@ -4,47 +4,17 @@
 #include <cmath>
 #include <cstdio>
 
-#include "ui/t9_popup.h"
 
 namespace ui {
 namespace {
 
 int S(int v, float s) { return int(std::lround(float(v) * s)); }
 
-// 面板里的一行说明（键块 + 说明文字）
-struct KeyRow {
-    const char* key;
-    uint32_t color;
-    const char* bold;
-    const char* rest;
-};
-
-void drawKeyList(render::Renderer& r, const FontBook& f, int panelX, int panelW, int botY,
-                 const KeyRow* rows, int n, float s) {
-    const int rowH = S(19, s), keyH = S(18, s);
-    int y = botY - (n * keyH + (n - 1) * S(3, s));
-    for (int i = 0; i < n; ++i) {
-        const KeyRow& row = rows[i];
-        int kw = std::max(S(28, s), r.textWidth(row.key, f.kk) + S(8, s));
-        disp::Rect kb{panelX, y, kw, keyH};
-        r.fill(kb, c(col::kKkBg));
-        r.textInBox(kb, row.key, f.kk, c(row.color), render::Align::Center, 0, 0, S(1, s));
-        int x = kb.right() + S(6, s);
-        int baseline = y + keyH / 2 + (f.kd->ascent - f.kd->descent) / 2;
-        r.textBaseline(x, baseline, row.bold, f.kk, c(col::kText));
-        x += r.textWidth(row.bold, f.kk);
-        r.textBaseline(x, baseline, row.rest, f.kd, c(col::kDim));
-        y += rowH;
-    }
-}
-
-int shoulder(render::Renderer& r, const FontBook& f, int x, int y, const char* label,
-             uint32_t textC, uint32_t bgC, float s) {
-    int w = r.textWidth(label, f.shoulder) + S(16, s);
-    disp::Rect box{x, y, w, S(20, s)};
-    r.fill(box, c(bgC));
-    r.textInBox(box, label, f.shoulder, c(textC), render::Align::Center, 0, 0, S(1, s));
-    return w;
+// 「+」格是正方形：tabRect 只按下标算，不知道末位是「+」，宽在这里改成条带高
+disp::Rect tabPlusRect(const Geometry& g, const cfg::Ui& uic, int count) {
+    disp::Rect box = tabRect(g, uic, count);
+    box.w = box.h;
+    return box;
 }
 
 void ptitle(render::Renderer& r, const FontBook& f, int x, int y, const std::string& text,
@@ -53,51 +23,7 @@ void ptitle(render::Renderer& r, const FontBook& f, int x, int y, const std::str
                 S(1, s));
 }
 
-// 9 张字符格：row-major 九宫格。弹窗时字符键按 t9_popup.h 的占位表铺开，
-// 没被字符键占的格子是「虚无」：缩小 0.82 + 字降一档 + 更淡，视觉上就不像可点的东西。
-void drawT9Grid(render::Renderer& r, const FontBook& f, const cfg::T9Key* keys, const Geometry& g,
-                const AppState& st, uint32_t accent, float s) {
-    const int lock = st.popup ? (st.popupFocus >= 0 ? st.popupFocus : st.focusIdx) : -1;
-    // 弹窗时每格上的字符（0 = 这格没有字符键）；符号层字符数少于占位数时按 letters 截断
-    char letterAt[9] = {};
-    if (lock >= 0) {
-        const std::string& letters = keys[lock].letters;
-        int n = std::min(popupCellCount(lock), int(letters.size()));
-        for (int k = 0; k < n; ++k) letterAt[popupCellFor(lock, k)] = letters[size_t(k)];
-    }
-    // 选中只由悬停决定：鼠标在虚无处时 selCell = -1，任何字符键都不亮
-    const int sel = st.selCell;
-    for (int i = 0; i < 9; ++i) {
-        const bool isChar = letterAt[i] != 0;
-        const bool ghost = st.popup && !isChar;
-        disp::Rect box = t9CellRect(g, i);
-        if (ghost) {  // 虚无格：缩到 0.82 倍并居中
-            const int inset = int(std::lround(box.w * 0.09));
-            box = {box.x + inset, box.y + inset, box.w - 2 * inset, box.h - 2 * inset};
-        }
-        const int x = box.x, y = box.y, cell = box.w;
-        uint32_t bg = 0;
-        if (st.popup) {
-            if (isChar && i == sel) bg = col::kBlue;             // 悬停/选中：反色底
-            if (isChar && i == st.pressedCell) bg = col::kText;  // 刚触发：闪一下
-        } else if (i == st.focusIdx) {
-            bg = accent;  // 网格态焦点格
-        }
-        uint32_t fg = ghost ? col::kLine : accent;  // kLine 比 kFaint 更淡
-        if (bg) {
-            r.fill({x + S(2, s), y + S(2, s), cell - S(4, s), cell - S(4, s)}, c(bg));
-            fg = col::kBg;  // 底色是反色，字用底色
-        }
-        // 数字（左上，小字）
-        r.textInBox({x + S(4, s), y + S(2, s), 0, S(12, s)}, keys[i].num, f.dpad,
-                    c(bg ? (st.popup ? 0x001018 : 0x101018) : (ghost ? col::kLine : col::kDim)),
-                    render::Align::Left);
-        // 字母（居中）；弹窗时字符键一格一个字母，虚无格用降档字号的整串字母
-        std::string letters = isChar ? std::string(1, letterAt[i]) : keys[i].letters;
-        r.textInBox({x, y + S(10, s), cell, S(30, s)}, letters, ghost ? f.dpad : f.stick2, c(fg),
-                    render::Align::Center, 0, 0, S(1, s));
-    }
-}
+}  // namespace
 
 void drawDpad(render::Renderer& r, const FontBook& f, int x0, int y0, int cell,
               const AppState& st, float s) {
@@ -110,25 +36,29 @@ void drawDpad(render::Renderer& r, const FontBook& f, int x0, int y0, int cell,
             r.textInBox(box, label, f.dpad, c(color), render::Align::Center);
         }
     };
-    put(1, 0, "Tab", col::kGreen, false);
+    put(1, 0, "Tab", col::kGreen, st.pressedKey == cfg::kDpadUp);
     put(1, 1, "·", col::kFaint, false);
-    put(0, 1, "Ctrl", col::kPurple, st.modCtrl);
-    put(2, 1, "Shift", col::kYellow, st.modShift);
-    put(1, 2, "Alt", col::kBlue, st.modAlt);
+    put(0, 1, "Ctrl", col::kPurple, st.modCtrl || st.pressedKey == cfg::kDpadLeft);
+    put(2, 1, "Shift", col::kYellow, st.modShift || st.pressedKey == cfg::kDpadRight);
+    put(1, 2, "Alt", col::kBlue, st.modAlt || st.pressedKey == cfg::kDpadDown);
 }
 
-void drawAbxy(render::Renderer& r, const FontBook& f, int x0, int y0, int cell, float s) {
-    auto put = [&](int col, int row, const char* label, uint32_t color) {
-        r.textInBox({x0 + col * cell, y0 + row * cell, cell, cell}, label, f.stick, c(color),
-                    render::Align::Center);
+void drawAbxy(render::Renderer& r, const FontBook& f, int x0, int y0, int cell, float s,
+              int pressedKey) {
+    auto put = [&](int col, int row, const char* label, uint32_t color, int key) {
+        disp::Rect box{x0 + col * cell, y0 + row * cell, cell, cell};
+        if (key == pressedKey) {
+            r.fill(box, c(col::kText));
+            r.textInBox(box, label, f.stick, c(col::kBg), render::Align::Center);
+            return;
+        }
+        r.textInBox(box, label, f.stick, c(color), render::Align::Center);
     };
-    put(1, 0, "Y", col::kYellow);
-    put(0, 1, "X", col::kBlue);
-    put(2, 1, "A", col::kGreen);
-    put(1, 2, "B", col::kRed);
+    put(1, 0, "Y", col::kYellow, cfg::kY);
+    put(0, 1, "X", col::kBlue, cfg::kX);
+    put(2, 1, "A", col::kGreen, cfg::kA);
+    put(1, 2, "B", col::kRed, cfg::kB);
 }
-
-}  // namespace
 
 void Geometry::fromConfig(const cfg::Ui& uic, float s) {
     scale = s;
@@ -157,11 +87,40 @@ void Geometry::fromConfig(const cfg::Ui& uic, float s) {
     termRows = std::max(1, (contentH - termPadTop - termPadBot) / termCellH - imeRows);
 }
 
-disp::Rect t9CellRect(const Geometry& g, int idx) {
-    const int gx = (g.panelW - g.stickBox) / 2;
-    const int gy = g.contentY + S(64, g.scale);  // 标题那一行下面
-    const int col = idx % 3, row = idx / 3;
-    return {gx + col * g.keyCell, gy + row * g.keyCell, g.keyCell, g.keyCell};
+
+disp::Rect tabRect(const Geometry& g, const cfg::Ui& uic, int idx) {
+    (void)uic;  // 几何全是固定常量 + 缩放，标题宽度不参与（见下面的 shortcut）
+    const float s = g.scale;
+    const int h = std::max(1, g.topBarH - S(8, s));
+    // shortcut: 起始 x 是常量 180，标题变长到压住 tab 时改成量 textWidth
+    return {S(180, s) + idx * (S(96, s) + S(4, s)), S(4, s), S(96, s), h};
+}
+
+int tabAt(const Geometry& g, const cfg::Ui& uic, int count, int x, int y) {
+    if (count <= 0 || x < 0 || y < 0) return -1;
+    for (int i = 0; i < count; ++i) {
+        disp::Rect box = tabRect(g, uic, i);
+        if (x >= box.x && x < box.right() && y >= box.y && y < box.bottom()) return i;
+    }
+    disp::Rect plus = tabPlusRect(g, uic, count);
+    if (x >= plus.x && x < plus.right() && y >= plus.y && y < plus.bottom()) return count;
+    return -1;
+}
+
+void drawTabBar(render::Renderer& r, const FontBook& f, const Geometry& g, const cfg::Ui& uic,
+                const std::vector<std::string>& titles, int active) {
+    const float s = g.scale;
+    for (int i = 0; i < int(titles.size()); ++i) {
+        disp::Rect box = tabRect(g, uic, i);
+        const bool on = i == active;
+        r.fill(box, c(on ? col::kLine : col::kTerm));
+        r.textInBox(box, titles[size_t(i)], f.bar, c(on ? col::kCyan : col::kDim),
+                    render::Align::Center, 0, 0, S(1, s));
+        // 活动 tab 底部一条线：底色用的是 kLine，不加标记分不清哪个是当前的
+        if (on) r.fill({box.x, box.bottom() - S(2, s), box.w, S(2, s)}, c(col::kCyan));
+    }
+    r.textInBox(tabPlusRect(g, uic, int(titles.size())), "+", f.bar, c(col::kFaint),
+                render::Align::Center, 0, 0, S(1, s));
 }
 
 void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
@@ -199,7 +158,7 @@ void drawBottomBar(render::Renderer& r, const FontBook& f, const Geometry& g,
                     S(1, s));
         x += r.textWidth(value, f.footer) + S(14, s);
     };
-    item("LAYER", st.layer, st.layer == "ALPHA" ? col::kCyan : col::kPurple);
+    item("LAYER", st.layerName, st.layer == 0 ? col::kCyan : col::kPurple);
     item("LANG", st.lang, st.lang == "ZH" ? col::kYellow : col::kGreen);
     item("IME", st.imeName, col::kDim);
 
@@ -211,88 +170,92 @@ void drawBottomBar(render::Renderer& r, const FontBook& f, const Geometry& g,
     }
 }
 
-void drawT9Panel(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
-                 const AppState& st) {
+disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int panelY,
+                         int panelW, int panelH) {
     const float s = g.scale;
-    int padX = S(10, s);
-    r.fill({0, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
-    r.fill({g.panelW - 1, g.contentY, 1, g.contentH}, c(col::kLine));
-
-    // 肩键：LB（魔法键）/ LT（空格）
-    int sy = g.contentY + S(12, s);
-    int wLB = shoulder(r, f, padX, sy, "LB (MAGIC)", col::kPurple,
-                       st.popup ? col::kPurple : col::kShZL, s) + S(6, s);
-    shoulder(r, f, padX + wLB, sy, "LT (SPACE)", col::kCyan, col::kShR, s);
-
-    // T9 九键
-    ptitle(r, f, padX, g.contentY + S(46, s), uic.t9Title, col::kCyan, s);
-    int gy = t9CellRect(g, 0).y;
-    const cfg::T9Key* keys = (st.layer == "SYMBOL") ? uic.t9Symbol : uic.t9Alpha;
-    drawT9Grid(r, f, keys, g, st, col::kCyan, s);
-
-    // DPAD
-    int dy = gy + g.stickBox + S(16, s);
-    ptitle(r, f, padX, dy, uic.dpadTitle, col::kCyan, s);
-    int dx = (g.panelW - 3 * g.dpadCell) / 2;
-    drawDpad(r, f, dx, dy + S(16, s), g.dpadCell, st, s);
-
-    // 底部说明：弹窗态九宫格里只有字符键是实体，换成「怎么退出」的提示
-    static const KeyRow gridRows[] = {
-        {"LB", col::kPurple, "魔法键", " 弹出/连击"},
-        {"LT", col::kCyan, "空格", ""},
-        {"DPAD", col::kDim, "双击", " 锁定 Ctrl/Shift/Alt"},
-    };
-    static const KeyRow popupRows[] = {
-        {"左键", col::kGreen, "选字", ""},
-        {"右键", col::kRed, "空处", " 退出"},
-        {"ESC", col::kDim, "退出", ""},
-    };
-    if (st.popup)
-        drawKeyList(r, f, padX, g.panelW - 2 * padX, g.contentY + g.contentH - S(10, s), popupRows,
-                    3, s);
-    else
-        drawKeyList(r, f, padX, g.panelW - 2 * padX, g.contentY + g.contentH - S(10, s), gridRows,
-                    3, s);
+    // 键距只在 ui.keys 里（同一只手内等距）：第 1 个键 = 右邻，第 5 个 = 下邻
+    const int pitchX = S(uic.keysV2[1].x - uic.keysV2[0].x, s);
+    const int pitchY = S(uic.keysV2[5].y - uic.keysV2[0].y, s);
+    const int w = (uic.keyWindowCols - 1) * pitchX + S(uic.keySize, s);
+    const int h = (uic.keyWindowRows - 1) * pitchY + S(uic.keySize, s);
+    return {panelX + (panelW - w) / 2, panelY + (panelH - h) / 2, w, h};
 }
 
-void drawMousePanel(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
-                    const AppState& st) {
-    (void)st;
+void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
+                 int layer, int first, int panelX, int panelY, int panelW, int panelH,
+                 float ptrX, float ptrY, int snap, int hover, float attractRadius) {
     const float s = g.scale;
-    int padX = g.termX + g.termW + S(10, s);
-    int panelX = g.termX + g.termW;
-    r.fill({panelX, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
-    r.fill({panelX, g.contentY, 1, g.contentH}, c(col::kLine));
+    const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
+    const int sub = (L + 1) % cfg::kLayerCount;  // 副字符 = 下一层同位置（LAYOUT-v2 §3）
+    const int side = S(uic.keySize, s);          // 键帽边长来自 ui.key_size
+    const int b = std::max(1, S(1, s));          // 1px 边框
+    const int mainH = S(26, s), subH = S(13, s), gap = S(4, s);
+    const disp::Rect win = keyWindowRect(g, uic, panelX, panelY, panelW, panelH);
+    const int cx = win.x + win.w / 2, cy = win.y + win.h / 2;  // 面板中心 = 指针位置
+    auto px = [s](float v) { return int(std::lround(v * s)); };
+    const disp::Color acc = c(first == 0 ? col::kCyan : col::kRed);  // 左手青 / 右手红
+    r.setClip(win);  // 窗外的键画不出去，终端区不会被脏到
+    for (int i = 0; i < cfg::kKeyV2Count / 2; ++i) {
+        const int k = first + i;
+        const bool isSnap = snap == k;
+        const bool isHover = !isSnap && hover == k;  // 吸附优先：吸附键不再描边
+        // 吸附动效：亮度 = 物理场的真实受力（同一半径、同一距离），所以往右推时 f 先亮、
+        // 再往右 g 才亮；松手回零位时亮度跟着退回 d。吸附键已反色，不再叠加。
+        const float kcx = float(uic.keysV2[k].x) + float(uic.keySize) * 0.5f;
+        const float kcy = float(uic.keysV2[k].y) + float(uic.keySize) * 0.5f;
+        const float pull =
+            isSnap || attractRadius <= 0.f
+                ? 0.f
+                : std::clamp(1.f - std::hypot(kcx - ptrX, kcy - ptrY) / attractRadius, 0.f, 1.f);
+        disp::Color edge = c(isSnap || isHover ? col::kText : col::kLine);
+        disp::Color bg = c(isSnap ? col::kText : col::kKkBg);
+        disp::Color mainCol = c(isSnap ? col::kBg : col::kText);
+        disp::Color subCol = c(isSnap ? col::kBg : col::kDim);
+        if (pull > 0.f) {  // 边框先亮 → 底色跟着亮 → 过一半再开始染字：三段手感看得出来
+            edge = disp::mix(edge, acc, pull);
+            bg = disp::mix(bg, acc, pull * 0.25f);
+            mainCol = disp::mix(mainCol, acc, std::max(0.f, pull * 2.f - 1.f));
+        }
+        // 偏移 = 面板中心 - 指针（世界坐标）：吸附住的键正好压在中心上
+        const int kx = cx + px(kcx - ptrX);
+        const int ky = cy + px(kcy - ptrY);
+        const disp::Rect box{kx - side / 2, ky - side / 2, side, side};
+        // 吸附 = 整键反色（底色 col::kText、字色 col::kBg）；悬停（无吸附时）= 亮色描边
+        r.fill(box, edge);
+        r.fill({box.x + b, box.y + b, box.w - 2 * b, box.h - 2 * b}, bg);
+        // 主字符在上（大/亮），副字符在下（小/淡）：整块字在键帽里竖向居中
+        const int ty = box.y + (side - mainH - gap - subH) / 2;
+        r.textInBox({box.x, ty, box.w, mainH}, uic.layers[L][k], f.keyMain, mainCol,
+                    render::Align::Center);
+        r.textInBox({box.x, ty + mainH + gap, box.w, subH}, uic.layers[sub][k], f.keySub, subCol,
+                    render::Align::Center);
+    }
+    r.clearClip();
+}
 
-    int sy = g.contentY + S(12, s);
-    int wRB = r.textWidth("RB (L-CLICK)", f.shoulder) + S(16, s);
-    int wRT = r.textWidth("RT (R-CLICK)", f.shoulder) + S(16, s);
-    int xr = panelX + g.panelW - S(10, s);
-    shoulder(r, f, xr - wRT - wRB - S(6, s), sy, "RB (L-CLICK)", col::kGreen, col::kShR, s);
-    shoulder(r, f, xr - wRT, sy, "RT (R-CLICK)", col::kRed, col::kShZL, s);
+void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
+                   const AppState& st) {
+    const float s = g.scale;
+    const int rightX = g.termX + g.termW;
+    r.fill({0, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
+    r.fill({rightX, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
+    drawKeyHand(r, f, uic, g, st.layer, 0, 0, g.contentY, g.panelW, g.contentH, st.ptrLeftX,
+                st.ptrLeftY, st.snapLeft, st.hoverLeft, st.attractRadius);
+    drawKeyHand(r, f, uic, g, st.layer, 15, rightX, g.contentY, g.panelW, g.contentH,
+                st.ptrRightX, st.ptrRightY, st.snapRight, st.hoverRight, st.attractRadius);
+    // 竖分隔线画在键之后：滚到窗边的键不该盖住面板边界
+    r.fill({g.panelW - 1, g.contentY, 1, g.contentH}, c(col::kLine));
+    r.fill({rightX, g.contentY, 1, g.contentH}, c(col::kLine));
 
-    ptitle(r, f, padX, g.contentY + S(46, s), uic.mouseTitle, col::kRed, s);
-    // 鼠标准星（摇杆区中央）
-    int gx = panelX + (g.panelW - g.stickBox) / 2;
-    int gy = g.contentY + S(64, s);
-    r.textInBox({gx, gy, g.stickBox, g.stickBox}, "╬", f.stick, c(col::kRed),
-                render::Align::Center);
-
-    int dy = gy + g.stickBox + S(16, s);
-    ptitle(r, f, padX, dy, uic.abxyTitle, col::kRed, s);
-    int ax = panelX + (g.panelW - 3 * g.abxyCell) / 2;
-    drawAbxy(r, f, ax, dy + S(16, s), g.abxyCell, s);
-
-    static const KeyRow rows[] = {
-        {"A", col::kGreen, "回车", ""},
-        {"B", col::kRed, "退格", ""},
-        {"X", col::kBlue, "Del", ""},
-        {"Y", col::kYellow, "Esc", ""},
-        {"RB", col::kGreen, "鼠标左键", ""},
-        {"RT", col::kRed, "鼠标右键", ""},
-    };
-    drawKeyList(r, f, padX, g.panelW - 2 * S(10, s), g.contentY + g.contentH - S(10, s), rows, 6,
-                s);
+    // 按键簇摆在键窗下面：窗口在面板里竖向居中，所以从窗口底边往下排
+    const disp::Rect win = keyWindowRect(g, uic, 0, g.contentY, g.panelW, g.contentH);
+    const int dy = win.bottom() + S(20, s);
+    const int padX = S(10, s);
+    ptitle(r, f, padX, dy, uic.dpadTitle, col::kCyan, s);
+    drawDpad(r, f, (g.panelW - 3 * g.dpadCell) / 2, dy + S(16, s), g.dpadCell, st, s);
+    ptitle(r, f, rightX + padX, dy, uic.abxyTitle, col::kRed, s);
+    drawAbxy(r, f, rightX + (g.panelW - 3 * g.abxyCell) / 2, dy + S(16, s), g.abxyCell, s,
+             st.pressedKey);
 }
 
 void drawTermBackground(render::Renderer& r, const FontBook& f, const Geometry& g) {

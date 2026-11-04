@@ -146,51 +146,6 @@ std::string digitsOf(const std::string& syl) {
 }
 }  // namespace
 
-std::vector<Cand> PinyinIndex::queryDigits(const std::string& digits, size_t maxCand) const {
-    std::vector<Cand> out;
-    if (digits.empty()) return out;
-
-    // ① 正好是一个完整音节
-    for (const auto& kv : map_) {
-        if (digitsOf(kv.first) != digits) continue;
-        const Entry& e = kv.second;
-        for (size_t i = 0; i < e.cps.size() && out.size() < maxCand; ++i) {
-            Cand c;
-            c.text = utf8(e.cps[i]);
-            c.annot = tonify(kv.first, i < e.tones.size() ? e.tones[i] : 0);
-            c.first = e.cps[i];
-            out.push_back(std::move(c));
-        }
-    }
-    if (!out.empty()) return out;
-
-    // ② 拆成两个音节（9 键输入词：64826 → ni|hao 之类）
-    for (size_t i = 1; i + 1 < digits.size(); ++i) {
-        std::string dl = digits.substr(0, i), dr = digits.substr(i);
-        for (const auto& a : map_) {
-            if (digitsOf(a.first) != dl) continue;
-            for (const auto& b : map_) {
-                if (digitsOf(b.first) != dr) continue;
-                // 每个音节只取前 3 个常用字：否则一对音节就把候选吃满，
-                // 真正常用的组合（ni|hao）根本轮不到
-                for (size_t i1 = 0; i1 < a.second.cps.size() && i1 < 3; ++i1) {
-                    uint32_t c1 = a.second.cps[i1];
-                    for (size_t i2 = 0; i2 < b.second.cps.size() && i2 < 3; ++i2) {
-                        uint32_t c2 = b.second.cps[i2];
-                        if (out.size() >= maxCand) return out;
-                        Cand c;
-                        c.text = utf8(c1) + utf8(c2);
-                        c.annot = a.first + " " + b.first;  // 组合音无法定声调，只给音节
-                        c.first = c1;
-                        c.second = c2;
-                        out.push_back(std::move(c));
-                    }
-                }
-            }
-        }
-    }
-    return out;
-}
 
 std::vector<Cand> PinyinIndex::query(const std::string& py, size_t maxCand) const {
     std::vector<Cand> out;

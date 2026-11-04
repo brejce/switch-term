@@ -49,6 +49,8 @@ struct FontBook {
     const render::FontFace* kd = nullptr;        // 8.5
     const render::FontFace* bar = nullptr;       // 11 顶栏
     const render::FontFace* footer = nullptr;    // 10 底栏
+    const render::FontFace* keyMain = nullptr;   // 18 键帽主字符（大字）
+    const render::FontFace* keySub = nullptr;    // 9 键帽副字符（小淡）
 
     bool init(render::FontManager& fm) {
         const double S = double(layout::kScale);  // 字号跟着布局缩放，位图才不会糊
@@ -69,6 +71,8 @@ struct FontBook {
         kd = mono(fam::kMono, 9, fam::kCjk);
         bar = mono(fam::kMono, 11, fam::kCjk);
         footer = mono(fam::kMono, 10, fam::kCjk);
+        keyMain = mono(fam::kMonoBold, 18, fam::kCjk);
+        keySub = mono(fam::kMono, 9, fam::kCjk);
         return term && stick && kk && kd;
     }
 };

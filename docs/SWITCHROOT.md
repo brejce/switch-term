@@ -1,7 +1,8 @@
 # Switchroot 上机手册（Noble 24.04 实测流程）
 
-> 目标：Switch 到手后从零到「跑起本程序」。本文只写这台机器上验证过的路径，
-> 未验证的地方标了 **(待验证)**。
+> 最后更新：2026-11-03。定位：**从零到跑起本程序的上机步骤**（网络/分区/镜像/构建/启动）。
+> 机器实测事实（显示栈、手柄、内存、fbdev）在 `DEVICE.md`；当前进度与待验项在 `../STATUS.md`。
+> 本文只写这台机器上验证过的路径，未验证的地方标了 **(待验证)**。
 
 ## 0. 部署前置：网络 + SSH（**必须在删桌面之前做完**）
 
@@ -199,6 +200,9 @@ cmake -B build && cmake --build build -j$(nproc)
 
 ## 8. 权限（两个都卡这里）
 
+> 读手柄实际**不用**加组：`event8` 已有 `user:brejce:rw-` 的 ACL（logind uaccess），实测能直接读。
+> 下面第 1 步只在遇到权限错误时再做；写 `/dev/uinput` 才是真需要规则的（`DEVICE.md` §1.1/§9.2）。
+
 ```bash
 # 1) 读手柄：/dev/input/event* 通常是 root:input 660
 sudo usermod -aG input $USER        # 重新登录（或 newgrp input）才生效
@@ -221,7 +225,7 @@ sudo udevadm control --reload && sudo udevadm trigger
 # ② 不依赖显示的自检
 ./build/switch-ime-term --selftest
 ./build/switch-ime-term --audit-ime
-./build/switch-ime-term --audit-t9
+./build/switch-ime-term --audit-input
 
 # ③ 显示
 cat /sys/class/graphics/fb0/virtual_size      # 掌机应为 1280,720 量级

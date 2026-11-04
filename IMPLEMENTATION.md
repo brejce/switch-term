@@ -121,6 +121,9 @@ public:
 
 ### 4.2 ScreenBuffer
 
+> **已过时**：现在的实现是 `src/modules/terminal/terminal_parser.h` 的 `TerminalParser` 接口（`cellAt/cursor/history/dirty`），
+> 默认实现是 `VTermParser`（包 libvterm）。下面的 `ScreenBuffer` 类已不存在，看 §4.5。
+
 ```cpp
 struct Cell { uint32_t codepoint; uint8_t fg,bg,attrs; };
 class ScreenBuffer {
@@ -137,6 +140,72 @@ public:
 ### 4.3 IME UI 位置
 
 终端网格底部保留 **1 行** 输入法状态栏（`rows - 1` 给 PTY）。显示 compose 串、光标、候选词、层/语言状态。`uim-fep` LASTLINE 模式同类做法，避免和 shell 输出打架。
+
+### 4.4 多 tab（终端实例容器）
+
+一个 tab = **一套 `TerminalParser` + 一套 `Pty`**，互不共享状态（`VTermBridge` 的全部状态都在成员里，
+`static VTermScreenCallbacks` 只存函数指针、user data 是 `this`，所以多实例安全）。
+容器在 `src/app/app.cpp` 的 `run()` 里：
+
+```cpp
+struct Term {
+    std::unique_ptr<term::TerminalParser> tp;
+    std::unique_ptr<term::Pty> pty;
+    std::string title;   // tab 条显示
+    std::string pend;    // oscFilter 的跨 read 残余
+};
+std::vector<Term> terms;
+int active = 0;
+```
+
+用 `unique_ptr` 不是为了抽象，是为了两件事：`vector` 扩容时元素会搬家；`erase` 时 `Pty` 析构
+自动 SIGHUP 子进程（`pty.cpp` 的析构里）。
+
+**四条不变量（改这块之前先读）**
+
+1. **每帧要读所有 tab 的 master fd**，只画 `active`。不读非活动 tab 的话，对方写满 PTY 缓冲
+   （默认 64KB）就卡死，`tmux`/`vim` 这类程序会直接哑掉。
+2. **遍历 `terms` 期间不许改 `terms`**。读循环里只往 `closing` / `opening` 两个列表记账，
+   循环结束后先按**倒序**关（erase 不影响前面的下标）、再统一新建。
+3. 尺寸变化（窗口缩放 `SIGWINCH`）和热重载（`SIGUSR1`）都要**遍历所有 tab**
+   `tp->resize` + `pty.resize`，漏一个就会有一个 tab 的行列跟画面对不上。
+4. tab 上限 **16**（`spawnTerm()` 里硬编码）。OSC 能让 PTY 输出直接生 tab，不设上限就是个
+   可以被 `cat` 一个恶意文件点爆的内存放大器。
+
+**触发方式：OSC 1337 私有协议**
+
+新建/关闭**不靠按键**，靠终端里的命令。`installPathShims()` 启动时在 `/tmp/sit-bin-<pid>/` 下写
+两个 0755 脚本并塞到 `PATH` 最前面，脚本不和我们通信，只往 stdout 打控制序列：
+
+| 序列 | 动作 | 谁发 |
+|---|---|---|
+| `ESC ] 1337 ; newtab=<名字>` `BEL`/`ST` | 新建 tab（名字可空） | `term [名字]` 脚本 |
+| `ESC ] 1337 ; quit` `BEL`/`ST` | 关当前 tab | `quit` 脚本 |
+| `ESC ] 0 ; <文本>`（`1`/`2` 同） | 改当前 tab 标题 | 标准终端标题序列，fish 等自己会发 |
+| PTY 读返回 `-1` | 关当前 tab | shell 自己 `exit` / Ctrl+D |
+
+`src/term/osc_filter.cpp` 在喂 vterm **之前**把这些序列剥掉（一个字节都不能漏，否则终端里显示
+乱码），其余字节原样透传。两个约束写死在那里：
+
+* **必须跨 read 边界**：一条序列被内核拆成两次 `read` 是常态，靠调用方持有的 `pend` 续接。
+* 未闭合序列累积超过 512 字节就放弃识别、原样放行，`pend` 不会无上限增长。
+
+关 tab 的语义：**只剩一个时不关，原地重启一个 shell**（像 xterm，窗口不会空掉）。
+
+**`--run` 的三个特例**（都是为了无头截图测试不炸）：`newtab` 事件被忽略（否则
+`--run "term x"` 自己生自己，无限递归）；死 tab 不 erase（3 个 `bash -c` 立刻全退会让 `terms`
+变空，后面 `terms[0]` 直接崩）；全死光当作退出信号（旧语义）。`quit` 事件不在此列，照常关。
+
+**已知未做**：tab 切换的组合键还没分配（`cfg::Action` 里 `kNextTab/kPrevTab/kNewTab/kCloseTab`
+留着，`config/keymap.lua` 里注释掉了）；`Ctrl+N` = `0x0e` 和 readline 的「历史下一条」冲突，
+且 `ime_route.cpp` 先判 ctrl 后判 shift，`Ctrl+Shift+N` 目前也会被折成 `0x0e`。
+`/tmp/sit-bin-<pid>/` 退出不清理。
+
+### 4.5 终端解析接口现状
+
+`createParser(name)` 是唯一入口，返回 `TerminalParser*`（`feed` / `cellAt` / `cursor` / `history` /
+`dirty` / `resize`）。当前只有 `VTermParser`，ghostty 未接时回落 vterm，接口不变。
+上层（`app.cpp` 的 `drawGrid`）只认这个接口，不认 libvterm。
 
 ---
 
@@ -862,14 +931,9 @@ mockup 有 38px 标题栏（红黄绿三点 + `tty1 — switch-input@arch`）。
 | 标点 | **先把候选上屏，再发标点**（否则标点跑到中文前面） |
 | Ctrl+Space | 切中英；组字中切换则拼音原样落下 |
 
-### 17.2 T9 九键（手柄）
-*   **中文**：`PinyinIndex::queryDigits()` 把 410 个音节编成数字（abc=2 … wxyz=9），
-    数字串先试完整音节，再拆两音节组合；每音节只取前 3 个常用字（否则一对音节吃满候选），
-    组合按 ngram bigram 排序后截断。实测 `64426` → 你好。
-*   **英文**：`data/t9en.txt`（1 万高频词，148KB，按词频序），`ime::T9En` 查表；实测 `43556` → hello。
-*   **状态机** `src/modules/ime/t9_ime.*`：Grid ↔ Popup。默认焦点 `5(JKL)`；摇杆 8 扇区移动
-   焦点（越界不循环）；LB 进弹窗 → 再按上屏当前字母且**不退出**（连击）；弹窗内摇杆左右换字母。
-*   **空格**：网格态 = 敲焦点格数字；弹窗态/已有字母组字 = 上屏首候选。
+### 17.2 九键面板（已删除）
+
+旧的手柄九键面板/弹窗状态机已于 2026-11 整体删除，现状见 `docs/LAYOUT-v2.md` 与 `docs/ARCH.md` §4。
 
 ### 17.3 修饰键（防误操作）
 *   Ctrl/Alt + 字母**只在英文态**当组合键（`0x03` / `ESC+字母`）；中文态不抢字母。
@@ -883,8 +947,8 @@ mockup 有 38px 标题栏（红黄绿三点 + `tty1 — switch-input@arch`）。
 
 ### 17.5 自检命令
 ```bash
-./build/switch-ime-term --audit-ime   # 19 项：IM 按键代数 + T9 + 修饰键
-./build/switch-ime-term --audit-t9    # 16 项：T9 状态机 + evdev 合成事件映射
+./build/switch-ime-term --audit-ime   # IM 按键代数 + 修饰键
+./build/switch-ime-term --audit-input  # 手柄按键/摇杆映射 + keymap 装配
 ./build/switch-ime-term --probe-mouse # 虚拟鼠标设备注册 + 点击
 ```
 

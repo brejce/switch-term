@@ -121,6 +121,8 @@ public:
                      disp::Color tint) override {
         canvas_.drawTexture(id, src, dst, tint);
     }
+    void setClip(const disp::Rect& r) override { canvas_.setClip(r); }
+    void clearClip() override { canvas_.clearClip(); }
 
     void setCanvasSize(int w, int h) override {
         if (w == fbW_ && h == fbH_) return;

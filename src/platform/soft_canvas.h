@@ -15,6 +15,9 @@ public:
     const std::vector<uint8_t>& pixels() const { return fb_; }
 
     void clear();
+    // 裁剪矩形：fillRect/drawTexture（含 textInBox 的字形）只在它和画布的交集里落地
+    void setClip(const Rect& r);
+    void clearClip();
     TextureId createTexture(const TextureDesc&);
     void updateTexture(TextureId, const uint8_t* pixels, int row_stride);
     void fillRect(const Rect&, Color);
@@ -30,9 +33,11 @@ private:
     static int bpp(PixelFormat f) { return f == PixelFormat::A8 ? 1 : 4; }
     Tex& tex(TextureId id) { return textures_[id - 1]; }
     Rect clip(const Rect& r) const;
+    Rect intersect(const Rect& a, const Rect& b) const;
     void blendPixel(int x, int y, Color c);
 
     int w_ = 0, h_ = 0;
+    Rect clipRect_;  // setClip 设的裁剪矩形；clear()/resize() 回到整块画布
     std::vector<uint8_t> fb_;
     std::vector<Tex> textures_;
 };

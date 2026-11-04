@@ -57,7 +57,9 @@ private:
 // 新架构的按键上报：只报「哪个键被按下 + 摇杆在哪个扇区」，映射交给 cfg::KeyMap
 enum PadButton {
     kPadLB = 0, kPadLT, kPadRB, kPadRT, kPadA, kPadB, kPadX, kPadY,
-    kPadUp, kPadDown, kPadLeft, kPadRight, kPadCount
+    kPadUp, kPadDown, kPadLeft, kPadRight, kPadL3,
+    kPadPlus,  // 右手柄 +（BTN_START）：兜底用，键位顺序必须与 cfg::InputKey 一致
+    kPadCount
 };
 
 struct PadHandlers {
@@ -74,6 +76,11 @@ public:
 
     void setAxisRange(int code, int minV, int maxV);
     void onEvent(const input_event& ev, const PadHandlers& h);
+
+    // 当前原始归一化向量（-1..1，y 已转成数学坐标：上 = +），不是扇区。
+    // 物理场吃这套值（app::physics::step 的 ix/iy）；死区不在这里滤，调用方自己按需要滤。
+    // 返回 false = 两个轴都在中心。
+    bool stickVec(bool right, float& dx, float& dy) const;
 
 private:
     struct Range {
@@ -99,6 +106,10 @@ public:
     void close();
     int count() const { return int(fds_.size()); }
     const std::vector<std::string>& names() const { return names_; }
+
+    // 第一个报了向量的 pad 的值（合成设备与单侧 Joy-Con 上报一致，取谁都一样）。
+    // 返回 false = 没有 pad，或没有 pad 报出非零向量（dx/dy 仍写成 0，调用方不用先清零）。
+    bool stickVec(bool right, float& dx, float& dy) const;
 
     bool poll(const GamepadHandlers& h);   // 旧字节路径
     bool pollPad(const PadHandlers& h);    // 新：报按键/扇区

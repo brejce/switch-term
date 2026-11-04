@@ -1,0 +1,142 @@
+# PHYSICS · 双指针行星引力（v1 规格）
+
+实现目标：两个摇杆各驱动一个「粒子」，在各自 15 个字母键的引力场里飞；吸附只高亮，上屏仍由 L（LB）确认。
+
+## 1. 数据
+
+```cpp
+struct Pointer {
+    float x, y;        // 设计像素坐标（跟 ui.lua 的 ui.keys 同一坐标系）
+    float vx, vy;      // px/s
+    int   snapped;     // 吸附的键下标（全局 0..29），-1 = 未吸附
+    int   hovered;     // 最近的键（无吸附时），-1 = 无
+};
+
+struct Field {         // 一侧 15 键
+    int first;         // 左 = 0，右 = 15（ui.keys 的起点下标）
+    int home;          // 零位键：左 = 7（d），右 = 22（k）
+};
+```
+
+## 2. 每帧（固定 dt = 1/60）
+
+输入：摇杆归一化向量 `(ix, iy)`，长度 0..1（**往外辐射的半径**）。进 `step()` **之前**先过
+`app::physics::applyDeadzone(ix, iy, engine.input.deadzone)`：硬件回中读数不是 0（轴几何中点 ≠ 真实
+回中位，还有漂移），半径落在死区内就滤成 0——`idle` 才会累积、松手才会回零位。只归零、不重新缩放，
+所以下面折线的推杆量和摇杆实际推出去的比例一一对应（半径 10 = 死区 1 / 快速 5 / 外圈 4）。
+
+1. **速度目标**：`mag = |(ix,iy)|`；`spd = max_speed * shape(mag)`；`tv = dir * spd`。
+   `shape()` 是**两段 smoothstep**（死区之外，接缝处导数为 0，所以没有速度阶跃）：
+   - 内段 `[deadzone, speed_slow_end]`：0 → `speed_low`，微操区。内圈再推也只这么快，轻推挪一个键
+     （默认半径 10 的 1→5 段，顶端 = 0.3 × max_speed）
+   - 外段 `[speed_slow_end, 1.0]`：`speed_low` → 1.0，快速区。越推越快，推满最快（半径 5→10）
+
+   单调递增、只有中段一个拐点：符合「推得越满走得越快」的直觉；落点精度靠吸附半径，不靠降速。
+
+   `deadzone` 由 `engine.input.deadzone` 同步进 `Params`：曲线必须从死区边缘起算，否则边界处会从 0
+   直接跳到某个速度。
+2. **惯性**：`v = v + (tv - v) * (1 - damping)`（`damping=0.88` → 每步收敛 12%）
+3. **引力**：对场内每个键 `k`，`d = |pos - center(k)|`；若 `d < attract_radius`：
+   `v += unit(k - pos) * attract_power * (1 - d/attract_radius) * min(1, d/6px) * dt * 60`。
+   末尾那个 `min(1, d/6px)` 是**键心淡出**：常量引力在键心上是硬推力，离散积分会留下约 2px 的极限环
+   （画面上就是字母键一起抖），淡出之后球会稳稳停住
+4. **积分**：`pos += v * dt`
+5. **边界**：把 `pos` 夹在本场 15 键的包围盒外扩 `hover_radius`
+6. **吸附判定**：取最近的键 `n`，距离 `dn`
+   - `dn < snap_radius` 且无吸附 → `snapped = n`，发 `snap`
+   - 已吸附且 `dn > snap_radius * release_ratio`（默认 1.6）或玩家输入方向背离该键且 `|v| > release_power * max_speed` → `snapped = -1`，发 `release`
+   - 无吸附时 `hovered = (dn < hover_radius) ? n : -1`；变化时发 `hover_changed`
+7. **零位回落**：输入 `mag < 0.15` 持续 0.3s 且无吸附 → 施加向 `home` 的弱引力（`home_pull`），让它自己滑回 `d`/`k`
+
+对应到画面上（`ui::drawKeyHand`）：每个键按同一份 `attract_radius` 算 `pull = 1 - d/radius`，边框 →
+底色 → 字色依次向强调色（左青/右红）混过去。所以推摇杆时看到的就是真实受力：先 `f` 亮、推更深
+`g` 才亮；松开后指针滑回零位，亮度也跟着退回 `d`。
+
+## 3. 事件
+
+```cpp
+enum class PhysEvent { HoverChanged, Snap, Release };
+struct PhysEventData { PhysEvent kind; int key; float x, y; };
+```
+上层只关心：`snap` → 高亮 + 震动；`release` → 取消高亮；`hover_changed` → 弱高亮。
+
+## 4. 参数（`config/engine.lua` → `engine.physics`）
+
+下表是现在跑的现场值；C++ 里 `Params` 的默认值只是缺文件时的兜底。
+
+| 键 | 现用 | 含义 |
+|---|---|---|
+| `dt` | 1/60 | 固定步长，写死不读配置（保证可回放） |
+| `damping` | 0.88 | 惯性衰减 |
+| `attract_power` | 60 | 引力强度：每帧加多少 px/s（1 = 等于没磁力；键心 6px 内淡出，加大不会抖） |
+| `attract_radius` | 70 | 引力作用半径（px）＝键窗点亮半径（够到邻键中心） |
+| `snap_radius` | 22 | 吸附半径（键 64：键面大半算命中） |
+| `release_ratio` | 1.6 | 脱开距离 = snap_radius × 它 |
+| `release_power` | 0.35 | 脱开所需的反向速度（× max_speed） |
+| `max_speed` | 800 | px/s，推到底的时速（最快） |
+| `deadzone` | 0.1 | 曲线起点（= `engine.input.deadzone`，app 里同步，不单独配） |
+| `speed_slow_end` | 0.5 | 微操段结束的推杆量（半径 10 的 5） |
+| `speed_low` | 0.3 | 微操段顶端的速度（× max_speed） |
+| `hover_radius` | 36 | 无吸附时的最近键判定 |
+| `home_pull` | 0.6 | 零位回落的弱引力 |
+
+## 5. 可测性（硬要求）
+
+- 纯函数式步进：`Pointer` + `Field` + 参数 → `step()`，不含 I/O、不含时间调用（dt 由外部传）
+- `--audit-physics` 用脚本化序列断言：
+  1. 零位静止 → 吸附在 `home`（`d` / `k`）
+  2. 向右推 0.5s → 吸附键从 `d` 移向 `f`/`g`（下标递增）
+  3. 速度曲线：内圈（0.3）比快速段（0.8）慢、0.8 比 0.48 快、1.0 最快；接缝两侧（0.48/0.52）耗时差 ≤2 帧（无阶跃）
+  4. 松手 0.5s 后回到 `home`；引力能把球吸到键心，且松手后**不许残留摆动**（摆幅 <0.5px）
+  5. 向左推再反向 → 触发 `release` 事件
+- 同样的输入序列跑两次，轨迹与事件序列**逐字节相同**
+
+## 6. 文件
+
+```
+src/app/physics.h       Pointer / Field / Params / step / 事件回调
+src/app/physics.cpp     实现（无 I/O）
+src/input/evdev_gamepad.h   加 stickVec(right) -> {dx,dy}（拿归一化向量，不是扇区）
+src/config/lua_config.*     Engine.physics 那 10 个字段
+config/engine.lua           physics 段
+src/main.cpp                --audit-physics
+```
+
+## 7. 不做（本轮）
+
+- 不接主循环、不改渲染、不做震动、不做指针绘制
+- 不改输入法路径
+
+## 8. 下一轮（接主循环时）
+
+- `app.cpp` 每帧喂 `stickVec` → `step` → `AppState.hoverIdx/snapIdx`
+- 渲染：吸附键反色 + 指针小圆点
+- `L`（LB）上屏 `ui.layers[当前层][snapIdx]`
+- `snap` 事件接 `FF_RUMBLE`（`event10` 已验证支持 `FF_RUMBLE/PERIODIC/SINE/GAIN`）
+
+---
+
+## 9. 实现与本文档的偏差（以代码为准）
+
+v1 落地时发现规格本身有 7 处坑，实现按「能同时满足 §5 断言」的方式处理，之后以本节为准：
+
+1. **`Pointer` 多一个 `idle` 字段**：§2.7 要求“持续 0.3s”，需要累计计时；`idle` = 连续 `< 0.15` 的秒数。
+2. **§2.7 与 §5.4 直接冲突**：§2.7 写“零位回落要求且无吸附”，但 §5.4 要求“松手 0.5s 回 home”。实测按“无吸附才回落”实现时 §5.4 永远不过（松手时通常正吸附在某键上）。
+   **实现选了 §5.4**：只要松手 ≥0.3s 就拉回 home，吸在别的键上也拉，路过时会自然发 `release`。
+3. **`home_pull` 是“每秒收敛倍率”，不是“引力强度”**：实现为 `v_home = min(max_speed, home_pull × 到 home 的距离 / dt)`，即每帧收回剩余距离的 `home_pull`。若按 §2.3 的加速度写法用，0.5s 只能挪几像素，和 §5.4 不可能同时成立。
+4. **可配置字段是 10 个**（`dt` 写死在 `physics.cpp`，Lua 表里不出现）。§4 的 11 行含 `dt`。
+5. **§5.3 的“穿越 3 键”按 `d→f→g` 量**（`home+3` 会绕到下一行行首 `z`），测的是 `home+2` 的 x 距离（100px）。实测：满推 11 帧 / 半推 29 帧。
+6. **边界只夹位置、不清速度**：推到底贴着场边缘直到松手被拉回。
+7. **`release_power` 取 `0.35`**（`LAYOUT-v2.md §6` 的旧表写 `1.8`，以本文档为准；旧表未同步）。
+
+实测基线（`--audit-physics`，8 项全过）：
+```
+零位吸附 左 d(7) / 右 k(22)   OK
+右推 0.5s 下标递增（最大 snap=9）  OK
+右推 0.5s 指针右移 Δx=83.8        OK
+满推穿越 11 帧 < 半推 29 帧的一半  OK
+松手 0.5s 回 d(7)，距 home=0.2     OK
+反向触发 release×9                OK
+同序列两次逐位相同（30 条事件）    OK
+摇杆向量 右=+x 上=+y              OK
+```
