@@ -110,7 +110,7 @@ public:
     // 双击锁定的修饰键位图：1=Ctrl 2=Shift 4=Alt。锁 Shift 只影响光标/选区组合键，
     // 不改字母大小写（不做 caps）
     int locks = 0;
-    // 一次性修饰键（打给下一个键就释放）：1=Ctrl 2=Shift 4=Alt 8=Tab 已按过（切 tab 用）
+    // 一次性修饰键（打给下一个键就释放）：1=Ctrl 2=Shift 4=Alt
     int sticky = 0;
     std::vector<Point> dblClicks;  // 双击（clicks>=2）单独走，用来切换锁定
 };

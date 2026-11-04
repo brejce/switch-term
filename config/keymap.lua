@@ -27,7 +27,7 @@ keymap.bind("Y", "escape")
 
 -- 右手肩键 R（RB）/ ZR（RT），按优先级：
 --   组字出候选 → 移动候选条选中项（空格上屏）
---   刚按过 Tab（DPAD_UP）且 ≥2 个终端 → 上一个 / 下一个，循环
+--   Tab 窗口内（DPAD_UP 后 1.2s，按一次顺延）且 ≥2 个终端 → 上一个 / 下一个，循环
 --   带 Shift（单击一次 sticky / 双击锁定）→ 光标上 / 下
 --   其余 → 光标左 / 右
 keymap.bind("RB", "cursor_left")

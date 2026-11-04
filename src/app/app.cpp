@@ -424,9 +424,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             .count();
     };
     long long lastPress[cfg::kKeyCount] = {0};
-    // sticky 里的「Tab 已按过」位：DPAD_UP 按一下置位，随后 R/ZR 变上一个/下一个 tab
-    constexpr int kStickyTab = 8;
+    // Tab 前缀窗口：DPAD_UP 按一下开这么久，窗口里 R/ZR 都是切 tab，每按一次顺延
+    // （所以按着 Tab 连按 R/ZR 能一直翻）。做其它任何动作立刻关窗口。
+    // 设备只报按下不报松开，用时间窗口近似「按住 Tab」。
+    constexpr long long kTabArmMs = 1200;
+    long long tabArmedAt = 0;
     auto doAction = [&](cfg::Action a) {
+        if (a != cfg::kTab && a != cfg::kCursorLeft && a != cfg::kCursorRight) tabArmedAt = 0;
         switch (a) {
             case cfg::kMagic: {  // L（LB）：只上屏吸附住的键，hover 永不上屏
                 const app::physics::Pointer& p = activeSide ? ptrR : ptrL;
@@ -446,7 +450,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             case cfg::kSpace: pending += route(' ', bd->sticky | bd->locks).bytes; break;
             case cfg::kTab:
                 pending += route('\t', bd->sticky | bd->locks).bytes;
-                bd->sticky |= kStickyTab;  // 紧接着按 R/ZR = 上一个/下一个 tab
+                tabArmedAt = msNow();  // 窗口内的 R/ZR = 上一个/下一个 tab
                 break;
             case cfg::kEnter: pending += route('\r', bd->sticky | bd->locks).bytes; break;
             case cfg::kBackspace: pending += route(0x7f, bd->sticky | bd->locks).bytes; break;
@@ -473,20 +477,22 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 break;
             // 右手肩键，优先级从上到下：
             // ① 组字出候选 → 在候选条里移动选中项（空格上屏）
-            // ② 刚按过 Tab（DPAD_UP）且有 ≥2 个 tab → 上一个/下一个，循环
+            // ② Tab 窗口内（DPAD_UP 后 1.2s，按一次顺延）且有 ≥2 个 tab → 上一个/下一个，循环
             // ③ 带 Shift（单击一次 / 双击锁定）→ 光标上/下
             // ④ 其余 → 光标左/右
             case cfg::kCursorLeft:
                 if (ime.composing() && !ime.cands().empty()) ime.selStep(-1);
-                else if ((bd->sticky & kStickyTab) && terms.size() >= 2)
+                else if (terms.size() >= 2 && msNow() - tabArmedAt < kTabArmMs) {
+                    tabArmedAt = msNow();  // 顺延，按住 Tab 连按能一直翻
                     active = tabStep(active, int(terms.size()), -1);
-                else pending += ((bd->sticky | bd->locks) & 2) ? "\x1b[A" : "\x1b[D";
+                } else pending += ((bd->sticky | bd->locks) & 2) ? "\x1b[A" : "\x1b[D";
                 break;
             case cfg::kCursorRight:
                 if (ime.composing() && !ime.cands().empty()) ime.selStep(+1);
-                else if ((bd->sticky & kStickyTab) && terms.size() >= 2)
+                else if (terms.size() >= 2 && msNow() - tabArmedAt < kTabArmMs) {
+                    tabArmedAt = msNow();  // 顺延
                     active = tabStep(active, int(terms.size()), 1);
-                else pending += ((bd->sticky | bd->locks) & 2) ? "\x1b[B" : "\x1b[C";
+                } else pending += ((bd->sticky | bd->locks) & 2) ? "\x1b[B" : "\x1b[C";
                 break;
             // 面板/触摸独有动作（kIme..kLayer）：手柄路径不会产生，只有 --legacy 用
             case cfg::kIme:
@@ -509,7 +515,6 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             case cfg::kLockCtrl:
             case cfg::kLockAlt:
             case cfg::kLockShift:
-            case cfg::kTab:  // Tab 自己置位后不能被自己清掉
             case cfg::kNone: return;
             default: bd->sticky = 0; return;
         }
