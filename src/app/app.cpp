@@ -427,8 +427,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         camLy = ptrL.y;
         camRx = ptrR.x;
         camRy = ptrR.y;
-        // 画布能走到的范围 = 键中心包围盒 − 窗口半径：窗口不许滚出键场，否则边缘会露空白
-        // 或把整行键切掉（4 行世界 + 4 行窗口 ⇒ 纵向范围为空 ⇒ 钉死在正中，不滚）。
+        // 画布能走到的范围 = 键心包围盒：任何一个键都能被送到面板正中（方案 B）。
+        // 代价是最外一行居中时窗口会越过键场，露出空白——这是"白块永远居中"的必然结果。
         float minX = keyCx[0], maxX = minX, minY = keyCy[0], maxY = minY;
         for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {  // 左场 0..19 就是一份完整局部坐标
             minX = std::fmin(minX, keyCx[i]);
@@ -436,16 +436,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             minY = std::fmin(minY, keyCy[i]);
             maxY = std::fmax(maxY, keyCy[i]);
         }
-        const float pitchX = keyCx[1] - keyCx[0];
-        const float pitchY = keyCy[5] - keyCy[0];
-        const float halfW = (float(uic.keyWindowCols - 1) * pitchX + float(uic.keySize)) * 0.5f;
-        const float halfH = (float(uic.keyWindowRows - 1) * pitchY + float(uic.keySize)) * 0.5f;
-        // 用键的**外边缘**而不是中心算范围：否则边界处会切掉半颗键
-        const float hs = float(uic.keySize) * 0.5f;
-        camMinX = (minX - hs) + halfW;
-        camMaxX = (maxX + hs) - halfW;
-        camMinY = (minY - hs) + halfH;
-        camMaxY = (maxY + hs) - halfH;
+        camMinX = minX;
+        camMaxX = maxX;
+        camMinY = minY;
+        camMaxY = maxY;
         camVx = camVy = camRVx = camRVy = 0.f;
     };
     resetFields();
