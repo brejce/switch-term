@@ -10,6 +10,7 @@
 #include <cmath>
 #include <csignal>
 #include <cstdio>
+#include <ctime>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -424,6 +425,37 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             .count();
     };
     long long lastPress[cfg::kKeyCount] = {0};
+    // 顶栏：时钟 + 电量。每 2s 重读一次（每帧 open sysfs 太浪费）。
+    // 电池路径＝Switch/switchroot 的 max17042 → /sys/class/power_supply/battery；换机器改这里。
+    long long topBarAt = 0;
+    auto refreshTopBar = [&] {
+        const long long now = msNow();
+        if (now - topBarAt < 2000) return;
+        topBarAt = now;
+        if (const std::time_t t = std::time(nullptr)) {
+            std::tm tm{};
+            localtime_r(&t, &tm);
+            char hm[8] = "--:--";
+            std::strftime(hm, sizeof hm, "%H:%M", &tm);
+            st.clock = hm;
+        }
+        const char* kBat = "/sys/class/power_supply/battery";
+        int pct = -1;
+        if (std::FILE* f = std::fopen((std::string(kBat) + "/capacity").c_str(), "r")) {
+            if (std::fscanf(f, "%d", &pct) != 1) pct = -1;
+            std::fclose(f);
+        }
+        if (pct >= 0) {
+            st.battery = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+            char stt[32] = "";
+            if (std::FILE* f = std::fopen((std::string(kBat) + "/status").c_str(), "r")) {
+                if (std::fgets(stt, sizeof stt, f)) stt[std::strcspn(stt, "\r\n")] = 0;
+                std::fclose(f);
+            }
+            st.charging = std::strcmp(stt, "Charging") == 0 || std::strcmp(stt, "Full") == 0;
+        }
+    };
+
     // Tab 前缀窗口：DPAD_UP 按一下开这么久，窗口里 R/ZR 都是切 tab，每按一次顺延
     // （所以按着 Tab 连按 R/ZR 能一直翻）。做其它任何动作立刻关窗口。
     // 设备只报按下不报松开，用时间窗口近似「按住 Tab」。
@@ -661,6 +693,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             terms[active].tp->markDirty();
         }
 
+        refreshTopBar();
         st.layer = layerIdx;  // L3 循环，不再跟 Shift 锁定走
         st.layerName = kLayerNames[layerIdx];
         st.snapLeft = ptrL.snapped;

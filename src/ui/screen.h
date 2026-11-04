@@ -33,8 +33,9 @@ struct AppState {
     std::vector<CandView> cands;  // 候选（含注音）
     int candPage = 0, candPageCount = 1;
     int candSel = 0;              // 候选条选中项（页内下标）：空格上屏它
-    std::string clock = "20:20";
-    int battery = 100;
+    std::string clock = "--:--";  // 真实本地时间（app.cpp 每 2s 刷）
+    int battery = -1;              // -1 = 读不到电池（顶栏显示 BAT --%%）
+    bool charging = false;
     std::string modsText = "";    // "CTRL+SHIFT" 之类，空 = 无
 };
 

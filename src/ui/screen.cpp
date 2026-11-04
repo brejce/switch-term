@@ -132,7 +132,8 @@ void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, cons
                 0, S(1, s));
 
     char right[64];
-    std::snprintf(right, sizeof right, "BAT %d%%", st.battery);
+    if (st.battery < 0) std::snprintf(right, sizeof right, "BAT --%%");
+    else std::snprintf(right, sizeof right, "BAT %d%%%s", st.battery, st.charging ? "+" : "");
     int w = r.textWidth(right, f.bar);
     int x = g.screenW - S(16, s) - w;
     r.textInBox({x, 0, 0, g.topBarH}, right, f.bar, c(col::kGreen), render::Align::Left);
