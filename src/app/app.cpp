@@ -468,14 +468,15 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             case cfg::kOnboard:  // 右手柄 +：KDE 抢走手柄/自己打不出字时，叫 onboard 来打
                 spawnDetached("onboard");
                 break;
-            // 组字出候选时：R/ZR 在候选条里移动选中项（空格上屏）；否则才是命令行光标
+            // 右手肩键：平时是光标左右；锁了 Shift 就变上下（手柄没有别的键能发上下箭头）。
+            // 组字出候选时两者都不动光标，改在候选条里移动选中项（空格上屏）。
             case cfg::kCursorLeft:
                 if (ime.composing() && !ime.cands().empty()) ime.selStep(-1);
-                else pending += "\x1b[D";
+                else pending += (bd->locks & 2) ? "\x1b[A" : "\x1b[D";
                 break;
             case cfg::kCursorRight:
                 if (ime.composing() && !ime.cands().empty()) ime.selStep(+1);
-                else pending += "\x1b[C";
+                else pending += (bd->locks & 2) ? "\x1b[B" : "\x1b[C";
                 break;
             // 面板/触摸独有动作（kIme..kLayer）：手柄路径不会产生，只有 --legacy 用
             case cfg::kIme:

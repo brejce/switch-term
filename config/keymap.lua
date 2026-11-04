@@ -25,7 +25,7 @@ keymap.bind("B", "backspace")
 keymap.bind("X", "delete")
 keymap.bind("Y", "escape")
 
--- 右手肩键：R（RB）= 左，ZR（RT）= 右。
+-- 右手肩键：R（RB）= 左，ZR（RT）= 右；锁了 Shift 就变成 上 / 下（手柄没别的键发上下箭头）。
 -- 组字出候选时这两颗不移动光标，而是移动候选条里的选中项（选中项由空格上屏）。
 keymap.bind("RB", "cursor_left")
 keymap.bind("RT", "cursor_right")
