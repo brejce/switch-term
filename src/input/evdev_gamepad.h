@@ -12,47 +12,8 @@
 
 namespace input {
 
-// 输出口：字节进输入流，动作走面板那套 ActionId（切层/切中英/光标/锁修饰…）
-struct GamepadHandlers {
-    std::function<void(const std::string&)> bytes;
-    std::function<void(int)> action;
-};
-
-// 面板动作编号：唯一来源 = cfg::Action（与 ui::ActionId 同一套值）。
-// kGpAct* 是旧名，保留是为了调用方不改；语义一一对应，没有 input 独有的动作。
-constexpr cfg::Action kGpActIme = cfg::kIme;
-constexpr cfg::Action kGpActCursorLeft = cfg::kCursorLeft;
-constexpr cfg::Action kGpActCursorRight = cfg::kCursorRight;
-constexpr cfg::Action kGpActLayer = cfg::kLayer;
-constexpr cfg::Action kGpActLockCtrl = cfg::kLockCtrl;
-constexpr cfg::Action kGpActStickyCtrl = cfg::kModCtrl;
-constexpr cfg::Action kGpActStickyShift = cfg::kModShift;
-constexpr cfg::Action kGpActStickyAlt = cfg::kModAlt;
-constexpr cfg::Action kGpActLockShift = cfg::kLockShift;
-constexpr cfg::Action kGpActLockAlt = cfg::kLockAlt;
-
-class GamepadMapper {
-public:
-    // 轴的原始范围（EVIOCGABS 读出来；Switch 的摇杆常见 0..255）
-    void setAxisRange(int code, int minV, int maxV);
-    void onEvent(const input_event& ev, const GamepadHandlers& h);
-
-    int leftSector() const { return left_.sector(); }
-    int rightSector() const { return right_.sector(); }
-
-private:
-    struct Range {
-        int minV = -32768, maxV = 32767;
-    } lx_, ly_, rx_, ry_;
-    int lxV_ = 0, lyV_ = 0, rxV_ = 0, ryV_ = 0;
-    StickNormalizer left_, right_;
-    int lastL_ = -1, lastR_ = -1;
-    long long lastDpadMs_ = 0;  // 同方向连按两下 = 锁定
-    int lastDpadDir_ = 0;  // 只在扇区变化时输出，否则每次 SYN 都会吐字母
-    float norm(int v, const Range& r) const;
-    void dpadKey(int dir, int stickyA, int lockA, int bit, int stickyB, int lockB,
-                 const GamepadHandlers& h);
-};
+// 映射只在这里发生一次：evdev 键码/坐标 → PadButton/扇区（下面），
+// 键→动作全部在 config/keymap.lua（cfg::KeyMap），C++ 里不再有第二张键位表。
 
 // 新架构的按键上报：只报「哪个键被按下 + 摇杆在哪个扇区」，映射交给 cfg::KeyMap
 enum PadButton {
@@ -111,13 +72,11 @@ public:
     // 返回 false = 没有 pad，或没有 pad 报出非零向量（dx/dy 仍写成 0，调用方不用先清零）。
     bool stickVec(bool right, float& dx, float& dy) const;
 
-    bool poll(const GamepadHandlers& h);   // 旧字节路径
-    bool pollPad(const PadHandlers& h);    // 新：报按键/扇区
+    bool pollPad(const PadHandlers& h);    // 只报按键/扇区，动作交给 cfg::KeyMap
 
 private:
     std::vector<int> fds_;
     std::vector<std::string> names_;
-    std::vector<GamepadMapper> mappers_;
     std::vector<PadState> pads_;
     std::string lastError_;
     float stickDz_ = 0.35f, stickHyst_ = 8.f;  // 默认值 = src/input/gamepad.h

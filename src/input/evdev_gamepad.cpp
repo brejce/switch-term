@@ -11,95 +11,6 @@
 
 namespace input {
 
-float GamepadMapper::norm(int v, const Range& r) const {
-    if (r.maxV == r.minV) return 0.f;
-    float f = float(v - r.minV) / float(r.maxV - r.minV);  // 0..1
-    return f * 2.f - 1.f;                                 // -1..1
-}
-
-void GamepadMapper::setAxisRange(int code, int minV, int maxV) {
-    Range r{minV, maxV};
-    int mid = (minV + maxV) / 2;  // 初值必须落在中心，否则开机会先吐一串假字母
-    switch (code) {
-        case ABS_X: lx_ = r; lxV_ = mid; break;
-        case ABS_Y: ly_ = r; lyV_ = mid; break;
-        case ABS_RX: rx_ = r; rxV_ = mid; break;
-        case ABS_RY: ry_ = r; ryV_ = mid; break;
-        default: break;
-    }
-}
-
-// 十字方向：单按 = 一次性修饰（sticky），400ms 内同方向再按 = 锁定
-void GamepadMapper::dpadKey(int dir, int stickyA, int lockA, int /*bit*/, int stickyB, int lockB,
-                            const GamepadHandlers& h) {
-    long long now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now().time_since_epoch())
-                        .count();
-    bool again = (dir == lastDpadDir_) && (now - lastDpadMs_ < 400);
-    int a = (dir == 1 || dir == 4) ? (again ? lockA : stickyA) : (again ? lockB : stickyB);
-    if (a) h.action(a);
-    lastDpadDir_ = dir;
-    lastDpadMs_ = now;
-}
-
-void GamepadMapper::onEvent(const input_event& ev, const GamepadHandlers& h) {
-    if (ev.type == EV_ABS) {
-        switch (ev.code) {
-            case ABS_X: lxV_ = ev.value; break;
-            case ABS_Y: lyV_ = ev.value; break;
-            case ABS_RX: rxV_ = ev.value; break;
-            case ABS_RY: ryV_ = ev.value; break;
-            case ABS_HAT0X:  // 左/右 = Ctrl / Shift
-                if (ev.value == 0 || !h.action) break;
-                dpadKey(ev.value < 0 ? 1 : 2, kGpActStickyCtrl, kGpActLockCtrl, 2,
-                        kGpActStickyShift, kGpActLockShift, h);
-                break;
-            case ABS_HAT0Y:  // 上 = Tab，下 = Alt
-                if (ev.value < 0 && h.bytes) h.bytes("\t");
-                if (ev.value > 0 && h.action)
-                    dpadKey(4, kGpActStickyAlt, kGpActLockAlt, 4, 0, 0, h);
-                break;
-            default: break;
-        }
-    } else if (ev.type == EV_KEY && ev.value == 1) {  // 只处理按下
-        switch (ev.code) {
-            case BTN_SOUTH: if (h.bytes) h.bytes("\x7f"); break;         // 物理 B（下）= 退格
-            case BTN_EAST: if (h.bytes) h.bytes("\r"); break;           // 物理 A（右）= 回车
-            case BTN_NORTH: if (h.bytes) h.bytes("\x1b[3~"); break;     // X = Delete
-            case BTN_WEST: if (h.bytes) h.bytes("\x1b"); break;         // Y = ESC
-            case BTN_TL: if (h.action) h.action(kGpActLayer); break;    // L = 切层
-            case BTN_TR: if (h.bytes) h.bytes(" "); break;              // R = 空格
-            case BTN_TL2: if (h.action) h.action(kGpActCursorLeft); break;
-            case BTN_TR2: if (h.action) h.action(kGpActCursorRight); break;
-            // joycond 合成设备没有 HAT 轴，十字键走 BTN_DPAD_*（AUDIT-x11-kde §1）
-            case BTN_DPAD_LEFT:
-                if (h.action) dpadKey(1, kGpActStickyCtrl, kGpActLockCtrl, 2,
-                                      kGpActStickyShift, kGpActLockShift, h);
-                break;
-            case BTN_DPAD_RIGHT:
-                if (h.action) dpadKey(2, kGpActStickyCtrl, kGpActLockCtrl, 2,
-                                      kGpActStickyShift, kGpActLockShift, h);
-                break;
-            case BTN_DPAD_UP: if (h.bytes) h.bytes("\t"); break;
-            case BTN_DPAD_DOWN:
-                if (h.action) dpadKey(4, kGpActStickyAlt, kGpActLockAlt, 4, 0, 0, h);
-                break;
-            default: break;
-        }
-    } else if (ev.type == EV_SYN && ev.code == SYN_REPORT) {
-        // 摇杆在 SYN 时结算：evdev 的 Y 一般「上 = 最小」，正好和屏幕坐标 y 向下同向
-        StickSample l{norm(lxV_, lx_), norm(lyV_, ly_)};
-        int s = left_.update(l);
-        if (s >= 0 && s != lastL_ && h.bytes) h.bytes(leftLetterFor(s));
-        lastL_ = s;
-
-        StickSample r{norm(rxV_, rx_), norm(ryV_, ry_)};
-        int rs = right_.update(r);
-        if (rs >= 0 && rs != lastR_ && h.bytes) h.bytes(rightLetterFor(rs));
-        lastR_ = rs;
-    }
-}
-
 float PadState::norm(int v, const Range& r) const {
     if (r.maxV == r.minV) return 0.f;
     float f = float(v - r.minV) / float(r.maxV - r.minV);
@@ -199,12 +110,6 @@ int EvdevGamepad::open() {
         ::ioctl(fd, EVIOCGNAME(sizeof name), name);
         fds_.push_back(fd);
         names_.push_back(name);
-        GamepadMapper m;
-        for (int code : {ABS_X, ABS_Y, ABS_RX, ABS_RY}) {
-            input_absinfo ai{};
-            if (::ioctl(fd, EVIOCGABS(code), &ai) == 0) m.setAxisRange(code, ai.minimum, ai.maximum);
-        }
-        mappers_.push_back(m);
         PadState ps(stickDz_, stickHyst_);
         for (int code2 : {ABS_X, ABS_Y, ABS_RX, ABS_RY}) {
             input_absinfo ai2{};
@@ -220,7 +125,6 @@ void EvdevGamepad::close() {
     for (int fd : fds_) ::close(fd);
     fds_.clear();
     names_.clear();
-    mappers_.clear();
     pads_.clear();
 }
 
@@ -246,18 +150,6 @@ bool EvdevGamepad::pollPad(const PadHandlers& h) {
     for (size_t i = 0; i < fds_.size(); ++i) {
         while (::read(fds_[i], &ev, sizeof ev) == ssize_t(sizeof ev)) {
             pads_[i].onEvent(ev, h);
-            any = true;
-        }
-    }
-    return any;
-}
-
-bool EvdevGamepad::poll(const GamepadHandlers& h) {
-    bool any = false;
-    input_event ev;
-    for (size_t i = 0; i < fds_.size(); ++i) {
-        while (::read(fds_[i], &ev, sizeof ev) == ssize_t(sizeof ev)) {
-            mappers_[i].onEvent(ev, h);
             any = true;
         }
     }

@@ -418,76 +418,55 @@ static int selectSelfTest() {
     return ok ? 0 : 1;
 }
 
-// 手柄映射自检：喂合成 evdev 事件，不用真手柄
+// 手柄自检：只核 C++ 这层（evdev 键码 → PadButton / 摇杆扇区）。
+// 键 → 动作在 config/keymap.lua，不在这里测（那张表已经不在 C++ 里了）。
 static int gamepadEvdevSelfTest() {
-    input::GamepadMapper m;
-    for (int code : {ABS_X, ABS_Y, ABS_RX, ABS_RY}) m.setAxisRange(code, 0, 255);
-    std::string bytes;
-    int action = -1;
-    input::GamepadHandlers h{[&](const std::string& s) { bytes += s; },
-                             [&](int a) { action = a; }};
+    input::PadState pad(0.35f, 8.f);  // = engine.input 的默认死区/滞回
+    for (int code : {ABS_X, ABS_Y, ABS_RX, ABS_RY}) pad.setAxisRange(code, 0, 255);
+    int btn = -1, lsec = -2, rsec = -2;
+    input::PadHandlers h{[&](int b) { btn = b; },
+                         [&](int s) { lsec = s; },
+                         [&](int s) { rsec = s; }};
     auto ev = [&](int t, int c, int v) {
         input_event e{};
         e.type = t;
         e.code = c;
         e.value = v;
-        m.onEvent(e, h);
+        pad.onEvent(e, h);
     };
-
-    ev(EV_ABS, ABS_X, 255);  // 左摇杆推右
+    struct Case {
+        int code, want;
+        const char* name;
+    };
+    const Case cases[] = {
+        {BTN_TL, input::kPadLB, "L(BTN_TL)"},       {BTN_TL2, input::kPadLT, "ZL(BTN_TL2)"},
+        {BTN_TR, input::kPadRB, "R(BTN_TR)"},       {BTN_TR2, input::kPadRT, "ZR(BTN_TR2)"},
+        {BTN_EAST, input::kPadA, "A"},              {BTN_SOUTH, input::kPadB, "B"},
+        {BTN_NORTH, input::kPadX, "X"},             {BTN_WEST, input::kPadY, "Y"},
+        {BTN_DPAD_UP, input::kPadUp, "DPAD_UP"},    {BTN_DPAD_DOWN, input::kPadDown, "DPAD_DOWN"},
+        {BTN_DPAD_LEFT, input::kPadLeft, "DPAD_LEFT"},
+        {BTN_DPAD_RIGHT, input::kPadRight, "DPAD_RIGHT"}, {BTN_START, input::kPadPlus, "+"},
+        {BTN_THUMBL, input::kPadL3, "L3"},
+    };
+    bool ok = true;
+    for (const Case& c : cases) {
+        btn = -1;
+        ev(EV_KEY, c.code, 1);
+        if (btn != c.want) {
+            ok = false;
+            std::printf("  [gamepad] %s → %d（期望 %d）\n", c.name, btn, c.want);
+        }
+    }
+    ev(EV_ABS, ABS_X, 255);  // 左摇杆推右 → 扇区 0
     ev(EV_ABS, ABS_Y, 127);
     ev(EV_SYN, SYN_REPORT, 0);
-    std::string lE = input::leftLetterFor(0);
-    bool s1 = !bytes.empty() && bytes == lE;
-    bool ok = s1;
-
-    bytes.clear();
-    ev(EV_KEY, BTN_EAST, 1);  // 物理 A（Joy-Con 上在右边）→ 回车
-    int aA = (bytes == "\r");
-    ok = ok && aA;
-
-    bytes.clear();
-    ev(EV_KEY, BTN_SOUTH, 1);  // 物理 B（下）→ 退格
-    ok = ok && (bytes == "\x7f");
-
-    bytes.clear();
-    ev(EV_KEY, BTN_WEST, 1);  // Y = ESC
-    int aY = (bytes == "\x1b");
-    ok = ok && aY;
-
-    action = -1;
-    ev(EV_ABS, ABS_HAT0X, -1);  // 十字左（单按 = 一次性修饰）
-    int aHat = (action == input::kGpActStickyCtrl);
-    ok = ok && aHat;
-
-    action = -1;
-    ev(EV_ABS, ABS_HAT0X, 0);
-    ev(EV_ABS, ABS_HAT0X, -1);  // 400ms 内再按一次 = 锁定
-    int aHat2 = (action == input::kGpActLockCtrl);
-    ok = ok && aHat2;
-
-    action = -1;
-    ev(EV_KEY, BTN_TL, 1);  // L
-    int aL = (action == input::kGpActLayer);
-    ok = ok && aL;
-
-    action = -1;
-    ev(EV_KEY, BTN_DPAD_RIGHT, 1);  // 无 HAT 轴的 joycond：十字键走 BTN_DPAD_*
-    int aDpad = (action == input::kGpActStickyShift);
-    ok = ok && aDpad;
-    bool s5 = false;
-
-    bytes.clear();
-    ev(EV_ABS, ABS_RX, 127);  // 右摇杆推上
-    ev(EV_ABS, ABS_RY, 0);
+    const bool s0 = (lsec == 0);
+    ev(EV_ABS, ABS_X, 127);  // 回中 → -1
     ev(EV_SYN, SYN_REPORT, 0);
-    std::string lastBytes = bytes;
-    s5 = (bytes == input::rightLetterFor(2));
-    ok = ok && s5;
-
-    std::printf("[selftest] gamepad %s  左摇杆右→\"%s\" A:%d Y:%d 十字左:%d L:%d 右摇杆上→\"%s\"(期望\"%s\")\n",
-                ok ? "OK" : "FAIL", lE.c_str(), aA, aY, aHat, aL, lastBytes.c_str(),
-                input::rightLetterFor(2));
+    const bool sBack = (lsec == -1);
+    ok = ok && s0 && sBack;
+    std::printf("[selftest] gamepad %s  键码 %zu 项  左摇杆右→%d  回中→%d\n", ok ? "OK" : "FAIL",
+                sizeof(cases) / sizeof(cases[0]), (s0 ? 0 : -9), (sBack ? -1 : -9));
     return ok ? 0 : 1;
 }
 
@@ -902,6 +881,14 @@ int main(int argc, char** argv) {
             im.clear();
             type("nihao");
             o = run1('2').bytes;
+            // 4b R/ZR 移动选中项后，空格上屏的就是它
+            im.clear();
+            type("nihao");
+            const std::string c1 = im.cands()[0].text;
+            const std::string c2 = im.cands()[1].text;
+            im.selStep(+1);
+            o = run1(' ').bytes;
+            check("空格上屏选中项（R/ZR 移过）", o == c2 && c1 != c2, o, c2.c_str());
             check("数字2→第2候选", !o.empty() && o != "你好", o, "(第2个候选)");
             // 5 退格
             im.clear();
@@ -1344,38 +1331,14 @@ int main(int argc, char** argv) {
                 toggleLang();
                 continue;
             }
-            if (ime.chinese && ime.composing()) {
-                if (ch >= '1' && ch <= '7') {
-                    pending += ime.commit((ime.page() * 7) + (ch - '1'));
-                    continue;
-                }
-                if (ch == ' ') {
-                    pending += ime.commit(-1);
-                    continue;
-                }
-            }
-            if (ime.chinese && ch >= 'a' && ch <= 'z') {
-                ime.push(ch);
-                continue;
-            }
-            if (ime.chinese && ch == 0x7f && ime.composing()) {
-                ime.backspace();
-                continue;
-            }
-            if (ime.chinese && ch == '\t' && ime.composing()) {
-                ime.nextPage();
-                continue;
-            }
-            if (ime.chinese && ch == '\r' && ime.composing()) {
-                pending += ime.commit(-1);
-                continue;
-            }
             if (ch == 0x1b && ui::selActive(view)) {  // Esc 取消选区（照样发给 shell）
                 ui::selClear(view);
                 vt.markDirty();
             }
-            if (ime.composing() && ch < 0x20) ime.clear();  // 控制键取消组字
-            pending += ch;
+            // 输入法行为只认 app::routeKey（与新 UI 同一条路），这里不再抄第二份
+            app::RouteResult rr = app::routeKey(ime, ch);
+            if (rr.langChanged) toggleLang();
+            pending += rr.bytes;
         }
         if (bd->sticky) {  // 一次性修饰键用完即释放
             bd->sticky = 0;
@@ -1393,12 +1356,23 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "gamepad: 没有可读的手柄（Switch 上要让用户进 input 组）\n");
         }
     }
-    input::GamepadHandlers gph{
-        [&](const std::string& s) {
-            routeKeys(s);
+    // 键位表只有 config/keymap.lua 一份，C++ 不再自带一张
+    cfg::KeyMap lkm;
+    if (!cfg::loadKeymap(findRes("config/keymap.lua").c_str(), lkm))
+        std::fprintf(stderr, "读不到 config/keymap.lua，手柄按键不响应\n");
+    input::PadHandlers gph{
+        [&](int btn) {
+            if (btn >= 0 && btn < cfg::kKeyCount && lkm.single[btn]) doAction(lkm.single[btn]);
             vt.markDirty();
         },
-        [&](int a) { doAction(a); }};
+        [&](int sec) {
+            if (sec >= 0) routeKeys(input::leftLetterFor(sec));
+            vt.markDirty();
+        },
+        [&](int sec) {
+            if (sec >= 0) routeKeys(input::rightLetterFor(sec));
+            vt.markDirty();
+        }};
 
     // 布局热重载：layout.lua 的 mtime 变了就重读，不用重启
     auto layoutMTime = [](const std::string& p) -> long long {
@@ -1455,7 +1429,7 @@ int main(int argc, char** argv) {
         std::string keys;
         std::vector<disp::ClickEvent> clicks;
         running = bd->pump(keys, clicks);  // 无窗口后端返回 false：只画一帧
-        if (useGamepad && gamepad.count() > 0) gamepad.poll(gph);
+        if (useGamepad && gamepad.count() > 0) gamepad.pollPad(gph);
         if (bd->uiDirty) {  // 窗口被瓦片/全屏改了尺寸 → 重排 + 补一帧
             bd->uiDirty = 0;
             applyScale(bd->scaleHint(ui::layout::kDesignW, ui::layout::kDesignH));
