@@ -63,22 +63,33 @@ struct PhysEventData { PhysEvent kind; int key; float x, y; };
 ## 4. 参数（`config/engine.lua` → `engine.physics`）
 
 下表是现在跑的现场值；C++ 里 `Params` 的默认值只是缺文件时的兜底。
+改手感就是改 `config/engine.lua` 这十几个数，`systemctl restart switch-ime-term` 生效。
 
 | 键 | 现用 | 含义 |
 |---|---|---|
 | `dt` | 1/60 | 固定步长，写死不读配置（保证可回放） |
-| `damping` | 0.88 | 惯性衰减 |
-| `attract_power` | 60 | 引力强度：每帧加多少 px/s（1 = 等于没磁力；键心 6px 内淡出，加大不会抖） |
+| `damping` | 0.35 | 惯性衰减：越小越跟手 |
+| `attract_power` | 90 | 引力强度：每帧加多少 px/s（键心 6px 内淡出，所以加大不会抖） |
 | `attract_radius` | 70 | 引力作用半径（px）＝键窗点亮半径（够到邻键中心） |
-| `snap_radius` | 22 | 吸附半径（键 64：键面大半算命中） |
-| `release_ratio` | 1.6 | 脱开距离 = snap_radius × 它 |
-| `release_power` | 0.35 | 脱开所需的反向速度（× max_speed） |
+| `snap_radius` | 30 | 吸附半径（px）；键 64 → 内切圆 32，即指针进键面就吸 |
+| `release_ratio` | 1.3 | 脱开距离 = `snap_radius × 它` = 39px |
+| `hover_radius` | 34 | 弱高亮半径：只比 snap 大 4px，「变亮」≈「马上吸附」 |
 | `max_speed` | 800 | px/s，推到底的时速（最快） |
 | `deadzone` | 0.1 | 曲线起点（= `engine.input.deadzone`，app 里同步，不单独配） |
 | `speed_slow_end` | 0.5 | 微操段结束的推杆量（半径 10 的 5） |
 | `speed_low` | 0.3 | 微操段顶端的速度（× max_speed） |
-| `hover_radius` | 36 | 无吸附时的最近键判定 |
-| `home_pull` | 0.6 | 零位回落的弱引力 |
+| `home_pull` | 0.6 | 零位回落：每帧收回剩余距离的比例 |
+| `pointer_radius` | 12 | **指针球半径**（px）。0 = 原点模型（旧行为）。>0 时吸附/悬停/脱开判据一律变成 `球心距 < 该半径 + pointer_radius`，即**球边缘碰键**才算 |
+| ~~`release_power`~~ | 0.35 | **已废弃**，保留字段只为旧配置不报错，见 §9.8 |
+
+调手感的对应关系（实测）：
+
+| 想要 | 改哪个 |
+|---|---|
+| 更"咔"、更早吸住 | `pointer_radius` ↑（12→16~20）或 `snap_radius` ↑ |
+| 太糊、误吸邻键 | `pointer_radius` ↓（→0 退回原点模型） |
+| 更跟手、少滑行 | `damping` ↓（0.35→0.25） |
+| 吸住后换键更费劲 / 更松 | `release_ratio` ↑ / ↓ |
 
 ## 5. 可测性（硬要求）
 
@@ -129,7 +140,14 @@ v1 落地时发现规格本身有 7 处坑，实现按「能同时满足 §5 断
 6. **边界只夹位置、不清速度**：推到底贴着场边缘直到松手被拉回。
 7. **`release_power` 取 `0.35`**（`LAYOUT-v2.md §6` 的旧表写 `1.8`，以本文档为准；旧表未同步）。
 
-实测基线（`--audit-physics`，8 项全过）：
+8. **`release_power` 已废弃（吸附键闪烁的根因）**：旧实现里脱开条件除了距离，还有
+   「推的方向背离吸附键且速度超阈」。引力会把球拉过键心，此后「键→指针」方向立刻反向，
+   而玩家仍在同向推 → 每帧判成"在往外推" → `release`，下一帧又 `snap` 回来，屏幕上就是键在闪。
+   速度阈值也不可靠（轻推同样超）。现在：**脱开只看 `release_ratio` 的距离**，并且吸附期间
+   **就近换键**（更近的键胜出就切，留 2px 黏性防跨中缝抖动），所以滑动时选中项连续跟随指针。
+   `--audit-physics` 的「滑动选键不闪」是这条的回归测试（从 `d` 推到邻键，snap 次数必须 1..8）。
+
+实测基线（`--audit-physics`，全部通过）：
 ```
 零位吸附 左 d(7) / 右 k(22)   OK
 右推 0.5s 下标递增（最大 snap=9）  OK
