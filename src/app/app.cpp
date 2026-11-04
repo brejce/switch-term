@@ -427,16 +427,25 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         camLy = ptrL.y;
         camRx = ptrR.x;
         camRy = ptrR.y;
-        // 画布能走到的范围 = 键中心的包围盒（两侧场共用同一套局部坐标）。
-        // 只有 3 行 5 列，所以最多上下各走一格、左右各走两格，再远就没有键可居中。
-        camMinX = camMaxX = keyCx[0];
-        camMinY = camMaxY = keyCy[0];
+        // 画布能走到的范围 = 键中心包围盒 − 窗口半径：窗口不许滚出键场，否则边缘会露空白
+        // 或把整行键切掉（4 行世界 + 4 行窗口 ⇒ 纵向范围为空 ⇒ 钉死在正中，不滚）。
+        float minX = keyCx[0], maxX = minX, minY = keyCy[0], maxY = minY;
         for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {  // 左场 0..19 就是一份完整局部坐标
-            camMinX = std::fmin(camMinX, keyCx[i]);
-            camMaxX = std::fmax(camMaxX, keyCx[i]);
-            camMinY = std::fmin(camMinY, keyCy[i]);
-            camMaxY = std::fmax(camMaxY, keyCy[i]);
+            minX = std::fmin(minX, keyCx[i]);
+            maxX = std::fmax(maxX, keyCx[i]);
+            minY = std::fmin(minY, keyCy[i]);
+            maxY = std::fmax(maxY, keyCy[i]);
         }
+        const float pitchX = keyCx[1] - keyCx[0];
+        const float pitchY = keyCy[5] - keyCy[0];
+        const float halfW = (float(uic.keyWindowCols - 1) * pitchX + float(uic.keySize)) * 0.5f;
+        const float halfH = (float(uic.keyWindowRows - 1) * pitchY + float(uic.keySize)) * 0.5f;
+        // 用键的**外边缘**而不是中心算范围：否则边界处会切掉半颗键
+        const float hs = float(uic.keySize) * 0.5f;
+        camMinX = (minX - hs) + halfW;
+        camMaxX = (maxX + hs) - halfW;
+        camMinY = (minY - hs) + halfH;
+        camMaxY = (maxY + hs) - halfH;
         camVx = camVy = camRVx = camRVy = 0.f;
     };
     resetFields();
@@ -804,8 +813,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 vel += a * kDt;
                 pos += vel * kDt;
             };
+            // 范围为空（窗口比键场大）→ 钉死在正中，不许滚
             auto clampTo = [](float v, float lo, float hi) {
-                return std::fmin(std::fmax(v, lo), hi);
+                return (lo > hi) ? (lo + hi) * 0.5f : std::fmin(std::fmax(v, lo), hi);
             };
             auto camTarget = [&](const app::physics::Pointer& p, float& tx, float& ty) {
                 if (p.snapped < 0) {

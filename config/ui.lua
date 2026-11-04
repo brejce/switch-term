@@ -32,8 +32,10 @@ ui.labels = {
 -- 键序 = 左手 row-major(4×5) 再接右手 row-major(4×5)
 ui.key_size = 64    -- 键帽边长；字符字号见 screen.cpp 的 drawKeyHand（26/12，随它缩放）
 
--- 面板一屏露几列几行（滑窗可见范围）：3 列 = 2×76+64 = 216，塞进 panel_w 220
-ui.key_window = { cols = 3, rows = 3 }
+-- 面板一屏露几列几行（滑窗可见范围）：3 列 = 2×76+64 = 216，塞进 panel_w 220。
+-- 行数 = 4：整个 4 行世界一次全部露出来，数字行永远在屏幕上（靠中心遮罩压暗）；
+-- 窗口与内容同高 ⇒ 纵向不再滚动，上下推只换选中行
+ui.key_window = { cols = 3, rows = 4 }
 
 local function hand_keys()
     local t = {}

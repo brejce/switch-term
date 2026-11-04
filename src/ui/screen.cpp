@@ -208,14 +208,18 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     // 中心遮罩：只有画面中心的键是清楚的，往外逐渐沉入背景（"走向幕后阴影"）。
     // 软件光栅器没有高斯模糊，所以做成往面板底色淡出 + 淡到一定程度直接不画。
     // 半径是设计像素，和键距同一套：相邻键 70/76，对角 103。
-    constexpr float kMaskIn = 55.f;   // 这个距离以内完全清楚（相邻键 76/82 只淡一点）
-    constexpr float kMaskOut = 125.f; // 这个距离以外完全看不见（对角 112 只剩五分之一）
+    // 半径按「窗口现在是 3 列 × 4 行」定：相邻行 82、数字行离中心 123，所以内圈要盖住
+    // 中心两行（清楚），外圈到对角（≈144）还留一点影子 —— 数字行就是这么"淡但可见"的
+    constexpr float kMaskIn = 100.f;   // 这个距离以内完全清楚（中心两行 + 左右邻键）
+    constexpr float kMaskOut = 240.f;  // 这个距离以外完全看不见（数字行 ≈0.84、四角 ≈0.69）
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
     const int sub = (L + 1) % cfg::kLayerCount;  // 该键没上档时，副字符退回「下一层同位置」
     const int side = S(uic.keySize, s);          // 键帽边长来自 ui.key_size
     const int b = std::max(1, S(1, s));          // 1px 边框
-    const int mainH = S(26, s), subH = S(13, s), gap = S(4, s);
+    // 行高必须跟字号走：keyMain 36px / keySub 18px（FontBook 里已乘 kUiFontBoost）。
+    // 之前这里还是 26/13（字号翻倍前的值），于是主字和上档字在键帽里叠在一起。
+    const int mainH = S(36, s), subH = S(18, s), gap = S(4, s);
     const disp::Rect win = keyWindowRect(g, uic, panelX, panelY, panelW, panelH);
     const int cx = win.x + win.w / 2, cy = win.y + win.h / 2;  // 面板中心 = 指针位置
     auto px = [s](float v) { return int(std::lround(v * s)); };
