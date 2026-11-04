@@ -7,14 +7,16 @@ keymap.bind("LB", "magic")
 keymap.bind("LT", "space")
 keymap.bind("L3", "layer_next")
 
--- 十字键：单按一次性修饰，双击锁定
+-- 十字键：单按一次性修饰，双击锁定。位置＝面板上画的那张图：
+--   上 = Tab（顺带开 Tab 前缀窗口）、左 = Shift、右 = Alt、下 = Ctrl
+-- Ctrl+空格切中英因此是「下 + 空格」
 keymap.bind("DPAD_UP", "tab")
-keymap.bind("DPAD_LEFT", "mod_ctrl")
-keymap.bind("DPAD_DOWN", "mod_alt")
-keymap.bind("DPAD_RIGHT", "mod_shift")
-keymap.bind_double("DPAD_LEFT", "lock_ctrl")
-keymap.bind_double("DPAD_DOWN", "lock_alt")
-keymap.bind_double("DPAD_RIGHT", "lock_shift")
+keymap.bind("DPAD_LEFT", "mod_shift")
+keymap.bind("DPAD_RIGHT", "mod_alt")
+keymap.bind("DPAD_DOWN", "mod_ctrl")
+keymap.bind_double("DPAD_LEFT", "lock_shift")
+keymap.bind_double("DPAD_RIGHT", "lock_alt")
+keymap.bind_double("DPAD_DOWN", "lock_ctrl")
 
 -- 右手柄 +：拉起 onboard 屏幕键盘。桌面模式下 KDE 可能先抢走手柄，这颗是兜底
 keymap.bind("START", "onboard")

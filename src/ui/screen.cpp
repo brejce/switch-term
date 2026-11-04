@@ -38,9 +38,9 @@ void drawDpad(render::Renderer& r, const FontBook& f, int x0, int y0, int cell,
     };
     put(1, 0, "Tab", col::kGreen, st.pressedKey == cfg::kDpadUp);
     put(1, 1, "·", col::kFaint, false);
-    put(0, 1, "Ctrl", col::kPurple, st.modCtrl || st.pressedKey == cfg::kDpadLeft);
-    put(2, 1, "Shift", col::kYellow, st.modShift || st.pressedKey == cfg::kDpadRight);
-    put(1, 2, "Alt", col::kBlue, st.modAlt || st.pressedKey == cfg::kDpadDown);
+    put(0, 1, "Shift", col::kYellow, st.modShift || st.pressedKey == cfg::kDpadLeft);
+    put(2, 1, "Alt", col::kBlue, st.modAlt || st.pressedKey == cfg::kDpadRight);
+    put(1, 2, "Ctrl", col::kPurple, st.modCtrl || st.pressedKey == cfg::kDpadDown);
 }
 
 void drawAbxy(render::Renderer& r, const FontBook& f, int x0, int y0, int cell, float s,
@@ -54,8 +54,9 @@ void drawAbxy(render::Renderer& r, const FontBook& f, int x0, int y0, int cell, 
         }
         r.textInBox(box, label, f.stick, c(color), render::Align::Center);
     };
-    put(1, 0, "Y", col::kYellow, cfg::kY);
-    put(0, 1, "X", col::kBlue, cfg::kX);
+    // 位置按真机（Nintendo 布局）：X 在上、Y 在左、A 在右、B 在下
+    put(1, 0, "X", col::kBlue, cfg::kX);
+    put(0, 1, "Y", col::kYellow, cfg::kY);
     put(2, 1, "A", col::kGreen, cfg::kA);
     put(1, 2, "B", col::kRed, cfg::kB);
 }

@@ -641,10 +641,6 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         // ④ 输入路由：行为都在 app::routeKey / routeRaw 里（可单测）
         for (char ch : keys) {
             RouteResult rr = route(ch, bd->sticky | bd->locks);
-            if (rr.langChanged) {
-                st.imeName = ime.chinese ? "PINYIN" : "EN";
-                st.lang = ime.chinese ? "ZH" : "EN";
-            }
             pending += rr.bytes;
             if (bd->sticky) bd->sticky = 0;  // 一次性修饰：这颗键用过就清
         }
@@ -723,6 +719,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         }
 
         refreshTopBar();
+        // 底栏语言/输入法每帧从 ime 现算：按键路径（键盘 keys 循环、手柄 doAction）都会改
+        // ime.chinese，但只有前者的 RouteResult 带了 langChanged，手柄那条路以前永远不更新底栏
+        st.imeName = !eng.imeEnabled ? "OFF" : (ime.chinese ? "PINYIN" : "EN");
+        st.lang = (eng.imeEnabled && ime.chinese) ? "ZH" : "EN";
         st.layer = layerIdx;  // L3 循环，不再跟 Shift 锁定走
         st.layerName = kLayerNames[layerIdx];
         st.snapLeft = ptrL.snapped;

@@ -87,7 +87,7 @@ z  x  c  v  ,                 b  n  m  .  ?
 | 右摇杆 | 右手区 15 键的物理指针（原点 `j`） |
 | **LB（L）** | 上屏**活跃侧**当前 `snap` 的字符；`hover` 只做弱高亮，**永不上屏**；无 snap 则不动作 |
 | **L3（摇杆按下）** | 层循环 ALPHA→NUM→SYM |
-| **A / B / X / Y** | 回车 / 退格 / Delete / Esc |
+| **A / B / X / Y** | 回车 / 退格 / Delete / Esc。面板按真机摆位：**X 上、Y 左、A 右、B 下** |
 | **R / ZR** | 光标左 / 右（`ESC[D` / `ESC[C`）；带 Shift（单击 sticky 一次 / 双击锁定）变上 / 下（`ESC[A` / `ESC[B`）——手柄没别的键发上下箭头 |
 | **组字出候选时** | R / ZR 不光标，而是在候选条里移动选中项（候选优先级最高） |
 | **Tab 窗口内的 R / ZR** | 上一个 / 下一个终端 tab，循环；**至少 2 个 tab 才生效**（只有 1 个时退化为光标）。<br>窗口 = DPAD_UP 之后 1.2s，且**每按一次顺延**，所以按住 Tab 连按能一直翻；<br>做任何其它动作立刻关窗口（设备只报按下不报松开，所以用时间窗近似「按住」） |
@@ -95,8 +95,8 @@ z  x  c  v  ,                 b  n  m  .  ?
 | **＋（PLUS）** | `onboard`：拉起屏幕键盘（桌面模式下 KDE 抢先时的兜底） |
 | **⭕（CAPTURE）** | 待定 |
 | **🏠（HOME）** | 待定 |
-| DPAD ←/→/↓/↑ | 一次性 Ctrl / Shift / Alt / Tab，双击锁定（锁定的会在左面板点亮） |
-| DPAD_LEFT + ZL（Ctrl+空格） | 切中英（等价键盘 `Ctrl+Space`）；组字中的拼音原样落下 |
+| DPAD 左 / 右 / 下 / 上 | 一次性 **Shift / Alt / Ctrl / Tab**，双击锁定（锁定的会在左面板点亮）。<br>位置与面板上画的图一致：左 Shift、右 Alt、下 Ctrl、上 Tab |
+| DPAD_DOWN + ZL（Ctrl+空格） | 切中英（等价键盘 `Ctrl+Space`）；组字中的拼音原样落下 |
 | L3 键码备注 | `BTN_THUMBL(318)`；`BTN_THUMBR(319)` 在设备上不存在 |
 
 ## 6. 物理参数（`config/engine.lua`）
