@@ -781,8 +781,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         // 所以画布不会滚到没有键的地方）。用欠阻尼弹簧 ⇒ 允许被推过头一点，再自己弹回来。
         {
             constexpr float kDt = 1.f / 60.f;
-            constexpr float kOmega = 30.f;   // 自然频率：约 0.18s 到位（比 22 更跟手）
-            constexpr float kZeta = 0.42f;   // 阻尼比 <1：过冲约 20%，弹得更明显
+            constexpr float kOmega = 34.f;   // 自然频率：约 0.15s 到位
+            constexpr float kZeta = 0.45f;   // 阻尼比 <1：过冲约 18%
+            // 视差权重：画布目标 = 吸附键中心 + 这个系数 × (指针 - 键心)。
+            // 光对准键心的话，画布是"一档一档"整格跳的（微小推杆完全不动），看着重；
+            // 掺一点指针就能连续跟手。指针被引力收进键心后这一项自然归零，
+            // 所以选中的键最终还是正躺在中间。
+            constexpr float kParallax = 0.30f;
             const float k = kOmega * kOmega, cDamp = 2.f * kZeta * kOmega;
             auto camStep = [&](float& pos, float& vel, float target) {
                 const float a = k * (target - pos) - cDamp * vel;
@@ -792,11 +797,21 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             auto clampTo = [](float v, float lo, float hi) {
                 return std::fmin(std::fmax(v, lo), hi);
             };
-            const bool sl = ptrL.snapped >= 0, sr = ptrR.snapped >= 0;
-            const float tlx = clampTo(sl ? keyCx[ptrL.snapped] : ptrL.x, camMinX, camMaxX);
-            const float tly = clampTo(sl ? keyCy[ptrL.snapped] : ptrL.y, camMinY, camMaxY);
-            const float trx = clampTo(sr ? keyCx[ptrR.snapped] : ptrR.x, camMinX, camMaxX);
-            const float try_ = clampTo(sr ? keyCy[ptrR.snapped] : ptrR.y, camMinY, camMaxY);
+            auto camTarget = [&](const app::physics::Pointer& p, float& tx, float& ty) {
+                if (p.snapped < 0) {
+                    tx = p.x;
+                    ty = p.y;
+                } else {
+                    const float kx = keyCx[p.snapped], ky = keyCy[p.snapped];
+                    tx = kx + (p.x - kx) * kParallax;
+                    ty = ky + (p.y - ky) * kParallax;
+                }
+                tx = clampTo(tx, camMinX, camMaxX);
+                ty = clampTo(ty, camMinY, camMaxY);
+            };
+            float tlx, tly, trx, try_;
+            camTarget(ptrL, tlx, tly);
+            camTarget(ptrR, trx, try_);
             camStep(camLx, camVx, tlx);
             camStep(camLy, camVy, tly);
             camStep(camRx, camRVx, trx);
