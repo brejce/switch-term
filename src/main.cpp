@@ -498,8 +498,8 @@ static int auditPhysics() {
         kx[i] = float(uic.keysV2[i].x) + half;
         ky[i] = float(uic.keysV2[i].y) + half;
     }
-    const app::physics::Field left{0, 13};   // 左场：键 0..19，零位 f
-    const app::physics::Field right{20, 31};  // 右场：键 20..39，零位 j
+    const app::physics::Field left{0, 12};   // 左场：键 0..19，零位 d
+    const app::physics::Field right{20, 32};  // 右场：键 20..39，零位 k
 
     int bad = 0;
     auto ck = [&](const char* n, bool ok, const std::string& got, const std::string& exp) {
@@ -548,9 +548,10 @@ static int auditPhysics() {
     // 1. 零位静止 → 吸附在 home
     Run still = run(left, 30, [](int, float&, float&) {});
     Run stillR = run(right, 30, [](int, float&, float&) {});
-    ck("零位吸附 左 f(13)", still.p.snapped == left.home, std::to_string(still.p.snapped), "13");
-    ck("零位吸附 右 j(31)", stillR.p.snapped == right.home, std::to_string(stillR.p.snapped),
-       "31");
+    ck("零位吸附 左 d(12)", still.p.snapped == left.home, std::to_string(still.p.snapped),
+       "12");
+    ck("零位吸附 右 k(32)", stillR.p.snapped == right.home, std::to_string(stillR.p.snapped),
+       "32");
 
     // 2. 向右推半程 0.5s → 吸附键下标递增
     Run push = run(left, 30, [](int, float& ix, float& iy) {
@@ -1084,13 +1085,13 @@ int main(int argc, char** argv) {
             // 与主循环同一套滑窗：指针钉在各自 home 键（d / k）中心，所以两面都居中吸附
             const float half = float(uic.keySize) * 0.5f;
             ui::drawKeyHand(pr, pfonts, uic, g, L, 0, 0, tb, pw, g.screenH - tb,
-                            float(uic.keysV2[13].x) + half, float(uic.keysV2[13].y) + half, 13, -1,
+                            float(uic.keysV2[12].x) + half, float(uic.keysV2[12].y) + half, 12, -1,
                             float(app::physics::Params{}.attractRadius), 0.f,
-                            float(uic.keysV2[13].x) + half, float(uic.keysV2[13].y) + half);
+                            float(uic.keysV2[12].x) + half, float(uic.keysV2[12].y) + half);
             ui::drawKeyHand(pr, pfonts, uic, g, L, 20, g.screenW - pw, tb, pw, g.screenH - tb,
-                            float(uic.keysV2[31].x) + half, float(uic.keysV2[31].y) + half, 31, -1,
+                            float(uic.keysV2[32].x) + half, float(uic.keysV2[32].y) + half, 32, -1,
                             float(app::physics::Params{}.attractRadius), 0.f,
-                            float(uic.keysV2[31].x) + half, float(uic.keysV2[31].y) + half);
+                            float(uic.keysV2[32].x) + half, float(uic.keysV2[32].y) + half);
             pr.fill({pw - 1, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
             pr.fill({g.screenW - pw, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
 

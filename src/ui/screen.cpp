@@ -35,6 +35,29 @@ void fillRound(render::Renderer& r, disp::Rect b, int rad, disp::Color col) {
     }
 }
 
+// 径向遮罩：以 (ccx,ccy) 为心，r0 内全透明、r1 外全不透，中间线性插值，
+// 用背景色叠加（软件光栅器没有模糊）。逐像素 blend 太贵，按 4px 小格填充。
+void vignette(render::Renderer& r, disp::Rect area, float ccx, float ccy, float r0, float r1,
+              disp::Color col) {
+    if (r1 <= r0) return;
+    constexpr int kCell = 4;
+    const float inv = 1.f / (r1 - r0);
+    for (int y = area.y; y < area.bottom(); y += kCell) {
+        const float dy = float(y) + kCell * 0.5f - ccy;
+        const int h = std::min(kCell, area.bottom() - y);
+        for (int x = area.x; x < area.right(); x += kCell) {
+            const float dx = float(x) + kCell * 0.5f - ccx;
+            const float d = std::sqrt(dx * dx + dy * dy);
+            float t = (d - r0) * inv;
+            if (t <= 0.f) continue;
+            t = t > 1.f ? 1.f : t;
+            disp::Color cc = col;
+            cc.a = uint8_t(std::lround(float(col.a) * t));
+            r.fill({x, y, std::min(kCell, area.right() - x), h}, cc);
+        }
+    }
+}
+
 void ptitle(render::Renderer& r, const FontBook& f, int x, int y, const std::string& text,
             uint32_t color, float s) {
     r.textInBox({x, y, 0, S(12, s)}, text, f.ptitle, c(color), render::Align::Left, 0, 0,
@@ -210,8 +233,8 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     // 半径是设计像素，和键距同一套：相邻键 70/76，对角 103。
     // 半径按「窗口现在是 3 列 × 4 行」定：相邻行 82、数字行离中心 123，所以内圈要盖住
     // 中心两行（清楚），外圈到对角（≈144）还留一点影子 —— 数字行就是这么"淡但可见"的
-    constexpr float kMaskIn = 100.f;   // 这个距离以内完全清楚（中心两行 + 左右邻键）
-    constexpr float kMaskOut = 240.f;  // 这个距离以外完全看不见（数字行 ≈0.84、四角 ≈0.69）
+    constexpr float kMaskIn = 50.f;    // 这个距离以内完全不遮（选中键周围一圈是亮的）
+    constexpr float kMaskOut = 230.f;  // 这个距离以外全遮住（数字行 164 → 遮 63%）
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
     const int sub = (L + 1) % cfg::kLayerCount;  // 该键没上档时，副字符退回「下一层同位置」
@@ -249,19 +272,12 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
             bg = disp::mix(bg, acc, pull * 0.25f);
             mainCol = disp::mix(mainCol, acc, std::max(0.f, pull * 2.f - 1.f));
         }
-        // 遮罩强度：离画面中心（= 摄像机锚点）越远越淡
+        // 离准心越远越淡：这里只决定"缩小多少"和"远到看不见就不画"，
+        // 真正的变暗交给画完之后铺的径向遮罩（逐键整体降透明度会有整块感，很假）
         const float dmask = std::hypot(kcx - ptrX, kcy - ptrY);
         const float fade =
             1.f - std::clamp((dmask - kMaskIn) / (kMaskOut - kMaskIn), 0.f, 1.f);
         if (fade <= 0.02f) continue;  // 完全沉下去：连框带字都不画
-        if (fade < 0.999f) {
-            const disp::Color pb = c(col::kPanel);
-            const float k = 1.f - fade;
-            edge = disp::mix(edge, pb, k);
-            bg = disp::mix(bg, pb, k);
-            mainCol = disp::mix(mainCol, pb, k);
-            subCol = disp::mix(subCol, pb, k);
-        }
         // 偏移 = 面板中心 - 指针（世界坐标）：吸附住的键正好压在中心上
         const int kx = cx + px(kcx - ptrX);
         const int ky = cy + px(kcy - ptrY);
@@ -295,6 +311,17 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
             !uic.shifts[L][k].empty() ? uic.shifts[L][k] : uic.layers[sub][k];
         r.textInBox({box.x, ty + mH + gH, box.w, sH}, subCh, f.keySub, subCol,
                     render::Align::Center, 0, 0, 0, tscale);
+    }
+    // 径向遮罩：圆心 = 选中键现在所在的屏幕位置（没吸附时用窗口中心）
+    {
+        float ccx = float(cx), ccy = float(cy);
+        if (snap >= 0) {
+            const float skx = float(uic.keysV2[snap].x) + float(uic.keySize) * 0.5f;
+            const float sky = float(uic.keysV2[snap].y) + float(uic.keySize) * 0.5f;
+            ccx = float(cx + px(skx - ptrX));
+            ccy = float(cy + px(sky - ptrY));
+        }
+        vignette(r, win, ccx, ccy, kMaskIn, kMaskOut, c(col::kPanel));
     }
     r.clearClip();
 }

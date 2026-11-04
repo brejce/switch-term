@@ -394,9 +394,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     // 物理场（docs/PHYSICS.md）：两个摇杆各驱动一个指针。坐标是设计像素，与渲染缩放无关，
     // 所以键中心只在 ui.lua 变化（启动/热重载）时重算一次。
-    // 每场 = 一手 5 列 × 4 行 = 20 键；零位按真实键盘指法（左 f / 右 j）
-    const app::physics::Field fieldL{0, 13};   // 左场：键 0..19，零位 f
-    const app::physics::Field fieldR{20, 31};  // 右场：键 20..39，零位 j
+    // 每场 = 一手 5 列 × 4 行 = 20 键；零位 d / k（掌心位置，摇杆回中的落点最顺手）
+    const app::physics::Field fieldL{0, 12};   // 左场：键 0..19，零位 d
+    const app::physics::Field fieldR{20, 32};  // 右场：键 20..39，零位 k
     app::physics::Pointer ptrL, ptrR;
     int activeSide = 0;  // 0=左 1=右：L 上屏取哪一侧（最近推过、推得更狠的那根摇杆）
     int layerIdx = 0;    // 0=ALPHA 1=NUM 2=SYM（L3 循环）
