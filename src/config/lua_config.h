@@ -73,6 +73,7 @@ struct Ui {
     int keySize = 64;  // 键帽边长（设计像素），来自 ui.key_size
     // 面板一屏露几列几行（滑窗可见范围），来自 ui.key_window；左右手各是一个 5×4 的世界
     int keyWindowCols = 3, keyWindowRows = 3;
+    int keyAreaDy = 0;  // 键区整体纵向偏移（负 = 上移），ui.key_area_dy
     std::string layers[kLayerCount][kKeyV2Count];  // 每键一个 UTF-8 字符（下档）
     // 上档字符（Shift / 锁定 Shift 时用）：ui.shifts.<alpha|num|sym>，缺省为空 = 该键没上档
     std::string shifts[kLayerCount][kKeyV2Count];

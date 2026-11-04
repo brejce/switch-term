@@ -38,6 +38,9 @@ ui.key_size = 64    -- 键帽边长；字符字号见 screen.cpp 的 drawKeyHand
 -- 想纵向也永远居中，就必须把数字行藏到窗口外（两者几何上互斥）。
 ui.key_window = { cols = 3, rows = 4 }
 
+-- 键区整体纵向偏移（设计像素，负 = 上移）：把键区往上挪，下面留白给按钮簇/状态
+ui.key_area_dy = -144   -- ≈ 720 的 1/5
+
 local function hand_keys()
     local t = {}
     for r = 0, 3 do

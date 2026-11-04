@@ -306,6 +306,7 @@ bool loadUi(const char* path, Ui& out) {
     out.keySize = inum(L, "key_size", out.keySize);
     out.keyWindowCols = uiSubInt(L, "key_window", "cols", out.keyWindowCols);
     out.keyWindowRows = uiSubInt(L, "key_window", "rows", out.keyWindowRows);
+    out.keyAreaDy = einum(L, "ui", "key_area_dy", out.keyAreaDy);
     out.title = istr(L, "title", out.title.c_str());
     readKeysV2(L, out.keysV2);
     readLayersAt(L, "layers", out.layers);

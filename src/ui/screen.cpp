@@ -221,7 +221,9 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
     const int pitchY = S(uic.keysV2[5].y - uic.keysV2[0].y, s);
     const int w = (uic.keyWindowCols - 1) * pitchX + S(uic.keySize, s);
     const int h = (uic.keyWindowRows - 1) * pitchY + S(uic.keySize, s);
-    return {panelX + (panelW - w) / 2, panelY + (panelH - h) / 2, w, h};
+    // 整体偏移：键区（含下面的按钮簇，它们按窗口底边排）可以整体上/下挪
+    const int dy = S(uic.keyAreaDy, s);
+    return {panelX + (panelW - w) / 2, panelY + (panelH - h) / 2 + dy, w, h};
 }
 
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
