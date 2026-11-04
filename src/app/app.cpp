@@ -313,6 +313,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     int pads = gamepad.open();
     for (const auto& nm : gamepad.names()) std::fprintf(stderr, "gamepad: %s\n", nm.c_str());
     if (pads == 0) std::fprintf(stderr, "gamepad: 没有可读的手柄\n");
+    long long gpRescanAt = 0;  // 手柄没打开时下次重扫的时刻（ms）
 
     const bool answerDa = runCmd.empty();
     // 后台 tab 也得读：没人读的话 shell 写满 PTY 缓冲就卡死了
@@ -653,6 +654,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
         // ⑤ 读终端输出
         long n = readInto();
+        // 手柄没打开就每 2s 重扫：Joy-Con 走串口握手，开机后几十秒才出设备，启动时扫不到这里补上
+        if (gamepad.count() == 0 && msNow() - gpRescanAt >= 2000) {
+            gpRescanAt = msNow();
+            if (gamepad.open() > 0)
+                for (const auto& nm : gamepad.names())
+                    std::fprintf(stderr, "gamepad: (重扫) %s\n", nm.c_str());
+        }
         gamepad.pollPad({onPadButton, [](int) {}, [](int) {}});
 
         // 摇杆向量 → 引力场。dt 写死在 physics.cpp（1/60），所以这里每帧步进一次就够。
