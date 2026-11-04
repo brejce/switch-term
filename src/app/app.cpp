@@ -404,6 +404,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // 吸附住某键时对准该键中心 —— 选中的键就钉死在面板正中，只有周围的键在动；
     // 没吸附时对准指针（否则自由移动时会拖影）。
     float camLx = 0, camLy = 0, camRx = 0, camRy = 0;
+    // 摄像机可动范围：窗口（keyWindowCols×Rows）不许滚出本场 15 键的包围盒。
+    // 场只有 3 行而窗口也是 3 行 → 纵向范围是空的，摄像机被钉死在正中，
+    // 于是上下推摇杆只换选中行、整块键窗不会上下平移
+    float camLoX = 0, camHiX = 0, camLoY = 0, camHiY = 0;
     auto resetFields = [&] {
         const float half = float(uic.keySize) * 0.5f;  // ui.keys 是键帽左上角
         for (int i = 0; i < cfg::kKeyV2Count; ++i) {
@@ -420,6 +424,24 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         camLy = ptrL.y;
         camRx = ptrR.x;
         camRy = ptrR.y;
+        // 包围盒 + 窗口半尺寸 → 摄像机能走的范围（两侧场共用同一套局部坐标）
+        const float pitchX = keyCx[1] - keyCx[0];
+        const float pitchY = keyCy[5] - keyCy[0];
+        const float halfW =
+            (float(uic.keyWindowCols - 1) * pitchX + float(uic.keySize)) * 0.5f;
+        const float halfH =
+            (float(uic.keyWindowRows - 1) * pitchY + float(uic.keySize)) * 0.5f;
+        float minX = keyCx[0], maxX = keyCx[0], minY = keyCy[0], maxY = keyCy[0];
+        for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {  // 左场 0..14 就是一份完整局部坐标
+            minX = std::fmin(minX, keyCx[i]);
+            maxX = std::fmax(maxX, keyCx[i]);
+            minY = std::fmin(minY, keyCy[i]);
+            maxY = std::fmax(maxY, keyCy[i]);
+        }
+        camLoX = minX + halfW;
+        camHiX = maxX - halfW;
+        camLoY = minY + halfH;
+        camHiY = maxY - halfH;
     };
     resetFields();
 
@@ -750,6 +772,14 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             camLy += (tly - camLy) * (sl ? kSnapEase : 1.f);
             camRx += (trx - camRx) * (sr ? kSnapEase : 1.f);
             camRy += (try_ - camRy) * (sr ? kSnapEase : 1.f);
+            // 夹在可动范围内；范围为空（窗口比内容大）就钉死在正中，不许滚
+            auto clampCam = [](float& c, float lo, float hi) {
+                c = (lo > hi) ? (lo + hi) * 0.5f : std::fmin(std::fmax(c, lo), hi);
+            };
+            clampCam(camLx, camLoX, camHiX);
+            clampCam(camLy, camLoY, camHiY);
+            clampCam(camRx, camLoX, camHiX);
+            clampCam(camRy, camLoY, camHiY);
         }
         st.ptrLeftX = camLx;
         st.ptrLeftY = camLy;
