@@ -268,7 +268,9 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         const disp::Rect box{kx - ds / 2, ky - ds / 2, ds, ds};
         // 吸附 = 整键反色（底色 col::kText、字色 col::kBg）；悬停（无吸附时）= 亮色描边
         // 圆角：外圈 rad、内圈 rad-b（门框式描边），半径跟着键块尺寸走，缩小的外围键也是圆角
-        const int rad = std::max(1, S(7, s));
+        // 半径按键块边长取 18%（64 → 11.5）：7px 在 64px 方块上肉眼看就是一圈 45° 倒角，
+        // 因为逐行内缩量化成 4-3-2-1 的直线台阶。18% 才有"圆"的观感，且跟缩小同步。
+        const int rad = std::clamp(int(std::lround(float(ds) * 0.18f)), 3, ds / 3);
         fillRound(r, box, rad, edge);
         fillRound(r, {box.x + b, box.y + b, box.w - 2 * b, box.h - 2 * b},
                   std::max(1, rad - b), bg);
