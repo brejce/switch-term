@@ -34,7 +34,8 @@ bool Rumble::open(const char* preferName) {
         char path[64];
         std::snprintf(path, sizeof path, "/dev/input/event%d", i);
         // FF 要写权限才能上传/播放：O_RDWR，只读直接跳过
-        int fd = ::open(path, O_RDWR | O_NONBLOCK);
+        // 不用 O_NONBLOCK：这个 fd 只写不读，非阻塞写在某些 FF 驱动上会 EAGAIN
+        int fd = ::open(path, O_RDWR);
         if (fd < 0) continue;
         unsigned long ff[4] = {0};
         if (::ioctl(fd, EVIOCGBIT(EV_FF, sizeof ff), ff) < 0 ||
@@ -93,6 +94,8 @@ bool Rumble::upload(int& id, float strong, float weak, int ms) {
         if (id < 0) std::fprintf(stderr, "rumble: EVIOCSFF 失败: %s\n", std::strerror(errno));
         return false;
     }
+    if (id < 0 || e.id != id) std::fprintf(stderr, "rumble[%s]: effect id=%d ms=%d\n",
+                                          dev_.c_str(), e.id, ms);
     id = e.id;
     return true;
 }
@@ -103,7 +106,11 @@ void Rumble::play(int id, bool on) {
     ev.type = EV_FF;
     ev.code = uint16_t(id);
     ev.value = on ? 1 : 0;
-    if (::write(fd_, &ev, sizeof ev) != ssize_t(sizeof ev)) return;
+    if (::write(fd_, &ev, sizeof ev) != ssize_t(sizeof ev)) {
+        std::fprintf(stderr, "rumble[%s]: 播放失败 id=%d on=%d: %s\n", dev_.c_str(), id, int(on),
+                     std::strerror(errno));
+        return;
+    }
 }
 
 void Rumble::setMove(float mag, int rateHz, float smoothMs) {
