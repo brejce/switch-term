@@ -240,15 +240,19 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         // 偏移 = 面板中心 - 指针（世界坐标）：吸附住的键正好压在中心上
         const int kx = cx + px(kcx - ptrX);
         const int ky = cy + px(kcy - ptrY);
+        // 外围未选中的键随遮罩一起缩小（最多 18%），跟着 fade 连续变化，不会跳档；
+        // 选中的键保持原尺寸（另外还有吸附脉冲的放大）
+        const float shrink = isSnap ? 1.f : (1.f - 0.18f * (1.f - fade));
+        int ds = int(std::lround(float(side) * shrink));
         // 刚吸上时弹一下：键块放大一点点再收回（只放大描边/底色，字不动，免得糊）
         const int grow = isSnap ? int(std::lround(float(side) * 0.09f * snapPulse)) : 0;
-        const disp::Rect box{kx - side / 2 - grow, ky - side / 2 - grow, side + 2 * grow,
-                             side + 2 * grow};
+        ds += 2 * grow;
+        const disp::Rect box{kx - ds / 2, ky - ds / 2, ds, ds};
         // 吸附 = 整键反色（底色 col::kText、字色 col::kBg）；悬停（无吸附时）= 亮色描边
         r.fill(box, edge);
         r.fill({box.x + b, box.y + b, box.w - 2 * b, box.h - 2 * b}, bg);
         // 主字符在上（大/亮），副字符在下（小/淡）：整块字在键帽里竖向居中
-        const int ty = box.y + (side - mainH - gap - subH) / 2;
+        const int ty = box.y + (ds - mainH - gap - subH) / 2;
         r.textInBox({box.x, ty, box.w, mainH}, uic.layers[L][k], f.keyMain, mainCol,
                     render::Align::Center);
         r.textInBox({box.x, ty + mainH + gap, box.w, subH}, uic.layers[sub][k], f.keySub, subCol,
