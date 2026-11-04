@@ -1083,10 +1083,10 @@ int main(int argc, char** argv) {
             const float half = float(uic.keySize) * 0.5f;
             ui::drawKeyHand(pr, pfonts, uic, g, L, 0, 0, tb, pw, g.screenH - tb,
                             float(uic.keysV2[7].x) + half, float(uic.keysV2[7].y) + half, 7, -1,
-                            float(app::physics::Params{}.attractRadius));
+                            float(app::physics::Params{}.attractRadius), 0.f);
             ui::drawKeyHand(pr, pfonts, uic, g, L, 15, g.screenW - pw, tb, pw, g.screenH - tb,
                             float(uic.keysV2[22].x) + half, float(uic.keysV2[22].y) + half, 22, -1,
-                            float(app::physics::Params{}.attractRadius));
+                            float(app::physics::Params{}.attractRadius), 0.f);
             pr.fill({pw - 1, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
             pr.fill({g.screenW - pw, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
 

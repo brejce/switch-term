@@ -185,7 +185,8 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
 
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                  int layer, int first, int panelX, int panelY, int panelW, int panelH,
-                 float ptrX, float ptrY, int snap, int hover, float attractRadius) {
+                 float ptrX, float ptrY, int snap, int hover, float attractRadius,
+                 float snapPulse) {
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
     const int sub = (L + 1) % cfg::kLayerCount;  // 副字符 = 下一层同位置（LAYOUT-v2 §3）
@@ -221,7 +222,10 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         // 偏移 = 面板中心 - 指针（世界坐标）：吸附住的键正好压在中心上
         const int kx = cx + px(kcx - ptrX);
         const int ky = cy + px(kcy - ptrY);
-        const disp::Rect box{kx - side / 2, ky - side / 2, side, side};
+        // 刚吸上时弹一下：键块放大一点点再收回（只放大描边/底色，字不动，免得糊）
+        const int grow = isSnap ? int(std::lround(float(side) * 0.09f * snapPulse)) : 0;
+        const disp::Rect box{kx - side / 2 - grow, ky - side / 2 - grow, side + 2 * grow,
+                             side + 2 * grow};
         // 吸附 = 整键反色（底色 col::kText、字色 col::kBg）；悬停（无吸附时）= 亮色描边
         r.fill(box, edge);
         r.fill({box.x + b, box.y + b, box.w - 2 * b, box.h - 2 * b}, bg);
@@ -242,9 +246,10 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
     r.fill({0, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
     r.fill({rightX, g.contentY, g.panelW, g.contentH}, c(col::kPanel));
     drawKeyHand(r, f, uic, g, st.layer, 0, 0, g.contentY, g.panelW, g.contentH, st.ptrLeftX,
-                st.ptrLeftY, st.snapLeft, st.hoverLeft, st.attractRadius);
+                st.ptrLeftY, st.snapLeft, st.hoverLeft, st.attractRadius, st.snapPulseL);
     drawKeyHand(r, f, uic, g, st.layer, 15, rightX, g.contentY, g.panelW, g.contentH,
-                st.ptrRightX, st.ptrRightY, st.snapRight, st.hoverRight, st.attractRadius);
+                st.ptrRightX, st.ptrRightY, st.snapRight, st.hoverRight, st.attractRadius,
+                st.snapPulseR);
     // 竖分隔线画在键之后：滚到窗边的键不该盖住面板边界
     r.fill({g.panelW - 1, g.contentY, 1, g.contentH}, c(col::kLine));
     r.fill({rightX, g.contentY, 1, g.contentH}, c(col::kLine));
