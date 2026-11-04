@@ -37,7 +37,8 @@ struct Params {
     float attractRadius = 60;   // 引力作用半径（px），键距 50/56 → 能吸到邻键边缘
     float snapRadius = 18;      // 进入就吸附
     float releaseRatio = 1.6f;  // 脱开距离 = snapRadius × 它
-    float releasePower = 0.35f; // 反向推力阈值（× maxSpeed）才允许摇杆扯开吸附
+    float releasePower = 0.35f; // 已废弃（保留字段只为旧配置不报错）：它跟引力打架导致键闪，
+                                // 现在脱开只看 releaseRatio 的距离
     float maxSpeed = 900;       // px/s，推到底的时速（最快）
     // 推杆量 → 速度（死区之外两段，smoothstep 衔接，接缝处导数为 0）：
     // 内段 [deadzone, speedSlowEnd] 从 0 槽到 speedLow（微操：内圈再推也只有这么慢）；
@@ -47,6 +48,9 @@ struct Params {
     float speedLow = 0.3f;      // 微操段顶端的速度（× maxSpeed）
     float hoverRadius = 26;     // 无吸附时的最近键判定
     float homePull = 0.6f;      // 零位回落：每帧收回剩余距离的比例（< 1 才不冲过头）
+    // 指针球半径（px）：0 = 原点模型（完全兼容旧行为）。>0 时吸附/悬停/脱开判定都是
+    // 「球心到键心距离 < 键半径 + 它」，即球边缘碰键才算，键也更早被点亮。
+    float pointerRadius = 0.f;
 };
 
 enum class PhysEvent { HoverChanged, Snap, Release };

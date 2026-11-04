@@ -24,6 +24,7 @@ struct AppState {
     int hoverLeft = -1, hoverRight = -1;
     float ptrLeftX = 0, ptrLeftY = 0, ptrRightX = 0, ptrRightY = 0;  // 设计像素
     float attractRadius = 60;     // engine.physics.attract_radius：键窗的点亮半径跟着物理场走
+    float pointerRadius = 0;      // 指针球半径：渲染把球画出来，0 = 不画（原点模型）
     std::string lang = "ZH";      // ZH | EN
     std::string imeName = "PINYIN";
     bool modCtrl = false, modShift = false, modAlt = false;  // 锁定态（底部状态栏显示）
@@ -82,7 +83,8 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
 // 每键屏位 = 面板中心 + (键中心 - 指针)，所以吸附住的键正好落在窗口中心，窗外的部分被裁掉。
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                  int layer, int first, int panelX, int panelY, int panelW, int panelH,
-                 float ptrX, float ptrY, int snap, int hover, float attractRadius);
+                 float ptrX, float ptrY, int snap, int hover, float attractRadius,
+                 float pointerRadius);
 // v2 左右键区整块：面板底 + 两手滑窗键区（含高亮/引力点亮）+ 左 DPAD 簇 / 右 ABXY 簇。
 // 文字只来自 ui.lua 的标题（dpad_title / abxy_title），这里不写键字符。
 void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,

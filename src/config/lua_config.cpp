@@ -368,6 +368,8 @@ bool loadEngine(const char* path, Engine& out) {
     out.physics.speedLow = efloat(L, "physics", "speed_low", out.physics.speedLow);
     out.physics.hoverRadius = efloat(L, "physics", "hover_radius", out.physics.hoverRadius);
     out.physics.homePull = efloat(L, "physics", "home_pull", out.physics.homePull);  // engine.physics.dt 不读：写死在 physics.cpp
+    out.physics.pointerRadius =
+        efloat(L, "physics", "pointer_radius", out.physics.pointerRadius);  // 指针球半径，0 = 原点模型
     out.logLevel = estr(L, "log", "level", out.logLevel.c_str());
     out.logPath = estr(L, "log", "path", out.logPath.c_str());
     lua_getglobal(L, "engine");  // engine.sink 是顶层字段，不是表

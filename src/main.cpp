@@ -635,6 +635,21 @@ static int auditPhysics() {
     });
     ck("反向触发 release", nRel(rev.ev) > 0, "release×" + std::to_string(nRel(rev.ev)), ">0");
 
+    // 5.5 不许闪：从 d 一路推到邻键，snap 事件数不能超过“路过几个键 + 1”。
+    // 回归目标：以前 release 里有个“推的方向背离吸附键”的条件，与引力对抗，
+    // 指针被拉过键心后每帧 release+snap 一次（屏上就是键在闪）。
+    {
+        Run sweep = run(left, 80, [](int i, float& ix, float& iy) {
+            ix = i < 60 ? 0.45f : 0.f;
+            iy = 0.f;
+        });
+        int snaps = 0;
+        for (const auto& e : sweep.ev)
+            if (e.kind == app::physics::PhysEvent::Snap) ++snaps;
+        ck("滑动选键不闪（snap 次数有界）", snaps > 0 && snaps <= 8,
+           "snap×" + std::to_string(snaps), "1..8");
+    }
+
     // §5 末条：同一输入序列跑两次，事件与坐标逐位相同
     auto script = [](int i, float& ix, float& iy) {
         if (i < 30) {
@@ -1068,10 +1083,10 @@ int main(int argc, char** argv) {
             const float half = float(uic.keySize) * 0.5f;
             ui::drawKeyHand(pr, pfonts, uic, g, L, 0, 0, tb, pw, g.screenH - tb,
                             float(uic.keysV2[7].x) + half, float(uic.keysV2[7].y) + half, 7, -1,
-                            float(app::physics::Params{}.attractRadius));
+                            float(app::physics::Params{}.attractRadius), 0.f);
             ui::drawKeyHand(pr, pfonts, uic, g, L, 15, g.screenW - pw, tb, pw, g.screenH - tb,
                             float(uic.keysV2[22].x) + half, float(uic.keysV2[22].y) + half, 22, -1,
-                            float(app::physics::Params{}.attractRadius));
+                            float(app::physics::Params{}.attractRadius), 0.f);
             pr.fill({pw - 1, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
             pr.fill({g.screenW - pw, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
 

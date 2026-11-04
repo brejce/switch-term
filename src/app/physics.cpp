@@ -11,6 +11,7 @@ constexpr float kIdleMag = 0.15f;   // §2.7：推杆量低于它算「松手」
 constexpr float kIdleSecs = 0.3f;   // 松手这么久之后才开始回 home
 constexpr float kHomeEps = 0.5f;    // 离 home 这么近就停住，免得在零点上抖
 constexpr float kSettlePx = 6.f;    // 引力在键心这个范围内淡出（全强度 → 键心 0）
+constexpr float kRetargetPx = 2.f;  // 吸附期间换键要「近这么多」才换（防正跨中缝时抖动）
 
 // 3x²-2x³：两端导数为 0，所以分段的接缝不会有速度阶跃
 float smooth01(float x) {
@@ -103,8 +104,10 @@ void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, floa
         minY = std::fmin(minY, keyY[k]);
         maxY = std::fmax(maxY, keyY[k]);
     }
-    p.x = std::fmin(std::fmax(p.x, minX - pr.hoverRadius), maxX + pr.hoverRadius);
-    p.y = std::fmin(std::fmax(p.y, minY - pr.hoverRadius), maxY + pr.hoverRadius);
+    p.x = std::fmin(std::fmax(p.x, minX - pr.hoverRadius - pr.pointerRadius),
+                     maxX + pr.hoverRadius + pr.pointerRadius);
+    p.y = std::fmin(std::fmax(p.y, minY - pr.hoverRadius - pr.pointerRadius),
+                     maxY + pr.hoverRadius + pr.pointerRadius);
 
     // 6. 吸附 / 悬停
     int n = -1;
@@ -118,23 +121,32 @@ void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, floa
         }
     }
     if (p.snapped < 0) {
-        if (dn < pr.snapRadius) {
+        if (dn < pr.snapRadius + pr.pointerRadius) {
             p.snapped = n;
             emit(sink, PhysEvent::Snap, n, p);
         }
     } else {
         const float d = dist(keyX[p.snapped], keyY[p.snapped], p.x, p.y);
-        // 输入方向背离该键：调用方给的是「摇杆指向」，键到指针的方向和它反向 = 在往外推
-        const bool back = (keyX[p.snapped] - p.x) * ix + (keyY[p.snapped] - p.y) * iy < 0.f;
-        const float vmag = std::sqrt(p.vx * p.vx + p.vy * p.vy);
-        if (d > pr.snapRadius * pr.releaseRatio ||
-            (back && vmag > pr.releasePower * pr.maxSpeed)) {
+        // 脱开只看距离。原来还有个「推的方向背离吸附键且有速度就算脱开」的条件，
+        // 它跟引力直接打架：球被引力拉过键心后，「键→指针」方向立刻反向，而玩家还在
+        // 往同一方向推 → 每一帧都被判成「在往外推」→ release，下一帧又 snap 回来，
+        // 屏幕上就是键在闪。速度也不是可靠的信号：轻推时同样会超阈值。
+        if (d > pr.snapRadius * pr.releaseRatio + pr.pointerRadius) {
             emit(sink, PhysEvent::Release, p.snapped, p);
             p.snapped = -1;
+            if (dn < pr.snapRadius + pr.pointerRadius) {  // 直接落到更近的键上，不空一帧
+                p.snapped = n;
+                emit(sink, PhysEvent::Snap, n, p);
+            }
+        } else if (n != p.snapped && dn + kRetargetPx < d) {
+            // 更近的键胜出：滑动时选中项直接跟着走（留 2px 黏性，避免指针正跨中缝时高频抖动）
+            emit(sink, PhysEvent::Release, p.snapped, p);
+            p.snapped = n;
+            emit(sink, PhysEvent::Snap, n, p);
         }
     }
     if (p.snapped < 0) {  // 吸附时不动 hovered（§2.6：只有无吸附时才更新）
-        const int h = dn < pr.hoverRadius ? n : -1;
+        const int h = dn < pr.hoverRadius + pr.pointerRadius ? n : -1;
         if (h != p.hovered) {
             p.hovered = h;
             emit(sink, PhysEvent::HoverChanged, h, p);
