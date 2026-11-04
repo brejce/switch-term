@@ -772,14 +772,17 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 const float ref = eng.rumble.moveSpeedRef > 1.f ? eng.rumble.moveSpeedRef : 500.f;
                 const float vl = std::sqrt(ptrL.vx * ptrL.vx + ptrL.vy * ptrL.vy);
                 const float vr = std::sqrt(ptrR.vx * ptrR.vx + ptrR.vy * ptrR.vy);
-                // 每侧独立：只有那根摇杆真被推着才震（回中/惯性滑行静音）
-                const float magL = lm > 0.f ? std::fmin(vl / ref, 1.f) * eng.rumble.moveMax : 0.f;
-                const float magR = rm > 0.f ? std::fmin(vr / ref, 1.f) * eng.rumble.moveMax : 0.f;
+                // 每侧独立，而且**只有那根摇杆真的被推着才震**：
+                // 松手后的惯性滑行、0.3s 后的 home_pull 自动回中，都是系统自己在动，
+                // 不该有反馈——否则手离开摇杆了，回中路过键还会咚咚咚（2026-11-04 回归过一次）
+                const bool pushedL = lm > 0.f, pushedR = rm > 0.f;
+                const float magL = pushedL ? std::fmin(vl / ref, 1.f) * eng.rumble.moveMax : 0.f;
+                const float magR = pushedR ? std::fmin(vr / ref, 1.f) * eng.rumble.moveMax : 0.f;
                 rumbleL.setMove(magL, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
                 rumbleR.setMove(magR, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
-                if (snapsL > 0)
+                if (snapsL > 0 && pushedL)
                     rumbleL.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
-                if (snapsR > 0)
+                if (snapsR > 0 && pushedR)
                     rumbleR.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
             }
         }
