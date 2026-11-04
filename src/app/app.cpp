@@ -299,9 +299,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         if ((mods & 1) && ch == ' ') ch = 0x00;  // 手柄 Ctrl+空格 = 切中英（实体键盘终端本来就给 0x00）
         RouteResult r = eng.imeEnabled ? routeKey(ime, ch, mods) : routeRaw(ch, mods);
         if (routeTrace)
-            std::fprintf(stderr, "[route] ch=%02x zh=%d composing=%d consumed=%d bytes=%zu\n",
+            std::fprintf(stderr, "[route] ch=%02x zh=%d composing=%d consumed=%d bytes=%zu mods=%d\n",
                          (unsigned char)ch, int(ime.chinese), int(ime.composing()),
-                         int(r.consumed), r.bytes.size());
+                         int(r.consumed), r.bytes.size(), mods);
         return r;
     };
 
@@ -489,6 +489,20 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         terms[active].tp->markDirty();
     };
 
+    // 一次性修饰（sticky）：用掉一颗真按键就清，不然 Ctrl 会永久粘着（空格全变成切中英）
+    auto clearSticky = [&](cfg::Action a) {
+        switch (a) {
+            case cfg::kModCtrl:
+            case cfg::kModAlt:
+            case cfg::kModShift:
+            case cfg::kLockCtrl:
+            case cfg::kLockAlt:
+            case cfg::kLockShift:
+            case cfg::kNone: return;
+            default: bd->sticky = 0; return;
+        }
+    };
+
     auto onPadButton = [&](int btn) {
         if (btn < 0 || btn >= cfg::kKeyCount) return;
         long long now = msNow();
@@ -502,7 +516,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         lastBtn = btn;
         if (routeTrace)  // 收到没有？收成了什么动作？没收到的键这里一行都不会有
             std::fprintf(stderr, "[pad] btn=%d act=%s\n", btn, cfg::actionName(act));
-        if (act != cfg::kNone) doAction(act);
+        if (act != cfg::kNone) {
+            doAction(act);
+            clearSticky(act);
+        }
     };
     long long lastBlink = 0;
     bool cursorOn = true;
@@ -575,6 +592,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 st.lang = ime.chinese ? "ZH" : "EN";
             }
             pending += rr.bytes;
+            if (bd->sticky) bd->sticky = 0;  // 一次性修饰：这颗键用过就清
         }
         if (!pending.empty()) {
             if (useUinput)
@@ -647,6 +665,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         st.candPage = ime.page();
         st.candSel = ime.sel();
         st.candPageCount = std::max(1, ime.pageCount());
+        st.modCtrl = (bd->locks & 1) != 0;   // 双击锁定的修饰键：左面板 DPAD 那颗会变成实心块
+        st.modShift = (bd->locks & 2) != 0;
+        st.modAlt = (bd->locks & 4) != 0;
         std::string mods;
         if (bd->locks & 1) mods += "CTRL";
         if (bd->locks & 2) mods += mods.empty() ? "SHIFT" : "+SHIFT";
