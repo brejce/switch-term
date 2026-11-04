@@ -410,7 +410,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // 弹簧带一点欠阻尼：推过头会多走一点，然后自己弹回来。
     float camVx = 0, camVy = 0, camRVx = 0, camRVy = 0;
     int prevSnapL = -2, prevSnapR = -2;  // 上一帧的吸附键（只用来触发"弹一下"）
-    float camMinX = 0, camMaxX = 0, camMinY = 0, camMaxY = 0;  // 键中心的范围
+    float camHomeOffY = 0;  // 准心偏置：home 行相对键场中线的纵向差
     auto resetFields = [&] {
         const float half = float(uic.keySize) * 0.5f;  // ui.keys 是键帽左上角
         for (int i = 0; i < cfg::kKeyV2Count; ++i) {
@@ -427,9 +427,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         camLy = ptrL.y;
         camRx = ptrR.x;
         camRy = ptrR.y;
-        // 摄像机范围：横向 = 键心包围盒（任一列都能送到正中）；纵向钉死在世界中线。
-        // 窗口 4 行 = 世界 4 行，纵向没有滚动余量——这是"数字行常在"的代价：
-        // 想让白块纵向也居中，就得把最上/最下一行藏到窗口外。
+        // 摄像机 = 绝对跟随选中键 ⇒ 选中的键永远落在屏幕上同一个点（固定准心），
+        // 网格从准心下面滑过去。唯一的偏置是 camHomeOffY：让 home 行落在准心上时
+        // 整个 4 行键场刚好塞满 4 行窗口（这样默认视角四行全在，数字行可见）。
         float minX = keyCx[0], maxX = minX, minY = keyCy[0], maxY = minY;
         for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {  // 左场 0..19 就是一份完整局部坐标
             minX = std::fmin(minX, keyCx[i]);
@@ -437,10 +437,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             minY = std::fmin(minY, keyCy[i]);
             maxY = std::fmax(maxY, keyCy[i]);
         }
-        camMinX = minX;
-        camMaxX = maxX;
+        // 准心偏移：home 行比键场中线低多少，摄像机就比选中键高多少
         const float midY = (minY + maxY) * 0.5f;
-        camMinY = camMaxY = midY;  // 范围为空 ⇒ clampTo 钉在正中，纵向不滚
+        camHomeOffY = keyCy[fieldL.home] - midY;
         camVx = camVy = camRVx = camRVy = 0.f;
     };
     resetFields();
@@ -809,20 +808,18 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 pos += vel * kDt;
             };
             // 范围为空（窗口比键场大）→ 钉死在正中，不许滚
-            auto clampTo = [](float v, float lo, float hi) {
-                return (lo > hi) ? (lo + hi) * 0.5f : std::fmin(std::fmax(v, lo), hi);
-            };
+
+            // 目标 = 选中键中心（未吸附时 = 指针），纵向再减掉准心偏置。
+            // 不做边界夹取：夹取会让准心在边缘偏移，就不"固定"了。
             auto camTarget = [&](const app::physics::Pointer& p, float& tx, float& ty) {
                 if (p.snapped < 0) {
                     tx = p.x;
-                    ty = p.y;
+                    ty = p.y - camHomeOffY;
                 } else {
                     const float kx = keyCx[p.snapped], ky = keyCy[p.snapped];
                     tx = kx + (p.x - kx) * kParallax;
-                    ty = ky + (p.y - ky) * kParallax;
+                    ty = ky + (p.y - ky) * kParallax - camHomeOffY;
                 }
-                tx = clampTo(tx, camMinX, camMaxX);
-                ty = clampTo(ty, camMinY, camMaxY);
             };
             float tlx, tly, trx, try_;
             camTarget(ptrL, tlx, tly);
