@@ -32,14 +32,14 @@ ui.labels = {
 -- 键序 = 左手 row-major(3×5) 再接右手 row-major(3×5)
 ui.key_size = 64    -- 键帽边长；字符字号见 screen.cpp 的 drawKeyHand（26/12，随它缩放）
 
--- 面板一屏露几列几行（滑窗可见范围）：3 列 = 2×70+64 = 204，正好塞进 panel_w 220
+-- 面板一屏露几列几行（滑窗可见范围）：3 列 = 2×76+64 = 216，塞进 panel_w 220
 ui.key_window = { cols = 3, rows = 3 }
 
 local function hand_keys()
     local t = {}
     for r = 0, 2 do
         for c = 0, 4 do
-            t[#t + 1] = {x = c * 70, y = r * 76}  -- 键 64，横向间隙 6、纵向间隙 12
+            t[#t + 1] = {x = c * 76, y = r * 82}  -- 键 64，横向间隙 12、纵向间隙 18
         end
     end
     return t

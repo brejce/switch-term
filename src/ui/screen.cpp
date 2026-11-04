@@ -187,6 +187,11 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
                  int layer, int first, int panelX, int panelY, int panelW, int panelH,
                  float ptrX, float ptrY, int snap, int hover, float attractRadius,
                  float snapPulse) {
+    // 中心遮罩：只有画面中心的键是清楚的，往外逐渐沉入背景（"走向幕后阴影"）。
+    // 软件光栅器没有高斯模糊，所以做成往面板底色淡出 + 淡到一定程度直接不画。
+    // 半径是设计像素，和键距同一套：相邻键 70/76，对角 103。
+    constexpr float kMaskIn = 55.f;   // 这个距离以内完全清楚（相邻键 70/76 只淡一点）
+    constexpr float kMaskOut = 125.f; // 这个距离以外完全看不见（对角 103 只剩三分之一）
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
     const int sub = (L + 1) % cfg::kLayerCount;  // 副字符 = 下一层同位置（LAYOUT-v2 §3）
@@ -218,6 +223,19 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
             edge = disp::mix(edge, acc, pull);
             bg = disp::mix(bg, acc, pull * 0.25f);
             mainCol = disp::mix(mainCol, acc, std::max(0.f, pull * 2.f - 1.f));
+        }
+        // 遮罩强度：离画面中心（= 摄像机锚点）越远越淡
+        const float dmask = std::hypot(kcx - ptrX, kcy - ptrY);
+        const float fade =
+            1.f - std::clamp((dmask - kMaskIn) / (kMaskOut - kMaskIn), 0.f, 1.f);
+        if (fade <= 0.02f) continue;  // 完全沉下去：连框带字都不画
+        if (fade < 0.999f) {
+            const disp::Color pb = c(col::kPanel);
+            const float k = 1.f - fade;
+            edge = disp::mix(edge, pb, k);
+            bg = disp::mix(bg, pb, k);
+            mainCol = disp::mix(mainCol, pb, k);
+            subCol = disp::mix(subCol, pb, k);
         }
         // 偏移 = 面板中心 - 指针（世界坐标）：吸附住的键正好压在中心上
         const int kx = cx + px(kcx - ptrX);
