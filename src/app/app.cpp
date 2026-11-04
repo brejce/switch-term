@@ -427,8 +427,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         camLy = ptrL.y;
         camRx = ptrR.x;
         camRy = ptrR.y;
-        // 画布能走到的范围 = 键心包围盒：任何一个键都能被送到面板正中（方案 B）。
-        // 代价是最外一行居中时窗口会越过键场，露出空白——这是"白块永远居中"的必然结果。
+        // 摄像机范围：横向 = 键心包围盒（任一列都能送到正中）；纵向钉死在世界中线。
+        // 窗口 4 行 = 世界 4 行，纵向没有滚动余量——这是"数字行常在"的代价：
+        // 想让白块纵向也居中，就得把最上/最下一行藏到窗口外。
         float minX = keyCx[0], maxX = minX, minY = keyCy[0], maxY = minY;
         for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {  // 左场 0..19 就是一份完整局部坐标
             minX = std::fmin(minX, keyCx[i]);
@@ -438,8 +439,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         }
         camMinX = minX;
         camMaxX = maxX;
-        camMinY = minY;
-        camMaxY = maxY;
+        const float midY = (minY + maxY) * 0.5f;
+        camMinY = camMaxY = midY;  // 范围为空 ⇒ clampTo 钉在正中，纵向不滚
         camVx = camVy = camRVx = camRVy = 0.f;
     };
     resetFields();

@@ -210,8 +210,8 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     // 半径是设计像素，和键距同一套：相邻键 70/76，对角 103。
     // 半径按「窗口现在是 3 列 × 4 行」定：相邻行 82、数字行离中心 123，所以内圈要盖住
     // 中心两行（清楚），外圈到对角（≈144）还留一点影子 —— 数字行就是这么"淡但可见"的
-    constexpr float kMaskIn = 55.f;    // 这个距离以内完全清楚（相邻键 76/82 只淡一点）
-    constexpr float kMaskOut = 125.f;  // 这个距离以外完全看不见（对角 112 只剩五分之一）
+    constexpr float kMaskIn = 100.f;   // 这个距离以内完全清楚（中心两行 + 左右邻键）
+    constexpr float kMaskOut = 240.f;  // 这个距离以外完全看不见（数字行 ≈0.84、四角 ≈0.69）
     const float s = g.scale;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
     const int sub = (L + 1) % cfg::kLayerCount;  // 该键没上档时，副字符退回「下一层同位置」
