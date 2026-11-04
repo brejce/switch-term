@@ -290,7 +290,7 @@ void drawComposeLine(render::Renderer& r, const FontBook& f, const Geometry& g,
         int wt = r.textWidth(cd.text, f.term);
         int wa = cd.annot.empty() ? 0 : S(6, s) + r.textWidth(cd.annot, f.term);
         if (x + wn + S(4, s) + wt + wa > g.termX + g.termW - g.termPadX) break;
-        bool active = (i == 0);
+        bool active = (i == size_t(st.candSel));
         if (active)
             r.fill({x - S(2, s), y, wn + wt + wa + S(10, s), cellH}, c(col::kBlue));
         r.textBaseline(x, baseline, num, f.term, c(active ? 0x000000 : col::kDim));

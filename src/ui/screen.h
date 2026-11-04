@@ -32,6 +32,7 @@ struct AppState {
     std::string compose;          // 组字串
     std::vector<CandView> cands;  // 候选（含注音）
     int candPage = 0, candPageCount = 1;
+    int candSel = 0;              // 候选条选中项（页内下标）：空格上屏它
     std::string clock = "20:20";
     int battery = 100;
     std::string modsText = "";    // "CTRL+SHIFT" 之类，空 = 无

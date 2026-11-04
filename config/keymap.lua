@@ -25,10 +25,10 @@ keymap.bind("B", "backspace")
 keymap.bind("X", "delete")
 keymap.bind("Y", "escape")
 
--- 右手肩键＝光标左右（LAYOUT-v2 §5：R / ZR 光标右 / 左）。
--- 旧的 mouse_left / mouse_right 动作枚举保留，只是不再绑（虚拟鼠标点击暂无键位）。
-keymap.bind("RB", "cursor_right")
-keymap.bind("RT", "cursor_left")
+-- 右手肩键：R（RB）= 左，ZR（RT）= 右。
+-- 组字出候选时这两颗不移动光标，而是移动候选条里的选中项（选中项由空格上屏）。
+keymap.bind("RB", "cursor_left")
+keymap.bind("RT", "cursor_right")
 keymap.bind_axis("STICK_R", "mouse_move")
 
 -- 多 tab：终端里敲 `term`／`quit` 建/关，键位待定所以先不绑。

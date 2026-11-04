@@ -889,10 +889,10 @@ int main(int argc, char** argv) {
             im.clear();
             std::string o = type("nihao");
             check("组字不落屏", o.empty() && im.preedit() == "nihao", o, "");
-            // 2 空格 = 普通空格，不动组字串（选字是魔法键的活）
+            // 2 空格 = 上屏当前选中的候选（默认本页第一个）
             o = run1(' ').bytes;
-            check("空格→普通空格（不上屏）", o == " " && im.composing() && im.preedit() == "nihao",
-                  "'" + o + "' 组字=" + im.preedit(), "' ' 组字=nihao");
+            check("空格→上屏首候选", !o.empty() && !im.composing(),
+                  "'" + o + "' 组字=" + im.preedit(), "(第1候选) 组字清空");
             // 3 回车 → 拼音原样
             im.clear();
             type("nihao");

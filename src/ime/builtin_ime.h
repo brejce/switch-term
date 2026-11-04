@@ -41,7 +41,10 @@ public:
     int pageCount() const;
     void nextPage();
     void prevPage();
-    std::string commit(int idx);   // -1 = 当前页第一个
+    // 候选条里的选中项（页内下标，0 = 本页第一个）：R/ZR 移动它，空格上屏它
+    int sel() const { return sel_; }
+    void selStep(int d);
+    std::string commit(int idx);   // -1 = 当前页选中的那个
     std::string commitRaw();       // 拼音原样上屏（回车键的行为：打出 nihao 本身）
     uint32_t context() const { return ctx_; }
     void setContext(uint32_t cp) {  // 自检/外部注入上下文
@@ -56,6 +59,7 @@ private:
     std::string buf_;
     std::vector<Cand> cands_;
     int page_ = 0;
+    int sel_ = 0;
     int pageSize_ = kMaxPageSize;
     uint32_t ctx_ = 0;  // 上一个提交字的码位
 };

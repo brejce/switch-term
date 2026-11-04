@@ -47,8 +47,9 @@ RouteResult routeKey(ime::BuiltinIme& ime, char ch, int mods) {
             }
             // 8/9 超出本页：不吞掉，当普通字符走下面
         }
-        if (ch == ' ') {  // 空格 = 普通空格（选字归魔法键：数字键选候选 / 回车打拼音原样）
-            r.bytes = ch;
+        if (ch == ' ') {  // 空格 = 上屏候选条里选中的那个（R/ZR 移动选中项）
+            r.bytes = ime.commit(-1);
+            r.consumed = true;
             return r;
         }
         if (ch == '\r') {  // 回车 = 拼音原样上屏（打出 nihao 本身）

@@ -45,6 +45,7 @@ void BuiltinIme::clear() {
 
 void BuiltinIme::refresh() {
     page_ = 0;
+    sel_ = 0;
     cands_.clear();
     if (buf_.empty()) return;
     cands_ = idx_.query(buf_, size_t(pageSize_) * 8);
@@ -69,10 +70,20 @@ int BuiltinIme::pageCount() const {
 
 void BuiltinIme::nextPage() {
     if (page_ + 1 < pageCount()) ++page_;
+    sel_ = 0;
 }
 
 void BuiltinIme::prevPage() {
     if (page_ > 0) --page_;
+    sel_ = 0;
+}
+
+// 页内step：走到本页末尾就绕回本页开头（翻页归 Tab）
+void BuiltinIme::selStep(int d) {
+    int n = int(cands_.size()) - page_ * pageSize_;
+    if (n > pageSize_) n = pageSize_;
+    if (n <= 0) return;
+    sel_ = ((sel_ + d) % n + n) % n;
 }
 
 std::string BuiltinIme::commitRaw() {
@@ -84,7 +95,7 @@ std::string BuiltinIme::commitRaw() {
 std::string BuiltinIme::commit(int idx) {
     // 组字串不合法（dd/xyz/混进数字）时没有候选：拼音原样上屏，别让用户白打的字凭空消失
     if (cands_.empty()) return commitRaw();
-    int i = idx < 0 ? page_ * pageSize_ : idx;
+    int i = idx < 0 ? page_ * pageSize_ + sel_ : idx;
     if (i < 0 || i >= int(cands_.size())) return {};
     std::string out = cands_[size_t(i)].text;
     ctx_ = lastCodepoint(out);  // 更新上下文

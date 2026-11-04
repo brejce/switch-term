@@ -465,8 +465,15 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             case cfg::kOnboard:  // 右手柄 +：KDE 抢走手柄/自己打不出字时，叫 onboard 来打
                 spawnDetached("onboard");
                 break;
-            case cfg::kCursorLeft: pending += "\x1b[D"; break;
-            case cfg::kCursorRight: pending += "\x1b[C"; break;
+            // 组字出候选时：R/ZR 在候选条里移动选中项（空格上屏）；否则才是命令行光标
+            case cfg::kCursorLeft:
+                if (ime.composing() && !ime.cands().empty()) ime.selStep(-1);
+                else pending += "\x1b[D";
+                break;
+            case cfg::kCursorRight:
+                if (ime.composing() && !ime.cands().empty()) ime.selStep(+1);
+                else pending += "\x1b[C";
+                break;
             // 面板/触摸独有动作（kIme..kLayer）：手柄路径不会产生，只有 --legacy 用
             case cfg::kIme:
             case cfg::kCopy:
@@ -629,10 +636,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         st.attractRadius = eng.physics.attractRadius;  // 键窗的点亮半径 = 物理场的引力半径
         st.compose = ime.preedit();
         st.cands.clear();
-        for (const auto& cd : ime.cands())
-            if (int(st.cands.size()) < eng.candPerPage)
-                st.cands.push_back({cd.text, cd.annot});
+        // 候选取当前页那一段：ime.cands() 是整页池，不切片的话 Tab 翻页会显示同一批
+        const int pageBase = ime.page() * ime.pageSize();
+        for (int i = pageBase;
+             i < int(ime.cands().size()) && int(st.cands.size()) < eng.candPerPage; ++i)
+            st.cands.push_back({ime.cands()[size_t(i)].text, ime.cands()[size_t(i)].annot});
         st.candPage = ime.page();
+        st.candSel = ime.sel();
         st.candPageCount = std::max(1, ime.pageCount());
         std::string mods;
         if (bd->locks & 1) mods += "CTRL";
