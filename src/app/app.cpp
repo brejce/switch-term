@@ -23,6 +23,7 @@
 #include "config/lua_config.h"
 #include "ime/builtin_ime.h"
 #include "input/evdev_gamepad.h"
+#include "input/rumble.h"
 #include "input/uinput_kbd.h"
 #include "input/uinput_mouse.h"
 #include "modules/terminal/terminal_parser.h"
@@ -313,6 +314,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     int pads = gamepad.open();
     for (const auto& nm : gamepad.names()) std::fprintf(stderr, "gamepad: %s\n", nm.c_str());
     if (pads == 0) std::fprintf(stderr, "gamepad: 没有可读的手柄\n");
+
+    input::Rumble rumble;
+    if (eng.rumble.enabled && !rumble.open()) std::fprintf(stderr, "rumble: 没有支持 FF_RUMBLE 的设备\n");
     long long gpRescanAt = 0;  // 手柄没打开时下次重扫的时刻（ms）
 
     const bool answerDa = runCmd.empty();
@@ -674,8 +678,24 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             app::physics::applyDeadzone(rx, ry, eng.deadzone);
             const float lm = std::sqrt(lx * lx + ly * ly), rm = std::sqrt(rx * rx + ry * ry);
             if (std::fmax(lm, rm) > 0.15f) activeSide = lm >= rm ? 0 : 1;  // 死区外才换活跃侧
-            app::physics::step(ptrL, fieldL, keyCx, keyCy, lx, ly, eng.physics);
-            app::physics::step(ptrR, fieldR, keyCx, keyCy, rx, ry, eng.physics);
+            // 吸附事件 → 震一下（"咚"）。移动底噪在下面统一结算
+            int snaps = 0;
+            auto onPhys = [&snaps](const app::physics::PhysEventData& e) {
+                if (e.kind == app::physics::PhysEvent::Snap) ++snaps;
+            };
+            app::physics::step(ptrL, fieldL, keyCx, keyCy, lx, ly, eng.physics, onPhys);
+            app::physics::step(ptrR, fieldR, keyCx, keyCy, rx, ry, eng.physics, onPhys);
+
+            // 震动：底噪跟指针速度走（有"在滚"的感觉），吸附那一下盖一个短促的"咚"
+            if (rumble.ok()) {
+                const float vl = std::sqrt(ptrL.vx * ptrL.vx + ptrL.vy * ptrL.vy);
+                const float vr = std::sqrt(ptrR.vx * ptrR.vx + ptrR.vy * ptrR.vy);
+                const float v = std::fmax(vl, vr);
+                const float ref = eng.rumble.moveSpeedRef > 1.f ? eng.rumble.moveSpeedRef : 500.f;
+                rumble.setMove(std::fmin(v / ref, 1.f) * eng.rumble.moveMax, eng.rumble.rateHz);
+                if (snaps > 0)
+                    rumble.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
+            }
         }
 
         // 鼠标：只处理 tab 条（点「+」新建，点已有 tab 切过去）；键区暂时不接鼠标

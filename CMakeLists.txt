@@ -30,6 +30,7 @@ add_executable(switch-ime-term
     src/input/gamepad.cpp
     src/input/uinput_kbd.cpp
     src/input/evdev_gamepad.cpp
+    src/input/rumble.cpp
     src/input/uinput_mouse.cpp
     src/ime/pinyin_index.cpp
     src/ime/ngram.cpp

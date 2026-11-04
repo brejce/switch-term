@@ -97,6 +97,17 @@ struct Engine {
     std::string sink = "pty";     // 输出口：pty = 写伪终端；uinput = 打给系统虚拟键盘
     int rotate = 90;                // 屏幕软件旋转：0/90/180/270（fbdev 用；Switch 面板是 720x1280 竖装）
     app::physics::Params physics;   // engine.physics：引力/吸附/回落的旋钮（docs/PHYSICS.md §4）
+
+    // engine.rumble：Joy-Con 震动（evdev FF）。两个用法分开配：移动底噪 / 吸附"咚"
+    struct RumbleCfg {
+        bool enabled = true;
+        float moveMax = 0.30f;      // 移动底噪最大强度（0..1）
+        float moveSpeedRef = 500.f; // 指针速度到这么多 px/s 就算"推满"，映射到 moveMax
+        float snapStrong = 0.85f;   // 吸附那一下：强马达
+        float snapWeak = 0.55f;     //             弱马达
+        int snapMs = 90;            // 持续时长（ms）
+        int rateHz = 25;            // 底噪刷新率上限
+    } rumble;
 };
 
 // 一次热重载要拿到的全部配置
