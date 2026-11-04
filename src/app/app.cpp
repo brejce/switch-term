@@ -404,10 +404,11 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // 吸附住某键时对准该键中心 —— 选中的键就钉死在面板正中，只有周围的键在动；
     // 没吸附时对准指针（否则自由移动时会拖影）。
     float camLx = 0, camLy = 0, camRx = 0, camRy = 0;
-    // 摄像机可动范围：窗口（keyWindowCols×Rows）不许滚出本场 15 键的包围盒。
-    // 场只有 3 行而窗口也是 3 行 → 纵向范围是空的，摄像机被钉死在正中，
-    // 于是上下推摇杆只换选中行、整块键窗不会上下平移
-    float camLoX = 0, camHiX = 0, camLoY = 0, camHiY = 0;
+    // 摄像机 = 「按键画布」的位置，面板中心是固定的选中区：
+    // 目标 = 吸附键中心（没吸附时 = 指针），所以画布最多只能走到让某个键居中。
+    // 弹簧带一点欠阻尼：推过头会多走一点，然后自己弹回来。
+    float camVx = 0, camVy = 0, camRVx = 0, camRVy = 0;
+    float camMinX = 0, camMaxX = 0, camMinY = 0, camMaxY = 0;  // 键中心的范围
     auto resetFields = [&] {
         const float half = float(uic.keySize) * 0.5f;  // ui.keys 是键帽左上角
         for (int i = 0; i < cfg::kKeyV2Count; ++i) {
@@ -424,24 +425,17 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         camLy = ptrL.y;
         camRx = ptrR.x;
         camRy = ptrR.y;
-        // 包围盒 + 窗口半尺寸 → 摄像机能走的范围（两侧场共用同一套局部坐标）
-        const float pitchX = keyCx[1] - keyCx[0];
-        const float pitchY = keyCy[5] - keyCy[0];
-        const float halfW =
-            (float(uic.keyWindowCols - 1) * pitchX + float(uic.keySize)) * 0.5f;
-        const float halfH =
-            (float(uic.keyWindowRows - 1) * pitchY + float(uic.keySize)) * 0.5f;
-        float minX = keyCx[0], maxX = keyCx[0], minY = keyCy[0], maxY = keyCy[0];
+        // 画布能走到的范围 = 键中心的包围盒（两侧场共用同一套局部坐标）。
+        // 只有 3 行 5 列，所以最多上下各走一格、左右各走两格，再远就没有键可居中。
+        camMinX = camMaxX = keyCx[0];
+        camMinY = camMaxY = keyCy[0];
         for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {  // 左场 0..14 就是一份完整局部坐标
-            minX = std::fmin(minX, keyCx[i]);
-            maxX = std::fmax(maxX, keyCx[i]);
-            minY = std::fmin(minY, keyCy[i]);
-            maxY = std::fmax(maxY, keyCy[i]);
+            camMinX = std::fmin(camMinX, keyCx[i]);
+            camMaxX = std::fmax(camMaxX, keyCx[i]);
+            camMinY = std::fmin(camMinY, keyCy[i]);
+            camMaxY = std::fmax(camMaxY, keyCy[i]);
         }
-        camLoX = minX + halfW;
-        camHiX = maxX - halfW;
-        camLoY = minY + halfH;
-        camHiY = maxY - halfH;
+        camVx = camVy = camRVx = camRVy = 0.f;
     };
     resetFields();
 
@@ -759,27 +753,30 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         st.snapRight = ptrR.snapped;
         st.hoverLeft = ptrL.hovered;
         st.hoverRight = ptrR.hovered;
-        // 摄像机跟随：吸附时对准吸附键中心（选中的键钉在正中），未吸附时直接贴指针。
-        // 吸附那一下用 0.45 的指数收敛，约 4 帧滑到位，键窗不会硬跳。
+        // 摄像机（按键画布）跟随：目标 = 吸附键中心，没吸附时 = 指针（都夹在键中心范围内，
+        // 所以画布不会滚到没有键的地方）。用欠阻尼弹簧 ⇒ 允许被推过头一点，再自己弹回来。
         {
-            const float kSnapEase = 0.45f;
-            const bool sl = ptrL.snapped >= 0, sr = ptrR.snapped >= 0;
-            const float tlx = sl ? keyCx[ptrL.snapped] : ptrL.x;
-            const float tly = sl ? keyCy[ptrL.snapped] : ptrL.y;
-            const float trx = sr ? keyCx[ptrR.snapped] : ptrR.x;
-            const float try_ = sr ? keyCy[ptrR.snapped] : ptrR.y;
-            camLx += (tlx - camLx) * (sl ? kSnapEase : 1.f);
-            camLy += (tly - camLy) * (sl ? kSnapEase : 1.f);
-            camRx += (trx - camRx) * (sr ? kSnapEase : 1.f);
-            camRy += (try_ - camRy) * (sr ? kSnapEase : 1.f);
-            // 夹在可动范围内；范围为空（窗口比内容大）就钉死在正中，不许滚
-            auto clampCam = [](float& c, float lo, float hi) {
-                c = (lo > hi) ? (lo + hi) * 0.5f : std::fmin(std::fmax(c, lo), hi);
+            constexpr float kDt = 1.f / 60.f;
+            constexpr float kOmega = 22.f;   // 自然频率：约 0.25s 到位
+            constexpr float kZeta = 0.55f;   // 阻尼比 <1：过冲约 10%，看得见"弹回来"
+            const float k = kOmega * kOmega, cDamp = 2.f * kZeta * kOmega;
+            auto camStep = [&](float& pos, float& vel, float target) {
+                const float a = k * (target - pos) - cDamp * vel;
+                vel += a * kDt;
+                pos += vel * kDt;
             };
-            clampCam(camLx, camLoX, camHiX);
-            clampCam(camLy, camLoY, camHiY);
-            clampCam(camRx, camLoX, camHiX);
-            clampCam(camRy, camLoY, camHiY);
+            auto clampTo = [](float v, float lo, float hi) {
+                return std::fmin(std::fmax(v, lo), hi);
+            };
+            const bool sl = ptrL.snapped >= 0, sr = ptrR.snapped >= 0;
+            const float tlx = clampTo(sl ? keyCx[ptrL.snapped] : ptrL.x, camMinX, camMaxX);
+            const float tly = clampTo(sl ? keyCy[ptrL.snapped] : ptrL.y, camMinY, camMaxY);
+            const float trx = clampTo(sr ? keyCx[ptrR.snapped] : ptrR.x, camMinX, camMaxX);
+            const float try_ = clampTo(sr ? keyCy[ptrR.snapped] : ptrR.y, camMinY, camMaxY);
+            camStep(camLx, camVx, tlx);
+            camStep(camLy, camVy, tly);
+            camStep(camRx, camRVx, trx);
+            camStep(camRy, camRVy, try_);
         }
         st.ptrLeftX = camLx;
         st.ptrLeftY = camLy;
