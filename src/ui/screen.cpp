@@ -341,14 +341,17 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         const int mH = int(std::lround(float(mainH) * tscale));
         const int gH = int(std::lround(float(gap) * tscale));
         const int sH = int(std::lround(float(subH) * tscale));
-        const int ty = box.y + (ds - mH - gH - sH) / 2;
+        const std::string& subCh = uic.shifts[L][k];  // 没上档就不画副字符
+        const bool hasSub = !subCh.empty();
+        // 没副字符时不能给 gap/subH 留位：那样主字符会被顶高 (gap+subH)/2 ≈ 6.5px，
+        // 键面上看着就是"字没居中"
+        const int ty = box.y + (ds - mH - (hasSub ? gH + sH : 0)) / 2;
         std::string mainCh = uic.layers[L][k];
         if (L == 0 && mainCh.size() == 1 && mainCh[0] >= 'a' && mainCh[0] <= 'z')
             mainCh[0] = char(mainCh[0] - 'a' + 'A');
         r.textInBox({box.x, ty, box.w, mH}, mainCh, f.keyMain, mainCol, render::Align::Center, 0,
                     0, 0, tscale);
-        const std::string& subCh = uic.shifts[L][k];  // 没上档就不画副字符
-        if (!subCh.empty())
+        if (hasSub)
             r.textInBox({box.x, ty + mH + gH, box.w, sH}, subCh, f.keySub, subCol,
                         render::Align::Center, 0, 0, 0, tscale);
     }
