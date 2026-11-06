@@ -914,7 +914,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             auto camRange = [&](bool horiz) {
                 const disp::Rect win = ui::keyWindowRect(g, uic, 0, 0, g.panelW, g.contentH);
                 const float halfKey = float(uic.keySize) * 0.5f;
-                const float halfWin = (float(horiz ? win.w : win.h) / g.scale - halfKey * 2.f) * 0.5f;
+                // 半窗口 = 窗口尺寸的一半（不是「窗口减去一个键高的一半」）。
+                // 之前算小了 24px：相机因此能停在 141，而 4 行窗口要正好覆盖世界只能停在 117，
+                // 于是窗口上沿把数字行横切掉一条、下沿留一条空白
+                const float halfWin = float(horiz ? win.w : win.h) * 0.5f / g.scale;
                 float mn = keyCx[0], mx = mn;  // 左右手坐标相同，取左手那一份就是整个世界
                 for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {
                     const float v = horiz ? keyCx[i] : keyCy[i];
