@@ -961,8 +961,11 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             // 窗口永远填满，空白不能进来）
             auto camTarget = [&](const app::physics::Pointer& p, float& tx, float& ty) {
                 if (p.snapped < 0) {
-                    tx = p.x;
-                    ty = p.y - camHomeOffY;
+                    // 没吸附：优先贴最近的高亮键。分层里空键多，指针可能停在空槽上，
+                    // 直接对准指针 = 把画布滑到没有键的地方（"吸住空气"）
+                    const int h = p.hovered;
+                    tx = h >= 0 ? keyCx[h] : p.x;
+                    ty = (h >= 0 ? keyCy[h] : p.y) - camHomeOffY;
                 } else {
                     const float kx = keyCx[p.snapped], ky = keyCy[p.snapped];
                     tx = kx + (p.x - kx) * kParallax;

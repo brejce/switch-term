@@ -104,8 +104,15 @@ void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, floa
     // 5. 边界：本场所有键心的包围盒，硬夹。原来外扩 hover_radius + pointer_radius（=60px），
     // 指针会被留在键区外的空白里：放大镜中心跑出键阵、最近的角键被点亮却吸不住（离太远），
     // 看着就像按在一个不存在的键上。收到键心上：顶到边就必然落在最外圈那颗真键上。
-    float minX = keyX[f.first], maxX = minX, minY = keyY[f.first], maxY = minY;
-    for (int i = 1; i < kFieldKeys; ++i) {
+    // 种子必须取第一颗**有效**键：分层里空键很多（NUM 层左右各只剩 5~8 颗），
+    // 取 key[f.first] 时它往往是空键，包围盒会一路扩到整行空槽上，
+    // 指针就能停在没有键的地方（看着像"吸住空气"）
+    int seed = 0;
+    while (seed < kFieldKeys - 1 && valid && !valid[seed]) ++seed;
+    float minX = keyX[f.first + seed], maxX = minX;
+    float minY = keyY[f.first + seed], maxY = minY;
+    for (int i = 0; i < kFieldKeys; ++i) {
+        if (i == seed) continue;
         if (valid && !valid[i]) continue;
         const int k = f.first + i;
         minX = std::fmin(minX, keyX[k]);
