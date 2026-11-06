@@ -935,18 +935,28 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 return r;
             };
             const CamRange camRX = camRange(true), camRY = camRange(false);
+            // 橡皮筋：目标冲出夹取范围时按比例探头（最多 kElastic），松手自己弹回。
+            // 硬夹会"直直停住"没有惯性感；探出去的这几像素被遮罩吃掉了，看不出露白
+            constexpr float kElastic = 16.f;
+            auto rubber = [](float v, const CamRange& r) {
+                if (v < r.lo) return r.lo - std::fmin(kElastic, (r.lo - v) * 0.35f);
+                if (v > r.hi) return r.hi + std::fmin(kElastic, (v - r.hi) * 0.35f);
+                return v;
+            };
             auto camStep = [&](float& pos, float& vel, float target, const CamRange& range) {
-                // 目标也得夹进去，否则顶到边界后弹簧每帧都重新生成向外的加速度：
+                // 目标也得收进橡皮筋范围内，否则顶到边界后弹簧每帧都重新生成向外的加速度：
                 // 位置被夹住不动、速度却永远归零不了 → animating 恒为真 → 永远整屏重画
-                target = std::clamp(target, range.lo, range.hi);
+                target = rubber(target, range);
                 const float a = k * (target - pos) - cDamp * vel;
                 vel += a * kDt;
                 pos += vel * kDt;
-                if (pos < range.lo) {
-                    pos = range.lo;
+                // 位置夹在「夹取范围 + 橡皮筋」上：过冲可以进橡皮筋，但不能把窗口带空
+                const float lo = range.lo - kElastic, hi = range.hi + kElastic;
+                if (pos < lo) {
+                    pos = lo;
                     if (vel < 0.f) vel = 0.f;
-                } else if (pos > range.hi) {
-                    pos = range.hi;
+                } else if (pos > hi) {
+                    pos = hi;
                     if (vel > 0.f) vel = 0.f;
                 }
             };

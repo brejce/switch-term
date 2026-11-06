@@ -40,21 +40,39 @@ void fillRound(render::Renderer& r, disp::Rect b, int rad, disp::Color col) {
 void vignette(render::Renderer& r, disp::Rect area, float ccx, float ccy, float r0, float r1,
               disp::Color col) {
     if (r1 <= r0) return;
-    constexpr int kCell = 6;
+    // 2px 小格 + smoothstep：6px 格子在线性斜坡上会看出棋盘台阶（边缘"生硬"就是这个）
+    constexpr int kCell = 2;
+    constexpr int kFar = 10;  // 斜坡外是纯色，可以用大块铺，省调用
     const float inv = 1.f / (r1 - r0);
-    for (int y = area.y; y < area.bottom(); y += kCell) {
-        const float dy = float(y) + kCell * 0.5f - ccy;
-        const int h = std::min(kCell, area.bottom() - y);
-        for (int x = area.x; x < area.right(); x += kCell) {
-            const float dx = float(x) + kCell * 0.5f - ccx;
-            const float d = std::sqrt(dx * dx + dy * dy);
-            float t = (d - r0) * inv;
-            if (t <= 0.f) continue;
-            t = t > 1.f ? 1.f : t;
-            disp::Color cc = col;
-            cc.a = uint8_t(std::lround(float(col.a) * t));
-            r.fill({x, y, std::min(kCell, area.right() - x), h}, cc);
+    auto rampAt = [&](float px, float py) {  // 该点的遮盖强度 0..1（smoothstep）
+        const float dx = px - ccx, dy = py - ccy;
+        float t = (std::sqrt(dx * dx + dy * dy) - r0) * inv;
+        if (t <= 0.f) return 0.f;
+        if (t >= 1.f) return 1.f;
+        return t * t * (3.f - 2.f * t);
+    };
+    for (int y = area.y; y < area.bottom();) {
+        const int stepY = (rampAt(ccx, float(y) + kFar * 0.5f) >= 1.f &&
+                           rampAt(ccx, float(y) + kFar - 1.f) >= 1.f)
+                              ? kFar
+                              : kCell;
+        const int h = std::min(stepY, area.bottom() - y);
+        for (int x = area.x; x < area.right();) {
+            const int stepX =
+                (stepY > kCell &&
+                 rampAt(float(x) + kFar * 0.5f, ccy) >= 1.f)  // 远场：整块都是纯色
+                    ? kFar
+                    : kCell;
+            const float t = rampAt(float(x) + stepX * 0.5f, float(y) + h * 0.5f);
+            const int w = std::min(stepX, area.right() - x);
+            if (t > 0.f) {
+                disp::Color cc = col;
+                cc.a = uint8_t(std::lround(float(col.a) * t));
+                r.fill({x, y, w, h}, cc);
+            }
+            x += stepX;
         }
+        y += stepY;
     }
 }
 
@@ -235,8 +253,10 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     // 半径是设计像素，和键距同一套：相邻键 70/76，对角 103。
     // 半径按「窗口现在是 3 列 × 4 行」定：相邻行 82、数字行离中心 123，所以内圈要盖住
     // 中心两行（清楚），外圈到对角（≈144）还留一点影子 —— 数字行就是这么"淡但可见"的
-    constexpr float kMaskIn = 50.f;    // 这个距离以内完全不遮（选中键周围一圈是亮的）
-    constexpr float kMaskOut = 230.f;  // 这个距离以外全遮住（数字行 164 → 遮 63%）
+    constexpr float kMaskIn = 48.f;   // 这个距离以内完全不遮（选中键周围一圈是亮的）
+    // 必须在窗口边（横向 82 / 纵向 86，对角 119）之前走完，否则外圈键会被窗口矩形硬切一刀。
+    // 124 = 对角 119 稍微外一点：斜角上最后一颗键刚好淡没，看不出切口
+    constexpr float kMaskOut = 124.f;
     // 缩放用自己的半径：遮罩 50→230 太宽，按这个曲线相邻键几乎同尺寸（d 和 e 看着一样大）。
     // 这里收窄到 45→180、最多缩 30%，相邻键才看得出大小差。
     constexpr float kShrinkIn = 45.f, kShrinkOut = 180.f, kShrinkMax = 0.30f;
