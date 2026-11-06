@@ -9,7 +9,7 @@ ui.top_bar_h  = 32
 ui.bot_bar_h  = 26
 
 ui.stick_box  = 180      -- 旧九宫格时代的外框边长（v2 键区不用它，保留给布局缩放）
-ui.dpad_cell  = 28
+ui.dpad_cell  = 34   -- 十字键格子边长：28 时 "Shift"(12px≈36px) 会压到右边的 "Alt"
 ui.abxy_cell  = 30
 ui.shoulder_h = 20
 
