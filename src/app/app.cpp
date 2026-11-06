@@ -378,6 +378,11 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         // 组合手柄（Pro/一体式）只有一台设备：两侧震动打到同一马达，分不开就直说
         if (rumbleL.ok() && rumbleR.ok() && rumbleL.device() == rumbleR.device())
             std::fprintf(stderr, "rumble: 左右落在同一台设备，两侧震动共用马达\n");
+        // 排障：起来先打一发，日志里能看出 EVIOCSFF 到底成不成（摸不到震动就是硬件/驱动）
+        if (std::getenv("SIT_DEBUG")) {
+            rumbleL.thunk(0.9f, 0.9f, 250);
+            rumbleR.thunk(0.9f, 0.9f, 250);
+        }
     }
     long long gpRescanAt = 0;      // 手柄没打开时下次重扫的时刻（ms）
     long long rumbleRescanAt = 0;  // 震动设备掉线时下次重开的时刻（ms）

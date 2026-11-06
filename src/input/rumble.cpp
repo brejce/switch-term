@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -128,8 +129,8 @@ bool Rumble::upload(int& id, float strong, float weak, int ms) {
         if (id < 0) std::fprintf(stderr, "rumble: EVIOCSFF 失败: %s\n", std::strerror(errno));
         return false;
     }
-    if (id < 0 || e.id != id) std::fprintf(stderr, "rumble[%s]: effect id=%d ms=%d\n",
-                                          dev_.c_str(), e.id, ms);
+    if (std::getenv("SIT_DEBUG") && (id < 0 || e.id != id))
+        std::fprintf(stderr, "rumble[%s]: effect id=%d ms=%d\n", dev_.c_str(), e.id, ms);
     id = e.id;
     return true;
 }
