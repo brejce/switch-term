@@ -73,6 +73,6 @@ engine.rumble = {
     move_smooth_ms = 60,   -- 底噪强度的低通时间常数：越小越"颗粒"，越大越绵（不细腻就是这里）
     -- 左右分侧震动：左手柄用 gain_left、右手柄用 gain_right。实测右边马达偏弱，
     -- 所以把左边压一点（不是把右边加大——FF 幅度已经是 0xFFFF，加不上去）
-    gain_left      = 0.50,
+    gain_left      = 0.30,
     gain_right     = 1.00,
 }
