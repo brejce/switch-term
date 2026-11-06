@@ -935,12 +935,14 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 return r;
             };
             const CamRange camRX = camRange(true), camRY = camRange(false);
-            // 橡皮筋：目标冲出夹取范围时按比例探头（最多 kElastic），松手自己弹回。
-            // 硬夹会"直直停住"没有惯性感；探出去的这几像素被遮罩吃掉了，看不出露白
-            constexpr float kElastic = 16.f;
+            // 橡皮筋：目标冲出夹取范围时按比例探头，松手自己弹回。
+            // 两个数必须分开：kRubber 是「目标」能探多少，kHardBand 是「位置」的硬限。
+            // 之前两者都是 16，纵向准心偏置让上方需求大 31px，目标一饱和就贴在硬限上
+            // → 位置钉死、速度归零 → 上边没有弹簧（左右下有余量所以没事）。
+            constexpr float kRubber = 12.f, kHardBand = 24.f;
             auto rubber = [](float v, const CamRange& r) {
-                if (v < r.lo) return r.lo - std::fmin(kElastic, (r.lo - v) * 0.35f);
-                if (v > r.hi) return r.hi + std::fmin(kElastic, (v - r.hi) * 0.35f);
+                if (v < r.lo) return r.lo - std::fmin(kRubber, (r.lo - v) * 0.8f);
+                if (v > r.hi) return r.hi + std::fmin(kRubber, (v - r.hi) * 0.8f);
                 return v;
             };
             auto camStep = [&](float& pos, float& vel, float target, const CamRange& range) {
@@ -950,8 +952,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 const float a = k * (target - pos) - cDamp * vel;
                 vel += a * kDt;
                 pos += vel * kDt;
-                // 位置夹在「夹取范围 + 橡皮筋」上：过冲可以进橡皮筋，但不能把窗口带空
-                const float lo = range.lo - kElastic, hi = range.hi + kElastic;
+                // 位置硬限比橡皮筋再宽一圈：目标探到 12px 时弹簧仍有活动空间，不会钉死
+                const float lo = range.lo - kHardBand, hi = range.hi + kHardBand;
                 if (pos < lo) {
                     pos = lo;
                     if (vel < 0.f) vel = 0.f;
