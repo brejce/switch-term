@@ -491,18 +491,11 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         camRx = ptrR.x;
         camRy = ptrR.y;
         // 摄像机 = 绝对跟随选中键 ⇒ 选中的键永远落在屏幕上同一个点（固定准心），
-        // 网格从准心下面滑过去。唯一的偏置是 camHomeOffY：让 home 行落在准心上时
-        // 整个 4 行键场刚好塞满 4 行窗口（这样默认视角四行全在，数字行可见）。
-        float minX = keyCx[0], maxX = minX, minY = keyCy[0], maxY = minY;
-        for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {  // 左场 0..19 就是一份完整局部坐标
-            minX = std::fmin(minX, keyCx[i]);
-            maxX = std::fmax(maxX, keyCx[i]);
-            minY = std::fmin(minY, keyCy[i]);
-            maxY = std::fmax(maxY, keyCy[i]);
-        }
-        // 准心偏移：home 行比键场中线低多少，摄像机就比选中键高多少
-        const float midY = (minY + maxY) * 0.5f;
-        camHomeOffY = keyCy[fieldL.home] - midY;
+        // 准心纵向偏移 = 0：相机对准选中键本身，home 行正好落在准心上。
+        // 原来取「home 行比键场中线低多少」（31px），那是 4 行窗口时代的算法——那时世界和窗口
+        // 一样高，相机对世界中线才齐平。换成 3 行窗口（172 高）后，抬这 31px 会把底部那一行
+        // （zxcvb / nm,./）推出窗口，被窗口下沿硬切一半。
+        camHomeOffY = 0.f;
         camVx = camVy = camRVx = camRVy = 0.f;
     };
     resetFields();
