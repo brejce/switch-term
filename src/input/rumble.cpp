@@ -63,6 +63,12 @@ bool Rumble::open(const char* preferName) {
         }
         char name[256] = "?";
         ::ioctl(fd, EVIOCGNAME(sizeof name), name);
+        // IMU / Serial 是同一台手柄的辅助节点：名字里含 "Left Joy-Con" 一样会被认成手柄，
+        // 但它们没有马达，绑上去就是"震动没反应"
+        if (std::strstr(name, "IMU") != nullptr || std::strstr(name, "Serial") != nullptr) {
+            ::close(fd);
+            continue;
+        }
         const std::string nameLow = lower(name);
         int tier = 0;
         if (!want.empty() && std::strstr(name, want.c_str())) {
