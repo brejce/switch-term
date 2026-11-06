@@ -463,10 +463,15 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
             r.textInBox({kx, y, 0, S(16, s)}, act, f.shoulder, c(col::kFaint),
                         render::Align::Left);
         };
-        hint(S(10, s), "L", "上屏");
+        // 肩键/扳机名按 Switch 的叫法：L / ZL、R / ZR。
+        // L 不是"上屏"——它只上屏吸附住的键，跟空格/回车不是一回事，所以叫魔法键。
+        // 右肩键在有修饰键（按住或锁定）时是光标的上下，提示跟着变
+        const char* rUp = st.modShift ? "上" : "左";
+        const char* rDn = st.modShift ? "下" : "右";
+        hint(S(10, s), "L", "魔法键");
         hint(S(96, s), "ZL", "空格");
-        hint(rightX + S(10, s), "R", "左");
-        hint(rightX + S(96, s), "ZR", "右");
+        hint(rightX + S(10, s), "R", rUp);
+        hint(rightX + S(96, s), "ZR", rDn);
     }
 
     // 按键簇摆在键窗下面：窗口在面板里竖向居中，所以从窗口底边往下排
@@ -479,10 +484,11 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
 
     // 面板底部提示表：左右各一张，贴着面板下沿
     static const HintRow kLeftHints[] = {
-        {"LB", "上屏"},
-        {"LT", "空格"},
+        {"L", "魔法键"},
+        {"ZL", "空格"},
         {"L3", "切层"},
-        {"DPAD", "修饰·锁定"},
+        {"DPAD", "修饰"},
+        {"双击DPAD", "锁定"},
     };
     static const HintRow kRightHints[] = {
         {"A", "回车"},
@@ -491,10 +497,17 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
         {"Y", "Esc"},
         {"R/ZR", "光标←→"},
     };
+    static const HintRow kRightHintsShift[] = {
+        {"A", "回车"},
+        {"B", "退格"},
+        {"X", "Del"},
+        {"Y", "Esc"},
+        {"R/ZR", "光标↑↓"},
+    };
     drawHints(r, f, 0, g.contentY, g.panelW, g.contentH, kLeftHints,
               int(sizeof(kLeftHints) / sizeof(kLeftHints[0])), s);
-    drawHints(r, f, rightX, g.contentY, g.panelW, g.contentH, kRightHints,
-              int(sizeof(kRightHints) / sizeof(kRightHints[0])), s);
+    const HintRow* rh = st.modShift ? kRightHintsShift : kRightHints;
+    drawHints(r, f, rightX, g.contentY, g.panelW, g.contentH, rh, 5, s);
 }
 
 void drawTermBackground(render::Renderer& r, const FontBook& f, const Geometry& g) {

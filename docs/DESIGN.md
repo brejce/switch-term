@@ -79,7 +79,7 @@
 ### 3.1 键区：双摇杆 + 引力吸附
 
 *   **左/右摇杆**：各驱动一个指针，在各自 5 列 × 4 行（20 键）的键场里按引力场运动（`docs/PHYSICS.md`）。
-    死区外推杆量决定速度（内圈慢→中段快→推满最快），松手后滑回零位（左 `d` / 右 `j`）。
+    死区外推杆量决定速度（内圈慢→中段快→推满最快），松手后滑回零位（左 `d` / 右 `k`）。
 *   **吸附**：指针是有半径的球，球边缘碰到键（`snap_radius + pointer_radius`）就吸附，整键反色；
     邻键按真实受力点亮，所以推力方向不用十字准星也能看出来。吸附期间"就近换键"，滑动不闪。
 *   **窗口**：一屏只露 3 列 × 4 行，列跟着吸附键水平滑，行一次全露（数字行永远在屏上，靠遮罩压暗）。
@@ -88,7 +88,7 @@
 *   **LT**：组字中 = 上屏当前选中的候选；否则 = 空格。
 *   **RB / RT**：组字中 = 移动候选选中项；Tab 窗口内（DPAD_UP 后 1.2s）= 切 tab；
     带 `Shift` = 光标上/下；其余 = 光标左/右。
-*   **L3**：键区层循环 ALPHA → NUM → SYM。
+*   **L3**：键区层循环 `ALPHA ⇄ NUM`（两层，`kLayerCount = 2`）。
 *   **DPAD（十字键）—— 修饰符**：上 = `Tab`（顺带开 tab 窗口）/ 左 = `Shift` / 右 = `Alt` / 下 = `Ctrl`；
     单击 = 一次性（sticky），双击 = 锁定/解锁；锁定时面板上那颗变实心块、底栏亮 `MODS`。
 *   **＋（START）**：`onboard`，拉起屏幕键盘（桌面模式被打断时兜底）。
@@ -108,7 +108,10 @@
 小屏幕手柄没有修饰键，电脑又必须有。现在只有**一条**路径：摇杆选键 + LB 上屏。
 
 *   **单击 = 一次性（sticky），双击 400ms 内 = 锁定/解锁**；锁定态在左面板点亮、底栏亮 `MODS [CTRL]`。
-    ⚠「用完自动释放」还没实现：`sticky` 只翻转不清零，按一下等于锁死（`STATUS.md` §3.1）。
+*   **三种修饰形态**（`bd->holding / sticky / locks` 三个位图，`modMask() = 三者按位或`）：
+    *   **物理按住（holding）**：键按下就置位，抬起就清（十字键有 release 事件时才可靠）。
+    *   **一次性（sticky）**：单击翻转；下一颗真按键用过就清（`clearSticky()`、键盘路径每键清）。
+    *   **双击锁定（locks）**：双击翻转，直到再双击才解。
 *   **Ctrl/Alt + 字母只在英文态生效**；中文态不抢字母，否则拼音打不出来。
 *   **中文态大写自动按小写组字**：锁了 Shift 打 `Nihao` 仍然组 `nihao`。
 *   **组字中收到不认识的控制字节（0x01~0x1a）直接吞掉**，不污染 shell。
@@ -127,7 +130,7 @@
 * **配置就是 Lua**。C++ 侧只用 `luaL_dofile` 读一遍，读成原生结构（`cfg::Ui` /
   `cfg::KeyMap` / `cfg::Engine`），运行期主循环零 Lua。
 * **一个文件分两半**：
-  * **上半段 = 配置**：纯数据赋值（`ui.panel_w = 220`、`keymap.bind("A", "enter")`）。
+  * **上半段 = 配置**：纯数据赋值（`ui.panel_w = 176`、`keymap.bind("A", "enter")`）。
     C++ 只认这一段 —— 键名固定，缺键就用 `src/config/lua_config.h` 里的默认值。
     想用 `if`/`for` 算值也行，但要保证执行完这些键名落到了全局表上。
   * **下半段 = 代码段**：函数、循环、表构造，用来**生成或校验**上面的配置。
@@ -165,15 +168,16 @@
 
 | 键 | 默认 | 控制什么 |
 |---|---|---|
-| `ui.title` | `"SYS.TERM"` | 顶部状态栏左侧标题 |
-| `ui.panel_w` | 220 | 左/右面板宽度 |
+| `ui.title` | `"sit/0.1"` | 顶部状态栏左侧标题 |
+| `ui.panel_w` | 176 | 左/右面板宽度 |
 | `ui.top_bar_h` / `bot_bar_h` | 32 / 26 | 顶部、底部状态栏高度 |
 | `ui.stick_box` | 180 | legacy 九宫格遗留：只喂旧路径的 `keyCell`，v2 渲染不读 |
-| `ui.dpad_cell` / `abxy_cell` / `shoulder_h` | 28 / 30 / 20 | 十字键格、ABXY 格、肩键条高度 |
+| `ui.dpad_cell` / `abxy_cell` / `shoulder_h` | 34 / 30 / 20 | 十字键格、ABXY 格、肩键条高度 |
 | `ui.term_pad_x` / `term_pad_top` / `term_pad_bot` | 14 / 10 / 8 | 终端网格区四周留白 |
-| `ui.cell_w` / `cell_h` | 8 / 21 | 终端字符格（决定列数/行数） |
+| `ui.cell_w` / `cell_h` | 8 / 21 | 终端字符格（决定列数/行数：现为 112×28） |
+| `ui.key_size` / `key_window` / `key_area_dy` | 48 / `{3,4}` / −100 | 键帽边长、一屏露几列几行、键区整体上移量 |
 | `ui.ime_rows` | 2 | 底部固定留给组字串/候选的行数 |
-| `ui.labels.*` | — | `dpad_title` / `abxy_title` 面板标题文字 |
+| `ui.labels.*` | — | `dpad_title` / `abxy_title`：配置里还在，渲染已不画（2026-11-06 删） |
 
 ### 4.3 看得见：`config/keymap.lua`
 
@@ -187,7 +191,7 @@ layer_next onboard mouse_left/mouse_right next_tab/prev_tab/new_tab/close_tab`�
 -- 实际内容见 config/keymap.lua（这里是摘录，以那个文件为准）
 keymap.bind("LB", "magic")        -- 上屏活跃侧吸附住的字符（Shift 取上档）
 keymap.bind("LT", "space")        -- 组字中 = 上屏选中候选，否则 = 空格
-keymap.bind("L3", "layer_next")   -- ALPHA → NUM → SYM
+keymap.bind("L3", "layer_next")   -- ALPHA ⇄ NUM
 keymap.bind("DPAD_UP", "tab")
 keymap.bind("DPAD_LEFT", "mod_shift")
 keymap.bind("DPAD_RIGHT", "mod_alt")
@@ -211,7 +215,7 @@ keymap.bind_axis("STICK_R", "mouse_move")        -- 已注册，C++ 侧故意不
 | `engine.ime.cand_per_page` | 7 | 底部候选条一页显示几个 |
 | `engine.ime.ngram` | true | 候选是否按 bigram 上下文重排（只装配，未接线） |
 | `engine.ime.enabled` | true | 内置输入法是否介入；`false` = 字符原样透传（桌面模式与 fcitx5 共存，见 §4.4.1） |
-| `engine.input.deadzone` | 0.35 | 摇杆死区（归一化后） |
+| `engine.input.deadzone` | 0.15 | 摇杆死区（归一化后的推杆半径，`src/input/gamepad.h`） |
 | `engine.input.hysteresis_deg` | 8 | 扇区切换滞回角，防边界抖动 |
 | `engine.input.double_tap_ms` | 400 | 同键二按 = 双击的判定窗口 |
 | `engine.log.level` | `"warn"` | `debug/info/warn/error`（只打印，未接线） |
@@ -232,7 +236,7 @@ engine.ime = {
 }
 
 engine.input = {
-    deadzone       = 0.35, -- 摇杆死区：归一化后小于它的位移当作回中
+    deadzone       = 0.15, -- 摇杆死区：归一化后小于它的位移当作回中
     hysteresis_deg = 8,    -- 扇区切换滞回角：防止在边界上来回抖出字母
     double_tap_ms  = 400,  -- 同一个键在这个时间内按第二下 = 双击（十字键锁定修饰）
 }

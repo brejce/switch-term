@@ -506,7 +506,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         std::fprintf(stderr, "警告：ui.lua 没有 keys，左右键区是空的\n");
 
     ui::AppState st;
-    st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "EN 直通";
+    st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "英文";
 
 
     // 动作分发：手柄/面板都走这里（映射来自 keymap.lua）
@@ -894,7 +894,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         if (st.clock != clockBefore || st.battery != batteryBefore) uiDirty = true;
         // 底栏语言/输入法每帧从 ime 现算：按键路径（键盘 keys 循环、手柄 doAction）都会改
         // ime.chinese，但只有前者的 RouteResult 带了 langChanged，手柄那条路以前永远不更新底栏
-        st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "EN 直通";
+        st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "英文";
         st.layer = layerIdx;  // L3 循环，不再跟 Shift 锁定走
         st.layerName = kLayerNames[layerIdx];
         // 换键那一下的弹跳：换键瞬间把脉冲拉到 1，150ms 内衰减到 0（渲染侧拿它放大键块）。
@@ -978,13 +978,15 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         st.candPage = ime.page();
         st.candSel = ime.sel();
         st.candPageCount = std::max(1, ime.pageCount());
-        st.modCtrl = (bd->locks & 1) != 0;   // 双击锁定的修饰键：左面板 DPAD 那颗会变成实心块
-        st.modShift = (bd->locks & 2) != 0;
-        st.modAlt = (bd->locks & 4) != 0;
-        std::string mods;
-        if (bd->locks & 1) mods += "CTRL";
-        if (bd->locks & 2) mods += mods.empty() ? "SHIFT" : "+SHIFT";
-        if (bd->locks & 4) mods += mods.empty() ? "ALT" : "+ALT";
+        // 修饰键状态 = 锁定 | 物理按住 | 一次性：DPAD 那颗变实心、右肩键提示变 ↑/↓ 都看它
+        const int modsOn = bd->locks | bd->holding | bd->sticky;
+        st.modCtrl = (modsOn & 1) != 0;
+        st.modShift = (modsOn & 2) != 0;
+        st.modAlt = (modsOn & 4) != 0;
+        std::string mods;  // 底栏 "[SHIFT]" 那串：按住/锁定/一次性都算（modsOn）
+        if (modsOn & 1) mods += "CTRL";
+        if (modsOn & 2) mods += mods.empty() ? "SHIFT" : "+SHIFT";
+        if (modsOn & 4) mods += mods.empty() ? "ALT" : "+ALT";
         st.modsText = mods;
 
         // 没有变化就不画：空闲时这一屏一个像素都不会变，照旧整屏重画 = 白烧一个核
