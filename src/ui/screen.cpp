@@ -92,8 +92,6 @@ struct HintRow {
 // 数据在 drawKeyPanels 里，跟着 keymap.lua 的语义走（改键位记得一起改）
 void drawHints(render::Renderer& r, const FontBook& f, int panelX, int panelY, int panelW,
                int panelH, const HintRow* rows, int n, float s) {
-    std::fprintf(stderr, "[hint] n=%d face=%p px=%.1f\n", n, (void*)f.hints,
-                 f.hints ? f.hints->px : 0.0);
     if (n <= 0 || f.hints == nullptr) return;
     const int padX = S(10, s), padTop = S(10, s), padBot = S(12, s);
     const int rowH = S(16, s), rowGap = S(4, s);
@@ -203,17 +201,42 @@ int tabAt(const Geometry& g, const cfg::Ui& uic, int count, int x, int y) {
 void drawTabBar(render::Renderer& r, const FontBook& f, const Geometry& g, const cfg::Ui& uic,
                 const std::vector<std::string>& titles, int active) {
     const float s = g.scale;
+    // tab 条的可画区：右边要给时钟/电量留出来（那段是右对齐画的，画到哪算到哪），
+    // 否则开多了 tab 就压到时钟上；每个 tab 的标题再各自裁进自己的框里，
+    // 否则真终端的标题（"brejce@host: ~/path"）会溢出 96px 压到隔壁 tab
+    const disp::Rect strip{S(180, s), 0, g.screenW - S(180, s) - S(200, s), g.topBarH};
     for (int i = 0; i < int(titles.size()); ++i) {
         disp::Rect box = tabRect(g, uic, i);
         const bool on = i == active;
-        r.fill(box, c(on ? col::kLine : col::kTerm));
-        r.textInBox(box, titles[size_t(i)], f.bar, c(on ? col::kCyan : col::kDim),
-                    render::Align::Center, 0, 0, S(1, s));
+        if (box.x >= strip.right()) break;  // 后面的整个都在可画区外
+        r.fill(box, c(on ? col::kLine : col::kTerm));  // 底色不裁：宁可被后面盖住也不露缝
+        const int cx = std::max(box.x, strip.x);
+        const int cr = std::min(box.right(), strip.right());
+        if (cr <= cx) continue;
+        r.setClip({cx, box.y, cr - cx, box.h});
+        // 左对齐 + 放不下就截断加省略号：居中的长标题被裁会变成"中间一小段"，
+        // 12 个 tab 全长得一样，看不出是哪个
+        std::string label = titles[size_t(i)];
+        const int avail = box.w - S(12, s);
+        if (r.textWidth(label, f.bar, S(1, s)) > avail) {
+            while (!label.empty() && r.textWidth(label + "…", f.bar, S(1, s)) > avail) {
+                label.pop_back();
+                while (!label.empty() && (uint8_t(label.back()) & 0xC0) == 0x80) label.pop_back();
+            }
+            label += "…";
+        }
+        r.textInBox(box, label, f.bar, c(on ? col::kCyan : col::kDim), render::Align::Left,
+                    S(6, s), S(6, s), S(1, s));
         // 活动 tab 底部一条线：底色用的是 kLine，不加标记分不清哪个是当前的
         if (on) r.fill({box.x, box.bottom() - S(2, s), box.w, S(2, s)}, c(col::kCyan));
+        r.clearClip();
     }
-    r.textInBox(tabPlusRect(g, uic, int(titles.size())), "+", f.bar, c(col::kFaint),
-                render::Align::Center, 0, 0, S(1, s));
+    const disp::Rect plus = tabPlusRect(g, uic, int(titles.size()));
+    if (plus.x < strip.right()) {
+        r.setClip({plus.x, strip.y, std::min(plus.right(), strip.right()) - plus.x, strip.h});
+        r.textInBox(plus, "+", f.bar, c(col::kFaint), render::Align::Center, 0, 0, S(1, s));
+        r.clearClip();
+    }
 }
 
 void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
