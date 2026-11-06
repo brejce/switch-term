@@ -269,7 +269,7 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     const int b = std::max(1, S(1, s));          // 1px 边框
     // 行高必须跟字号走：keyMain 36px / keySub 18px（FontBook 里已乘 kUiFontBoost）。
     // 之前这里还是 26/13（字号翻倍前的值），于是主字和上档字在键帽里叠在一起。
-    const int mainH = S(36, s), subH = S(18, s), gap = S(4, s);
+    const int gap = S(4, s);  // 主字/副字之间的间距（设计像素）
     const disp::Rect win = keyWindowRect(g, uic, panelX, panelY, panelW, panelH);
     const int cx = win.x + win.w / 2, cy = win.y + win.h / 2;  // 面板中心 = 指针位置
     auto px = [s](float v) { return int(std::lround(v * s)); };
@@ -338,14 +338,19 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         // 上档/大写在输入路由里处理）；副字符只显示"上档真的有别的字"的键（数字、标点）。
         // 字跟着键块一起缩（tscale = ds/side），所以外围小键里也是小字，不会撑爆。
         const float tscale = side > 0 ? float(ds) / float(side) : 1.f;
-        const int mH = int(std::lround(float(mainH) * tscale));
-        const int gH = int(std::lround(float(gap) * tscale));
-        const int sH = int(std::lround(float(subH) * tscale));
+        // 行高取字体自己的 lineHeight（textInBox 内部按 ascent/descent 视觉居中）。
+        // 原来写死 mainH/subH 常数再手算居中：字号、键帽尺寸、有没有副字符，任一处一变就偏
+        auto lineH = [tscale](const render::FontFace* f) {
+            if (f == nullptr) return 0;
+            const int h = f->lineHeight > 0 ? f->lineHeight : int(std::lround(double(f->px)));
+            return int(std::lround(float(h) * tscale));
+        };
         const std::string& subCh = uic.shifts[L][k];  // 没上档就不画副字符
         const bool hasSub = !subCh.empty();
-        // 没副字符时不能给 gap/subH 留位：那样主字符会被顶高 (gap+subH)/2 ≈ 6.5px，
-        // 键面上看着就是"字没居中"
-        const int ty = box.y + (ds - mH - (hasSub ? gH + sH : 0)) / 2;
+        const int mH = lineH(f.keyMain);
+        const int gH = hasSub ? int(std::lround(float(gap) * tscale)) : 0;
+        const int sH = hasSub ? lineH(f.keySub) : 0;
+        const int ty = box.y + (ds - mH - gH - sH) / 2;
         std::string mainCh = uic.layers[L][k];
         if (L == 0 && mainCh.size() == 1 && mainCh[0] >= 'a' && mainCh[0] <= 'z')
             mainCh[0] = char(mainCh[0] - 'a' + 'A');
