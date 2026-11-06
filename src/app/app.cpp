@@ -935,14 +935,15 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             // 两个数必须分开：kRubber 是「目标」能探多少，kHardBand 是「位置」的硬限。
             // 之前两者都是 16，纵向准心偏置让上方需求大 31px，目标一饱和就贴在硬限上
             // → 位置钉死、速度归零 → 上边没有弹簧（左右下有余量所以没事）。
-            constexpr float kRubber = 12.f, kHardBand = 24.f;
-            auto rubber = [](float v, const CamRange& r) {
-                // 行程为 0（窗口正好等于世界，比如 4 行窗口）：一点位移就会把世界推出窗口，
-                // 表现为「数字行头部被横切一条 + 对面留白」。这种方向必须钉死，不给橡皮筋
-                if (!(r.hi > r.lo)) return r.lo;
+            // 弹性带 = 键帽的 0.6 倍（≈29px）：世界边缘比键面再外扩这么多，只给过冲用，
+            // 静止时相机停在夹取范围内（不留白），推到底才探进这条带子。
+            // 目标最多探 kRubber，位置硬限再放宽到 kHard（否则目标贴着硬限，弹簧又死了）
+            const float kRubber = float(uic.keySize) * 0.6f;
+            const float kHard = kRubber * 1.4f;
+            auto rubber = [kRubber](float v, const CamRange& r) {
                 if (v < r.lo) return r.lo - std::fmin(kRubber, (r.lo - v) * 0.8f);
                 if (v > r.hi) return r.hi + std::fmin(kRubber, (v - r.hi) * 0.8f);
-                return v;
+                return v;  // 行程为 0 的方向（比如 4 行窗口的纵向）也能有弹性，只是不滚
             };
             auto camStep = [&](float& pos, float& vel, float target, const CamRange& range) {
                 // 目标也得收进橡皮筋范围内，否则顶到边界后弹簧每帧都重新生成向外的加速度：
@@ -951,10 +952,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 const float a = k * (target - pos) - cDamp * vel;
                 vel += a * kDt;
                 pos += vel * kDt;
-                // 位置硬限比橡皮筋再宽一圈：目标探到 12px 时弹簧仍有活动空间，不会钉死。
-                // 行程为 0 的方向不留这条带子，否则弹簧过冲照样会把世界顶出窗口
-                const float band = range.hi > range.lo ? kHardBand : 0.f;
-                const float lo = range.lo - band, hi = range.hi + band;
+                // 位置硬限比橡皮筋再宽一圈：目标探到头时弹簧仍有活动空间，不会钉死
+                const float lo = range.lo - kHard, hi = range.hi + kHard;
                 if (pos < lo) {
                     pos = lo;
                     if (vel < 0.f) vel = 0.f;

@@ -317,10 +317,14 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         retX = float(uic.keysV2[snap].x) + float(uic.keySize) * 0.5f;
         retY = float(uic.keysV2[snap].y) + float(uic.keySize) * 0.5f;
     }
-    // 窗外不外溢，但外扩 2px：最外圈键的描边正好落在窗口边界上时，
-    // 按窗口裁会把那条 1px 边切掉 —— 看着就是"数字行头部被横切一条"
-    const int cl = std::max(1, S(2, s));
-    r.setClip({win.x - cl, win.y - cl, win.w + 2 * cl, win.h + 2 * cl});
+    // 窗外不外溢，但外扩「弹性带」（键帽 0.6 倍）：相机过冲时最外圈键会跟着探出窗口，
+    // 按窗口硬裁就是"数字行头部被横切一条"。外扩后再交面板本身，防止糊到终端区。
+    const int cl = std::max(2, S(int(std::lround(double(uic.keySize) * 0.6)), s));
+    const disp::Rect box{win.x - cl, win.y - cl, win.w + 2 * cl, win.h + 2 * cl};
+    const disp::Rect panel{panelX, panelY, panelW, panelH};
+    r.setClip({std::max(box.x, panel.x), std::max(box.y, panel.y),
+               std::min(box.right(), panel.right()) - std::max(box.x, panel.x),
+               std::min(box.bottom(), panel.bottom()) - std::max(box.y, panel.y)});
     for (int i = 0; i < cfg::kKeyV2Count / 2; ++i) {
         const int k = first + i;
         const bool isSnap = snap == k;
