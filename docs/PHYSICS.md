@@ -154,7 +154,7 @@ Joy-Con 走 evdev FF（`--audit-input` 不管这个；实测 `event8` 支持 `FF
 src/app/physics.h       Pointer / Field / Params / step / 事件回调
 src/app/physics.cpp     实现（无 I/O）
 src/input/evdev_gamepad.h   加 stickVec(right) -> {dx,dy}（拿归一化向量，不是扇区）
-src/config/lua_config.*     Engine.physics 那 10 个字段
+src/config/lua_config.*     Engine.physics 那 13 个字段
 config/engine.lua           physics 段
 src/main.cpp                --audit-physics
 ```
@@ -181,7 +181,9 @@ v1 落地时发现规格本身有 7 处坑，实现按「能同时满足 §5 断
 2. **§2.7 与 §5.4 直接冲突**：§2.7 写“零位回落要求且无吸附”，但 §5.4 要求“松手 0.5s 回 home”。实测按“无吸附才回落”实现时 §5.4 永远不过（松手时通常正吸附在某键上）。
    **实现选了 §5.4**：只要松手 ≥0.3s 就拉回 home，吸在别的键上也拉，路过时会自然发 `release`。
 3. **`home_pull` 是“每秒收敛倍率”，不是“引力强度”**：实现为 `v_home = min(max_speed, home_pull × 到 home 的距离 / dt)`，即每帧收回剩余距离的 `home_pull`。若按 §2.3 的加速度写法用，0.5s 只能挪几像素，和 §5.4 不可能同时成立。
-4. **可配置字段是 10 个**（`dt` 写死在 `physics.cpp`，Lua 表里不出现）。§4 的 11 行含 `dt`。
+4. **可配置字段是 13 个**（`damping attract_power attract_radius snap_radius release_ratio release_power
+   max_speed speed_slow_end speed_low speed_power hover_radius home_pull pointer_radius`）；`dt` 写死在
+   `physics.cpp`，Lua 表里不出现；`deadzone` 不单独配，由 `engine.input.deadzone` 同步进 `Params`。
 5. **§5.3 的“穿越 3 键”按 `d→f→g` 量**（`home+3` 会绕到下一行行首 `z`），测的是 `home+2` 的 x 距离（116px，即 2 × 横向键距 58）。实测：内圈 900 帧 / 快速段 5 帧 / 推满 3 帧（越快推越少帧，内圈循环到上限）。
 6. **边界只夹位置、不清速度**：推到底贴着场边缘直到松手被拉回。
 7. **`release_power` 取 `0.35`**（`LAYOUT-v2.md §6` 的旧表写 `1.8`，以本文档为准；旧表未同步）。

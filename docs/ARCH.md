@@ -151,7 +151,7 @@ tab 条画在顶栏里（起点 x=常量 180，格宽 96），绘制与命中共
 魔法键（LB）在光标吸附的键上取字符 → push('n') → 拼音引擎 → 候选 → 上屏
 ```
 
-键区只负责产生**字母流**，拼音/分词层（`ime::BuiltinIme`）不知道布局是 30 键还是 26 键。
+键区只负责产生**字母流**，拼音/分词层（`ime::BuiltinIme`）不知道布局是 40 键还是 26 键。
 
 ### 4.2 IM 按键代数（`src/app/ime_route.cpp`，`--audit-ime` 逐条核对）
 
@@ -179,9 +179,10 @@ tab 条画在顶栏里（起点 x=常量 180，格宽 96），绘制与命中共
 - **Ctrl/Alt + 字母只在英文态生效**；中文态不抢字母，否则拼音打不出来。
 - **中文态大写自动按小写组字**：锁了 Shift 打 `Nihao` 仍然组 `nihao`。
 - **组字中收到不认识的控制字节（0x01~0x1a）直接吞掉**，不污染 shell。
-- **Ctrl+C 的打法**：按一下 Ctrl（sticky，意图「用完自动释放」）→ LB 进弹窗 → 摇杆选 `c` → LB 上屏。
-  两个坑：sticky 还没清零（§7.4）；桌面模式（`sink=uinput`）下 `0x01~0x1a` 没有键码映射（§7.3）。
-- 十字键：单击 = 一次性修饰（sticky），双击 400ms 内 = 锁定/解锁。
+- **Ctrl+C 的打法**：按一下 Ctrl（sticky，用完自动释放）→ 摇杆吸到 `c` → LB 上屏。
+  一个坑：桌面模式（`sink=uinput`）下 `0x01~0x1a` 没有键码映射（§7.3）。
+- 十字键：三种形态共存 —— 按住（`holding`，抬起即清）/ 单击（`sticky`，下一颗真按键用过就清）/ 双击 400ms 内（`locks`）；
+  实际生效的掩码 = 三者按位或（`app.cpp` 的 `modMask()`）。
 
 ### 4.5 虚拟鼠标（RB/RT）
 
@@ -206,7 +207,7 @@ tab 条画在顶栏里（起点 x=常量 180，格宽 96），绘制与命中共
 │ 顶部状态栏（标题 / tab 条 / 时间）                        │
 ├──────────────┬────────────────────────┬──────────────────┤
 │ 左手柄面板   │ 终端区                 │ 右手柄面板       │
-│ (30 键键区)  │ (TerminalParser)       │ (光标/ABXY)      │
+│ (40 键键区)  │ (TerminalParser)       │ (光标/ABXY)      │
 ├──────────────┴────────────────────────┴──────────────────┤
 │ 底部状态栏（Layer / Mods / IME 状态）                    │
 └──────────────────────────────────────────────────────────┘
@@ -216,28 +217,29 @@ tab 条画在顶栏里（起点 x=常量 180，格宽 96），绘制与命中共
 
 | 量 | 默认（`config/ui.lua`） |
 |---|---|
-| 面板宽 / 顶栏 / 底栏 | 220 / 32 / 26 |
+| 面板宽 / 顶栏 / 底栏 | 176 / 32 / 26 |
 | 旧九宫格外框（v2 不用） | 180 |
-| 十字键格 / ABXY 格 / 肩键条 | 28 / 30 / 20 |
+| 十字键格 / ABXY 格 / 肩键条 | 34 / 30 / 20 |
 | 终端内边距（左右/上/下） | 14 / 10 / 8 |
 | 终端字符格 | 8 × 21 |
 | 底部 IME 行 | 2 |
-| 派生：终端列×行 | **101 × 28**（220→101 列；面板改 260 → 91 列） |
+| 键帽 / 键距 / 一屏几列几行 | 48 / 58×62 / 3×4 |
+| 派生：终端列×行 | **112 × 28**（(1280−2×176−2×14)/8 = 112；(720−32−26−10−8)/21 = 30，再扣 ime 2 行） |
 
 ### 5.4 指针模型
 
-- **摇杆**：每手一个指针，在各自 5×3 的键场里按引力场运动（`app::physics`，见 `PHYSICS.md`），
+- **摇杆**：每手一个指针，在各自 5×4 的键场里按引力场运动（`app::physics`，见 `PHYSICS.md`），
   吸附到键就整键反色上屏——这是唯一已接线的指针源。
 - **鼠标**：真实鼠标只用于 tab 条（`bd->mouseX/mouseY` → `ui::tabAt`），键区不接鼠标。
 - **触摸**：SDL `SDL_FINGER*` / fbdev `ABS_MT_POSITION_X/Y`，接进来等同于鼠标左键。
 
 ### 5.5 v2 分体键盘（唯一路径）
 
-- 数据在 `config/ui.lua`：`ui.keys`（30 个坐标）+ `ui.layers.alpha/num/sym`（每层 30 字符），
+- 数据在 `config/ui.lua`：`ui.keys`（40 个坐标）+ `ui.layers.alpha/num`（每层 40 字符，上档在 `ui.shifts`），
   权威规格是 `LAYOUT-v2.md`。
 - 绘制/交互对象是 `ui::drawKeyHand` / `ui::drawKeyPanels`（`src/ui/screen.cpp`）：主字符 = 当前层
-  （大/亮），副字符 = 下一层（小/淡），吸附键整键反色，周围键按引力强度点亮。
-- 主循环（`app.cpp`）只有这一条路径；`--preview-keys [--preview-layer 0|1|2]` 出静态图，
+  （大/亮），副字符 = 该键上档（小/淡），吸附键整键反色，周围键按引力强度点亮。
+- 主循环（`app.cpp`）只有这一条路径；`--preview-keys [--preview-layer 0|1]` 出静态图，
   配 `--backend fbdev` 可直接画到 Switch 屏上。
 
 ### 5.6 视觉 token
@@ -245,8 +247,8 @@ tab 条画在顶栏里（起点 x=常量 180，格宽 96），绘制与命中共
 - 字体：`Maple Mono NF CN`（ASCII 等宽、汉字正好 2 格，1:2 网格合格），缺字回落 `Noto Sans CJK SC`；
   `⇄`/`＋` 靠回退。本机 fc-list 0 命中主字体（`DEVICE.md` §3.5）。
 - 颜色（`src/theme/palette.cpp`，3 套预设 `switch`/`light`/`gruvbox`，`--theme`、`--list-themes`）：
-  背景 `#08080c`、面板 `#0c0c14`、主文本 `#c8c8d4`、左柄高亮青 `#22d3ee`、右柄高亮红 `#ff6b5a`、
-  符号层/魔法键紫 `#a855f7`、选中蓝 `#4ab8e6`。
+  底 `#05070c`、面板 `#151a24`、主文本 `#ccd2dc`、左手青 `#46c5d3`、右手红 `#e87e66`、
+  键面 `#1f2531`、选中蓝 `#5f9fd0`。
 - UI 与终端 ANSI 0-15 都从 palette 取色，改一处全变；16-255 色仍走 vterm 自带 256 色表。
 - **无边框原则**：按键/网格/面板只靠颜色、反色、留白区分，不画实线或圆角。
 
@@ -255,7 +257,7 @@ tab 条画在顶栏里（起点 x=常量 180，格宽 96），绘制与命中共
 - `kScale` = 窗口输出像素 / 设计尺寸，尺寸与字体同系数重栅格化。
 - 窗口尺寸变化 → `scaleHint()` → `applyScale()`：重排布局、重建字体、换画布、`vt.resize` + `pty.resize`。
 - 配置重载是**手动**的：`kill -USR1 $(pgrep -x switch-ime-term)`（`-HUP` 也行）或窗口内 `Ctrl+Shift+R`。
-- 取整副作用：不同缩放下终端行列差 1~2（1x = 101×28，2x = 101×26），像素取整不可避免。
+- 取整副作用：不同缩放下终端行列差 1~2（1x = 112×28），像素取整不可避免。
 
 ### 5.8 渲染 / 交互硬约束（踩过的坑）
 
@@ -278,7 +280,7 @@ tab 条画在顶栏里（起点 x=常量 180，格宽 96），绘制与命中共
 
 - **配置就是 Lua**：C++ 用 `luaL_dofile` 读一遍，读成原生 `cfg::Ui / cfg::KeyMap / cfg::Engine`，
   运行期主循环零 Lua。
-- **一个文件分两半**：上半段纯数据赋值（`ui.panel_w = 220`、`keymap.bind("A","enter")`），
+- **一个文件分两半**：上半段纯数据赋值（`ui.panel_w = 176`、`keymap.bind("A","enter")`），
   C++ 只认这些固定键名，缺键用 `src/config/lua_config.h` 的默认值；下半段是函数/循环/表构造，
   用来生成或校验配置。`cfg::loadProfile` 跑整个 chunk，chunk 结束就 `lua_close`，
   副作用只发生在装配期。
@@ -300,32 +302,35 @@ tab 条画在顶栏里（起点 x=常量 180，格宽 96），绘制与命中共
 
 | 键 | 默认 | 控制什么 |
 |---|---|---|
-| `ui.title` | `"SYS.TERM"` | 顶部状态栏左侧标题 |
-| `ui.panel_w` | 220 | 左/右面板宽度 |
+| `ui.title` | `"sit/0.1"` | 顶部状态栏左侧标题 |
+| `ui.panel_w` | 176 | 左/右面板宽度 |
 | `ui.top_bar_h` / `bot_bar_h` | 32 / 26 | 顶部、底部状态栏高度 |
 | `ui.stick_box` | 180 | 旧九宫格外框边长（v2 不用） |
-| `ui.dpad_cell` / `abxy_cell` / `shoulder_h` | 28 / 30 / 20 | 十字键格、ABXY 格、肩键条高度 |
+| `ui.dpad_cell` / `abxy_cell` / `shoulder_h` | 34 / 30 / 20 | 十字键格、ABXY 格、肩键条高度 |
 | `ui.term_pad_x` / `term_pad_top` / `term_pad_bot` | 14 / 10 / 8 | 终端网格区留白 |
 | `ui.cell_w` / `cell_h` | 8 / 21 | 终端字符格（决定列数/行数） |
+| `ui.key_size` / `ui.key_window` / `ui.key_area_dy` | 48 / `{cols=3, rows=4}` / −100 | 键帽边长、一屏几列几行、键区整体上移量 |
 | `ui.ime_rows` | 2 | 底部固定留给组字串/候选的行数 |
-| `ui.keys` / `ui.layers` | 30 坐标 + 3×30 字符 | v2 分体键盘（`LAYOUT-v2.md`） |
-| `ui.labels.*` | — | `dpad_title` / `abxy_title` |
+| `ui.keys` / `ui.layers` / `ui.shifts` | 40 坐标 + 2×40 字符 + 2×40 上档 | v2 分体键盘（`LAYOUT-v2.md`） |
+| `ui.labels.*` | — | `dpad_title` / `abxy_title`（配置里还在，渲染已不画） |
 
 ### 6.3 `config/keymap.lua`
 
-键名：`LB LT RB RT A B X Y DPAD_UP DPAD_DOWN DPAD_LEFT DPAD_RIGHT`；
-动作名见 `src/config/lua_config.cpp` 的 `kActionNames`（`magic/space/tab/enter/backspace/delete/escape/
-mod_*/lock_*/mouse_left/mouse_right/next_tab/prev_tab/new_tab/close_tab`）。
+键名：`LB LT RB RT A B X Y DPAD_UP DPAD_DOWN DPAD_LEFT DPAD_RIGHT L3 START`；
+动作名见 `src/config/lua_config.cpp` 的 `kActions` / `actionName()`（`magic/space/tab/enter/backspace/delete/escape/
+mod_*/lock_*/cursor_left/cursor_right/layer_next/onboard/mouse_left/mouse_right/next_tab/prev_tab/new_tab/close_tab`）。
 
 ```lua
-keymap.bind("LB", "magic")        -- 网格 ↔ 弹窗 ↔ 上屏（连击）
-keymap.bind("LT", "space")        -- 网格态 = 敲数字，否则 = 上屏首候选
+keymap.bind("LB", "magic")        -- 上屏活跃侧吸附住的字符（Shift 取上档）
+keymap.bind("LT", "space")        -- 组字中 = 上屏选中候选，否则 = 空格
 keymap.bind("DPAD_UP", "tab")
-keymap.bind("DPAD_LEFT", "mod_ctrl")
-keymap.bind_double("DPAD_RIGHT", "lock_shift")   -- 双击锁定 = 符号层
+keymap.bind("DPAD_LEFT", "mod_shift")
+keymap.bind("DPAD_RIGHT", "mod_alt")
+keymap.bind("DPAD_DOWN", "mod_ctrl")
+keymap.bind_double("DPAD_LEFT", "lock_shift")   -- 双击锁定修饰（不是切层）
 keymap.bind("A", "enter") ; keymap.bind("B", "backspace")
 keymap.bind("X", "delete") ; keymap.bind("Y", "escape")
-keymap.bind("RB", "mouse_left") ; keymap.bind("RT", "mouse_right")
+keymap.bind("RB", "cursor_left") ; keymap.bind("RT", "cursor_right")
 keymap.bind_axis("STICK_R", "mouse_move")        -- 已注册，C++ 侧故意不实现
 ```
 
@@ -339,7 +344,7 @@ keymap.bind_axis("STICK_R", "mouse_move")        -- 已注册，C++ 侧故意不
 | `engine.ime.cand_per_page` | 7 | 底部候选条一页几个（IME 内部翻页跨度跟着变） |
 | `engine.ime.ngram` | true | 候选是否按 bigram 上下文重排（**只装配，未接线**） |
 | `engine.ime.enabled` | true | 内置输入法是否介入；`false` = 字符原样透传（桌面模式） |
-| `engine.input.deadzone` | 0.35 | 摇杆死区（归一化后） |
+| `engine.input.deadzone` | 0.15 | 摇杆死区（归一化后） |
 | `engine.input.hysteresis_deg` | 8 | 扇区切换滞回角，防边界抖动 |
 | `engine.input.double_tap_ms` | 400 | 同键二按 = 双击的判定窗口 |
 | `engine.log.level` | `"warn"` | `debug/info/warn/error`（**只打印，未接线**） |
@@ -411,10 +416,8 @@ kill -USR1 (pgrep -x switch-ime-term)     # SIGHUP 等价；窗口内 Ctrl+Shift
    后果：**桌面模式（sink=uinput）下 Ctrl+A/C/V/D 一个键都不发**。PTY 模式本来就对。
    修法：`KeyStroke` 加 `bool ctrl`；`ch 1..26 → {KEY_A + ch - 1, false, true}`；`tap()` 像 shift 一样
    夹 `KEY_LEFTCTRL`，约 15 行。
-4. **sticky 从不清零**：`src/app/app.cpp:408-410` 只有 `sticky ^= 1/2/4`，全文没有清零 →
-   按一下就等于锁定，与 `src/ui/panels.cpp:92` 注释「点一下 = 只作用于下一个键」不符。
-   修法（3 行）：`doAction` 开头记 `size_t before = pending.size()`，末尾
-   `if (pending.size() != before) bd->sticky = 0;`（以「真产出了字节」为消耗判据，开弹窗/点鼠标/切 tab 不吞修饰）。
+4. ~~**sticky 从不清零**~~ —— **已修**：`onPadButton` 在本颗键的 `doAction` 之后调 `clearSticky()`
+   （修饰键本身与 `kNone` 除外），键盘路径每键清；抬起时若按住期间被用过也不再留一次性修饰（`bd->heldUsed`）。
 5. **中文态 Ctrl 被吞**：`src/app/ime_route.cpp:11` 的 `if (!ime.chinese && …)` 让中文态下 Ctrl+c
    走到「字母起组字」（`:109`），Ctrl 静默失效、底栏却还亮着 CTRL。
    桌面模式不受影响（`ime.enabled=false` 走直通，不看中文态）。
@@ -496,7 +499,7 @@ main / EventLoop (epoll): PTY fd | gamepad fd | keyboard fd | pointer fd | D-Bus
 
 ### 10.3 旧像素推导链（图形版 UI 时代，216px 面板）
 
-已作废：现行是纯字符网格，面板 220、无圆角/描边/辉光。历史数值：
+已作废：现行是纯字符网格，面板 176、无圆角/描边/辉光。历史数值：
 
 ```text
 s        = min(W/1280, H/720)

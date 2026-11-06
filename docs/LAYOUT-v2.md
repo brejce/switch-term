@@ -106,10 +106,11 @@ z  x  c  v  b                 n  m  ,  .  /
 
 | 左面板 | 功能 |
 |---|---|
-| LB | 上屏 |
-| LT | 空格 |
+| L | 魔法键 |
+| ZL | 空格 |
 | L3 | 切层 |
-| DPAD | 修饰·锁定 |
+| DPAD | 修饰 |
+| 双击DPAD | 锁定 |
 
 | 右面板 | 功能 |
 |---|---|
@@ -117,10 +118,12 @@ z  x  c  v  b                 n  m  ,  .  /
 | B | 退格 |
 | X | Del |
 | Y | Esc |
-| R/ZR | 光标←→ |
+| R/ZR | 光标←→（有 Shift 修饰时变 `光标↑↓`） |
 
-表里只有 `config/keymap.lua` 真有的绑定；表内容写死在 `screen.cpp`，改键位要一起改。
-面板顶部还有一行肩键提示：`L 上屏` / `ZL 空格`（左）、`R 左` / `ZR 右`（右）。
+表里只有 `config/keymap.lua` 真有的绑定（键名按 Switch 的叫法写：`L`/`ZL`/`R`/`ZR`，
+`keymap.lua` 里叫 `LB`/`LT`/`RB`/`RT`）；表内容写死在 `screen.cpp`，改键位要一起改。
+右面板有两张表：`kRightHints` 与 `st.modShift` 时的 `kRightHintsShift`（右肩键变上/下）。
+面板顶部还有一行肩键提示：`L 魔法键` / `ZL 空格`（左）、`R 左` / `ZR 右`（右；有 Shift 修饰时变 `上` / `下`）。
 
 ## 4. 物理（两个独立的场）
 

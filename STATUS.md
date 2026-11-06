@@ -54,7 +54,7 @@ sudo apt install cmake build-essential pkg-config libfreetype-dev libfontconfig1
 | PTY + libvterm | 能跑 | bash/fish 提示符、命令输出、nano 全屏（含中文与底部快捷键栏） |
 | 键盘输入 | 能跑 | 修饰键、F1–F12、方向/Home/End/PgUp/Delete、Shift+Tab、Esc |
 | 多 tab | 能跑（未在真 shell 验过） | `term 名字` / `quit` / `exit`，点 tab 条切换，点 `+` 新建，上限 16 |
-| 内置拼音 | 能跑 | `Ctrl+Space` 切中英（手柄 = DPAD_LEFT + ZL）；**空格上屏选中候选**、R/ZR 在候选条里移动；候选自绘在终端底部固定 2 行；注音带声调 |
+| 内置拼音 | 能跑 | `Ctrl+Space` 切中英（手柄 = DPAD_DOWN + ZL）；**空格上屏选中候选**、R/ZR 在候选条里移动；候选自绘在终端底部固定 2 行；注音带声调 |
 | n-gram 重排 | 能跑 | 30 万条 bigram；`知` 之后打 `shi` → 首候选「识」 |
 | 鼠标 demo | 能跑 | 左键选格、右键 = 魔法键、悬停即选中；只改 UI 状态，不写 PTY |
 | 光标键 | 能跑 | R=左 / ZR=右；带 Shift（单击一次 / 双击锁定）变上/下；右摇杆移指针**不做** |
