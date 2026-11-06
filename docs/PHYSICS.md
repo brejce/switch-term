@@ -122,16 +122,20 @@ Joy-Con 走 evdev FF（`--audit-input` 不管这个；实测 `event8` 支持 `FF
 | `snap_strong` | 0.55 | 吸附那一下：强马达（低频"咚"） |
 | `snap_weak` | 0.30 | 吸附那一下：弱马达（高频"嗒"） |
 | `snap_ms` | 55 | 持续时长；太长会和下一颗键的"咚"糊在一起 |
-| `gain_left` | 0.50 | 左手柄马达增益（实测右侧偏弱，所以压左边而不是抬右边——FF 幅度已是 0xFFFF 上限） |
-| `gain_right` | 1.00 | 右手柄马达增益 |
+| `gain_left` | 0.40 | 左手马达增益（实测右侧偏弱，所以压左边而不是抬右边——FF 幅度已是 0xFFFF 上限） |
+| `gain_right` | 1.00 | 右手马达增益 |
 
 改这几项要 `systemctl restart switch-ime-term`（FF 槽在启动时上传，热重载不覆盖）。
 
 **分侧震动**：左右 Joy-Con 各打开一台 FF 设备（`rumble.open("Left Joy-Con")` / `"Right Joy-Con"`，
 按名字分四档挑：名字对上(3) → 同侧 left/right 或 (l)/(r)(2) → 有同侧摇杆轴(1) → 任意 `FF_RUMBLE`(0)），
 所以左手键区的事件只震左手柄、右手只震右手柄，底噪也各算各的。名字含 `IMU` / `Serial` 的**辅助节点直接跳过**
-——它们同样叫 `Left Joy-Con`，但没有马达，绑上去就是「震动没反应」。组合设备 `event8` 只在分侧设备
-打不开时兜底（tier 0）；左右两条路径落到同一台设备时会打一行提示。
+——它们同样叫 `Left Joy-Con`，但没有马达，绑上去就是「震动没反应」。
+
+**一体化手柄（Combined Joy-Cons）**：两半装在滑轨上时内核只给一个 FF 节点，左右两侧会解析到同一台设备。
+实测那一个节点把两个通道分给了两颗马达（`strong` 只震左、`weak` 只震右），所以此时：
+关掉第二个 fd、改用 `setMoveLR/thunkLR`（一个 effect，`strong=左`、`weak=右`），
+左右增益分别落到两个通道（`gainL_/gainR_`），吸附只震换键的那一侧。
 
 权限：这两个串口设备默认是 `0600 root:input`，`70-sit-input.rules` 没吃到，另加了
 `/etc/udev/rules.d/99-sit-joycon-ff.rules`；service 里还有一道 `chmod 660 /dev/input/event*`

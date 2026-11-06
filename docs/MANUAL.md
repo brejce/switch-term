@@ -22,7 +22,9 @@ Switch 2017 上跑的**纯字符终端 + 手柄键盘**，不开 Xorg，直接�
   颜色=背景色再压 10%；`exp(−d/τ) ≤ 0.04`（≈4.8 格）的键整块不画。
   外围键按独立曲线缩小（`0.6` 格开始缩、`2.3` 格到最小，最多 −30%）。
 - **震动**：左右 Joy-Con 分侧（`event6`=Left、`event7`=Right）。底噪按摇杆速度、吸附"咚"。
-  **只在摇杆真被推着时震**（松手/自动回中静音）。增益 `gain_left=0.5`、`gain_right=1.0`。
+  **只在摇杆真被推着时震**（松手/自动回中静音）。增益 `gain_left=0.4`、`gain_right=1.0`。
+  两半装在滑轨上时内核只给一个 `Combined Joy-Cons` 节点，此时走 `strong=左 / weak=右` 的双通道：
+  仍然分侧，只是共用一条 FF 设备。
 
 ## 2. 操作表（手柄）
 
@@ -77,6 +79,9 @@ ssh brejce@192.168.43.17 'sudo journalctl -u switch-ime-term -b --no-pager | gre
 
 **排障速查**
 - 手柄没反应：`sudo journalctl ... | grep gamepad` 看有没有 `Combined Joy-Cons`；Joy-Con 开机后几十秒才出来，程序每 2s 重扫。
+- **换手柄不用重启服务**：设备掉线（`read` 返回 `ENODEV`）后 2s 内整组重开，日志会重打一遍 `gamepad:` / `rumble:`。
+- 震动不出：先看 `rumble:` 那两行挑的是哪台设备；`SIT_DEBUG=1` 时启动会主动打一发自检震动，日志里
+  有 `effect id=…` 就说明驱动收了（摸不到就是硬件/马达）。
 - 震动没反应：`grep rumble` 应看到两条 `rumble: /dev/input/event6/7`；有 `播放失败` 行才是驱动拒收。
 - 白屏/字体怪：`fc-match "Maple Mono NF CN"` 必须返回 Maple（见 `FONTS.md`）；启动日志有 `fontconfig: 要 … 实际拿到 …` = 没装。
 - 背光黑屏：`/sys/class/backlight/backlight/brightness` 应为 255（unit 的 ExecStartPre 每次拉满）。
