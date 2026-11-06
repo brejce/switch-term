@@ -472,20 +472,17 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
     // 按键簇摆在键窗下面：窗口在面板里竖向居中，所以从窗口底边往下排
     const disp::Rect win = keyWindowRect(g, uic, 0, g.contentY, g.panelW, g.contentH);
     const int dy = win.bottom() + S(44, s);  // 和键窗拉开一点，不然挤在一起
-    const int padX = S(10, s);
-    ptitle(r, f, padX, dy, uic.dpadTitle, col::kDim, s);  // 外壳一律中性，颜色只留给选中
-    drawDpad(r, f, (g.panelW - 3 * g.dpadCell) / 2, dy + S(16, s), g.dpadCell, st, s);
-    ptitle(r, f, rightX + padX, dy, uic.abxyTitle, col::kDim, s);
-    drawAbxy(r, f, rightX + (g.panelW - 3 * g.abxyCell) / 2, dy + S(16, s), g.abxyCell, s,
-             st.pressedKey);
+    // 不画「// DPAD」「// ABXY」标题了（键簇自己看得懂，标题只是噪声）。
+    // DPAD 靠左贴 padX：居中时 "Shift" 会压到右边的 "Alt"
+    drawDpad(r, f, S(10, s), dy, g.dpadCell, st, s);
+    drawAbxy(r, f, rightX + (g.panelW - 3 * g.abxyCell) / 2, dy, g.abxyCell, s, st.pressedKey);
 
     // 面板底部提示表：左右各一张，贴着面板下沿
     static const HintRow kLeftHints[] = {
         {"LB", "上屏"},
         {"LT", "空格"},
         {"L3", "切层"},
-        {"DPAD", "修饰键"},
-        {"DPAD×2", "锁定"},
+        {"DPAD", "修饰·锁定"},
     };
     static const HintRow kRightHints[] = {
         {"A", "回车"},

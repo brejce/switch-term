@@ -79,7 +79,7 @@ struct FontBook {
         term = get(fam::kMono, 13 * T, fam::kCjk);
         stick = ui(fam::kMonoBold, 16, fam::kCjk);
         stick2 = ui(fam::kMono, 14, fam::kCjk);
-        dpad = ui(fam::kMono, 8, fam::kCjk);
+        dpad = ui(fam::kMono, 6, fam::kCjk);  // 12px：Shift/Alt 才塞得进 28px 的格子
         abxy = ui(fam::kMonoBold, 12, fam::kCjk);
         ptitle = ui(fam::kMono, 10, fam::kCjk);
         shoulder = ui(fam::kMonoBold, 9, fam::kCjk);
