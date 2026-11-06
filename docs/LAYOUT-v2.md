@@ -144,7 +144,7 @@ z  x  c  v  b                 n  m  ,  .  /
 | **＋（PLUS）** | `onboard`：拉起屏幕键盘（桌面模式下 KDE 抢先时的兜底） |
 | **⭕（CAPTURE）** | 待定 |
 | **🏠（HOME）** | 待定 |
-| DPAD 左 / 右 / 下 / 上 | 一次性 **Shift / Alt / Ctrl / Tab**，双击锁定（锁定的会在左面板点亮）。<br>位置与面板上画的图一致：左 Shift、右 Alt、下 Ctrl、上 Tab |
+| DPAD 左 / 右 / 下 / 上 | **Shift / Alt / Ctrl / Tab**：单击粘一次、按住期间持续生效、双击锁定（锁定的会在左面板点亮）。<br>位置与面板上画的图一致：左 Shift、右 Alt、下 Ctrl、上 Tab |
 | DPAD_DOWN + ZL（Ctrl+空格） | 切中英（等价键盘 `Ctrl+Space`）；组字中的拼音原样落下 |
 | L3 键码备注 | `BTN_THUMBL(318)`；`BTN_THUMBR(319)` 在设备上不存在 |
 

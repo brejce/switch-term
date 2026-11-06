@@ -1,6 +1,6 @@
 # STATUS · 交接（现在能跑什么 / 已知 bug / 下一步）
 
-> 最后更新：2026-11-04。定位：**一眼看清现在在哪、下一步做什么**。历史过程已删。
+> 最后更新：2026-11-06。定位：**一眼看清现在在哪、下一步做什么**。历史过程已删。
 > 模块边界与配置 → `docs/ARCH.md`；机器实测事实 → `docs/DEVICE.md`；上机流程 → `docs/SWITCHROOT.md`；
 > 布局权威规格 → `docs/LAYOUT-v2.md`；按键映射 → `config/keymap.lua`（`--print-config` 可打印）；
 > 字体 → `docs/FONTS.md`。
@@ -9,14 +9,17 @@
 arm64 / 3.9Gi，自然会话已关（`multi-user.target`，无 KDE/Xorg），桌面未卸载；`/dev/dri` 不存在。
 实测细节全在 `docs/DEVICE.md`。
 
-## 1. 当前状态（四句话）
+## 1. 当前状态（五句话）
 
 - **能跑**：双摇杆引力选键 + 内置拼音 IME（空格上屏选中候选 / R·ZR 选词）+ 多 tab + 三分区绘制 + 配置热重载。
 - **开机就是它，不启 Xorg**：`switch-ime-term.service`（`multi-user.target` 默认 + `/dev/tty1` + 背光强制
   255 + 等 Joy-Con 出现再起）。重启即进界面，`systemctl restart switch-ime-term` 换版本。
-- **布局 v2 已接管主循环**：`config/ui.lua` 的 30 键 + 三层，摇杆物理场决定吸附，LB 上屏。
+- **布局 v2 已接管主循环**：`config/ui.lua` 的 40 键 × 2 层，摇杆物理场决定吸附，LB 上屏。
 - **旧九键面板已整体删除**（2026-11）：状态机/弹窗/九键配置全删；`--legacy` 的输入层也已并到
   `keymap.lua` + `routeKey`（2026-11-04），C++ 里不再有第二张键位表。
+- **这一轮（2026-11-06）**：脏矩形局部上屏（帧拷贝 3.69MB → 英文输出 78–156KB / 中文组字 234KB /
+  摇杆动画 932KB，两块面板）、相机钉准心（不夹取）、指数径向遮罩、面板底部提示表、
+  手柄设备过滤（跳过 IMU/Serial 辅助节点）。
 
 ## 2. 现在能跑什么
 
@@ -95,11 +98,16 @@ sudo apt install cmake build-essential pkg-config libfreetype-dev libfontconfig1
   排查命令见 `docs/DEVICE.md` §1.3。
 - `config/keymap.lua:7` 的 `LT` 实际映射 `BTN_TL2` = 物理 **ZL**（命名错位，不影响功能）。
 - 设备权限已不是问题：`event8` 有 `user:brejce:rw-` ACL，不需要 udev 规则。
+- **分层里的空槽**：NUM 层左右各只剩 5~8 颗真键，指针仍可能停在这些键围成的矩形包围盒里的空槽上——
+  只是不再被吸附、也不再被相机对准（物理层朝最近真键收 25%/帧，见 `docs/PHYSICS.md` §2.7）。
 
 ### 3.3 显示
 
-- **fbdev 只有单缓冲**（carveout 4MB，一帧 3.51MB），会撕裂；方案是脏矩形（`docs/DEVICE.md` §6）。
-  现在 `beginFrame` 还整屏 `clear()`（`display_fbdev.cpp:95`），空闲帧也在全帧 memcpy。
+- **fbdev 仍是单缓冲（真双缓冲未做）**：carveout 4MB 只够一帧（3.69MB = 3,686,400 B），硬件扫同一块
+  内存 → 撕裂理论上还在。现在做的是**软件双缓冲 + 脏矩形**（`src/platform/damage.h` + `SoftCanvas`
+  base clip + `display_fbdev.cpp` 的 `blit(damage)`）：一帧只搬几十~几百 KB，撕裂窗口 <1ms。
+  `tegra_dc_ext` + nvmap 的真双缓冲/flip/vblank **仍未实施**（必须停 X，是本机唯一能验证真双缓冲的路径），
+  方案与实测数字见 `docs/Q-double-buffer-dirty-rect.md`。
 - **`/dev/dri` 不存在、没有 KMS**：Wayland 不可能，只能 X11 或 fbdev 裸机。
 - **有合成器时不要对 `/dev/fb0` 做 `FBIOPUT_VSCREENINFO`** —— 2026-11-03 15:46 硬复位，
   详见 `docs/DEVICE.md` §5。
@@ -112,6 +120,8 @@ sudo apt install cmake build-essential pkg-config libfreetype-dev libfontconfig1
 
 ### 3.4 渲染坑
 
+- **顶栏/底栏的内容签名是手写的**：脏矩形只在 `ui::barSignature` 变了时才重画这两条，往
+  `drawTopBar` / `drawBottomBar` 里加新字段必须同时加进签名（两个函数旁边有注释），否则那一格永不刷新。
 - 宽字符必须先铺完整行底色再逐格画字，否则后一格底色会盖掉前一字右半边（fzf 选中行、反显必现）。
 - 小字号（<16px）要 `FT_LOAD_TARGET_LIGHT` 且字号取整，否则笔画粗细不均、横画断裂。
 - fish 启动会 `tcsetattr(TCSAFLUSH)` 丢掉已写入的输入，`--run` 要等它先吐字节。
@@ -129,6 +139,11 @@ sudo apt install cmake build-essential pkg-config libfreetype-dev libfontconfig1
 
 - 只用假 shell 验过 OSC 路径；**真实 bash/fish 里敲 `term`/`quit` 能不能建/关 tab 还没验**。
 - tab 组合键没分配（`Ctrl+N` = `0x0e` 撞 readline「历史下一条」，`Ctrl+Shift+N` 也被折成 `0x0e`）。
+
+### 3.7 文档
+
+- `docs/*` 之外还有 `IMPLEMENTATION.md` 未对齐（仍写旧布局/旧实现），以本文件 + `docs/LAYOUT-v2.md`
+  + `docs/PHYSICS.md` 为准。
 
 ## 4. 下一步（按顺序）
 
@@ -154,21 +169,19 @@ sudo apt install cmake build-essential pkg-config libfreetype-dev libfontconfig1
 - 可调参数（未加）：`engine.input.stick = { deadzone, hysteresis_deg, repeat_ms, repeat_delay_ms }`；
   纯映射层保持无时间，重复逻辑放 app 层。
 
-### C. 布局 v2 接管
+### C. 布局 v2 接管（已完成）
 
-数据与静态键帽已就位（`docs/LAYOUT-v2.md`）。接管顺序：摇杆物理场（§4/§6 参数）→ LB 上屏 → L3 层循环 →
-DPAD 修饰。
+摇杆物理场选键 → LB 上屏 → L3 层循环 → DPAD 修饰都已接上；数据与静态键帽说明看 `docs/LAYOUT-v2.md`，
+手感旋钮在 `config/engine.lua` 的 `engine.physics`（现值表见 `docs/PHYSICS.md` §4）。
 
 ### D. 排队项
 
 1. **中文词表 + 组合搜索**：`data/` 只有单字表 + bigram，没有词表，`nihao` 第 2 候选是「你号」。
 2. **删 legacy UI**：`src/ui/panels.*` / `layout_lua.*` / 根 `layout.lua` / `main.cpp` 的 `--legacy`。
    删前先把 legacy 独有能力（点击 HitTest、选区、剪贴板、滚轮回看、SDL 写 `sticky`）搬进新路径。
-3. **脏矩形 + 软件双缓冲**：`docs/DEVICE.md` §6 有收益表与 8 步改动清单（`present(damage)`）。
-4. 修 §3.1 剩下的两条（uinput 控制码 / 中文态 Ctrl）——sticky 那条已修。
-5. 符号层专属弹窗布局（现在按字符数截断同一张表）。
-7. `engine.log` / `engine.ime.ngram` 仍只解析不生效（死配置清单见 `docs/ARCH.md` §6.7）。
-8. tab 组合键（先把 `ime_route.cpp` 的 ctrl/shift 判断顺序倒过来，或只用 shell 打不出来的组合）。
+3. 修 §3.1 剩下的两条（uinput 控制码 / 中文态 Ctrl）——sticky 那条已修。
+4. `engine.log` / `engine.ime.ngram` 仍只解析不生效（死配置清单见 `docs/ARCH.md` §6.7）。
+5. tab 组合键（先把 `ime_route.cpp` 的 ctrl/shift 判断顺序倒过来，或只用 shell 打不出来的组合）。
 
 ### D2. UI 收尾（设计已定，未实现）
 

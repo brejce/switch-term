@@ -3,6 +3,33 @@
 > 命名规则：一个文件回答一个问题，`docs/Q-<主题>.md`。这份只回答「脏矩形 + 双缓冲怎么落地」。
 > 前置事实见 `docs/PROBE-fbdev-lvgl.md`（fb0 单缓冲 / 4MB carveout / tegra_dc_ext 可用）。
 
+## 已实施（2026-11-06）
+
+落地的是 **§5A 的 fbdev 软件双缓冲 + 脏矩形**：`/dev/fb0` 仍是单缓冲（真双缓冲没做），
+但一帧只写几十~几百 KB，撕裂窗口 <1ms。
+
+- `src/platform/damage.h`（新）：`DamageList` —— push 时合并重叠块、最多 8 块，
+  面积超 60% 或块数溢出就退化成「整屏一块」
+- `SoftCanvas` 加 `setClip` / `setBaseClip`（`renderer.h` 转发）：裁剪外的像素一个都不写，
+  `ui/screen.cpp` / 终端渲染照旧“整屏重画”，一行没改
+- `display_fbdev.cpp`：`beginFrame(damage)` **不清画布**，`endFrame(damage)` 按脏区逐矩形 `blit`
+  （旋转拷贝按 16×16 块走：块内读是一行连续 64B、写是一段连续 64B，两边都在同一条缓存行）
+- 脏区只有四类：整屏兜底 / 顶栏+底栏（按 `ui::barSignature` 内容签名才重画）/ 终端脏行
+  （vterm 行位图）/ 组字串+候选那 2 行；摇杆、吸附动画帧只推**两块键面板**
+- 主循环：没变化就整帧跳过，空闲时 0 拷贝
+
+实测（1280×720，整帧 = 3,686,400 B = 3.69MB；`SIT_DEBUG=1` 时打 `[damage] N 块 … B`）：
+
+| 场景 | 每帧搬运 |
+|---|---|
+| 整屏（窗口/布局变化、换 tab） | 3.69MB（100%）|
+| 英文输出（终端 1 行 / 2 行） | 78KB / 156KB |
+| 中文组字（1 行输出 + 底部 2 行候选） | 234KB |
+| 摇杆/吸附动画（两块键面板 176×662） | 932KB |
+
+**§5B 的 `tegra_dc_ext` + nvmap 真双缓冲仍未实施**：没有 `display_dc_ext.cpp`、没有 nvmap 分配、
+没有 `TEGRA_DC_EXT_FLIP` / VBLANK，本机跑的就是上面这套 fb0 软件双缓冲。
+
 ## 1. 两个东西是正交的，别混着谈
 
 | | 解决什么 | 手段 |
