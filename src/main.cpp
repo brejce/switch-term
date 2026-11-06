@@ -1241,43 +1241,18 @@ int main(int argc, char** argv) {
             pr.fill({pw, tb, int(840 * g.scale), g.screenH - tb}, ui::c(ui::col::kTerm));
             pr.fill({0, 0, g.screenW, tb}, ui::c(ui::col::kPanel));
             pr.fill({0, tb - 1, g.screenW, 1}, ui::c(ui::col::kLine));
-            // 与主循环同一套滑窗：指针钉在各自 home 键（d / k）中心，所以两面都居中吸附
+            // 面板（键区 + DPAD/ABXY + 底部提示表 + 遮罩）走真机同一条渲染路径：
+            // 预览只钉住 home 键 + 层号，其余全交给 drawKeyPanels，截图才和真机一致
             const float half = float(uic.keySize) * 0.5f;
-            ui::drawKeyHand(pr, pfonts, uic, g, L, 0, 0, tb, pw, g.screenH - tb,
-                            float(uic.keysV2[12].x) + half, float(uic.keysV2[12].y) + half, 12, -1,
-                            float(app::physics::Params{}.attractRadius), 0.f,
-                            float(uic.keysV2[12].x) + half, float(uic.keysV2[12].y) + half);
-            ui::drawKeyHand(pr, pfonts, uic, g, L, 20, g.screenW - pw, tb, pw, g.screenH - tb,
-                            float(uic.keysV2[32].x) + half, float(uic.keysV2[32].y) + half, 32, -1,
-                            float(app::physics::Params{}.attractRadius), 0.f,
-                            float(uic.keysV2[32].x) + half, float(uic.keysV2[32].y) + half);
-            pr.fill({pw - 1, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
-            pr.fill({g.screenW - pw, tb, 1, g.screenH - tb}, ui::c(ui::col::kLine));
+            st.layer = L;
+            st.ptrLeftX = float(uic.keysV2[12].x) + half;
+            st.ptrLeftY = float(uic.keysV2[12].y) + half;
+            st.ptrRightX = float(uic.keysV2[32].x) + half;
+            st.ptrRightY = float(uic.keysV2[32].y) + half;
+            st.snapLeft = 12;
+            st.snapRight = 32;
+            ui::drawKeyPanels(pr, pfonts, uic, g, st);
 
-            auto tx = [&](int x, int y, const char* str, uint32_t colr) {
-                pr.textBaseline(x, y, str, pfonts.kd, ui::c(colr));
-                return x + pr.textWidth(str, pfonts.kd);
-            };
-            auto shape = [&](int x, int y, bool plus, uint32_t colr) {
-                const int w = int(9 * g.scale), th = std::max(1, int(2 * g.scale));
-                pr.fill({x, y - th / 2, w, th}, ui::c(colr));
-                if (plus) pr.fill({x + w / 2 - th / 2, y - w / 2, th, w}, ui::c(colr));
-                return x + w + int(3 * g.scale);
-            };
-            // 左手面板：肩键标签 / 键区（drawKeyHand 已画）/ DPAD / 底部按键表
-            tx(int(10 * g.scale), int(50 * g.scale), "L 上屏", ui::col::kPurple);
-            tx(int(80 * g.scale), int(50 * g.scale), "ZL 空格", ui::col::kCyan);
-            tx(int(10 * g.scale), int(486 * g.scale), "// DPAD", ui::col::kCyan);
-            ui::drawDpad(pr, pfonts, int(10 * g.scale), int(500 * g.scale), int(26 * g.scale), st,
-                         g.scale);
-            // 底部提示表由 drawKeyPanels 自己画（和真机同一份），预览不再另画一套假标签
-
-            // 右手面板
-            tx(int(g.screenW - pw + 10 * g.scale), int(50 * g.scale), "R 光标右", ui::col::kGreen);
-            tx(int(g.screenW - pw + 82 * g.scale), int(50 * g.scale), "ZR 光标左", ui::col::kRed);
-            tx(int(g.screenW - pw + 10 * g.scale), int(486 * g.scale), "// ABXY", ui::col::kRed);
-            ui::drawAbxy(pr, pfonts, int(g.screenW - pw + 10 * g.scale), int(500 * g.scale),
-                         int(28 * g.scale), g.scale, -1);
 
             // 顶栏
             pr.textInBox({int(16 * g.scale), int(9 * g.scale), 0, int(14 * g.scale)},

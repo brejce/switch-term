@@ -70,6 +70,8 @@ void drawTabBar(render::Renderer& r, const FontBook& f, const Geometry& g, const
 void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                 const AppState& st);
 void drawBottomBar(render::Renderer& r, const FontBook& f, const Geometry& g, const AppState& st);
+// 顶栏/底栏/tab 条的内容签名（脏矩形用它决定这两条要不要重画）
+std::string barSignature(const AppState& st, const std::vector<std::string>& titles, int active);
 // 中间终端区只画边框底色 + 组字串/候选两行；网格由调用方按 TerminalParser 填
 void drawTermBackground(render::Renderer& r, const FontBook& f, const Geometry& g);
 void drawComposeLine(render::Renderer& r, const FontBook& f, const Geometry& g,

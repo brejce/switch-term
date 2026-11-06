@@ -177,6 +177,14 @@ void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, floa
             emit(sink, PhysEvent::Snap, n, p);
         }
     }
+    // 分层里空键多：既没吸住也没高亮 ⇒ 指针停在空槽里（矩形包围盒覆盖了洞）。
+    // 朝最近的真键收一点，保证"只有真按钮会被停住"，不会悬在空白处
+    if (p.snapped < 0 && p.hovered < 0 && n >= 0 && dn < pr.attractRadius * 2.f) {
+        p.x += (keyX[n] - p.x) * 0.25f;
+        p.y += (keyY[n] - p.y) * 0.25f;
+        p.vx *= 0.5f;
+        p.vy *= 0.5f;
+    }
     if (p.snapped < 0) {  // 吸附时不动 hovered（§2.6：只有无吸附时才更新）
         const int h = dn < pr.hoverRadius + pr.pointerRadius ? n : -1;
         if (h != p.hovered) {

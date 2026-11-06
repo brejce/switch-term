@@ -904,75 +904,22 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             // 所以选中的键最终还是正躺在中间。
             constexpr float kParallax = 0.30f;
             const float k = kOmega * kOmega, cDamp = 2.f * kZeta * kOmega;
-            // 画布夹取：画布是飞船，准心固定在世界里。窗口必须永远被世界填满，
-            // 所以相机中心只能落在 [世界边 + 半窗口, 世界边 - 半窗口]；
-            // 该方向的行程为空（窗口比世界大）就钉死在正中。
-            // 位置也硬夹：弹簧欠阻尼（过冲 18%）只能在行程内部晃，不许把空白带进窗口。
-            struct CamRange {
-                float lo = 0, hi = 0;
-            };
-            auto camRange = [&](bool horiz) {
-                const disp::Rect win = ui::keyWindowRect(g, uic, 0, 0, g.panelW, g.contentH);
-                const float halfKey = float(uic.keySize) * 0.5f;
-                // 半窗口 = 窗口尺寸的一半（不是「窗口减去一个键高的一半」）。
-                // 之前算小了 24px：相机因此能停在 141，而 4 行窗口要正好覆盖世界只能停在 117，
-                // 于是窗口上沿把数字行横切掉一条、下沿留一条空白
-                const float halfWin = float(horiz ? win.w : win.h) * 0.5f / g.scale;
-                float mn = keyCx[0], mx = mn;  // 左右手坐标相同，取左手那一份就是整个世界
-                for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {
-                    const float v = horiz ? keyCx[i] : keyCy[i];
-                    mn = std::fmin(mn, v);
-                    mx = std::fmax(mx, v);
-                }
-                CamRange r;
-                r.lo = mn - halfKey + halfWin;
-                r.hi = mx + halfKey - halfWin;
-                if (r.hi <= r.lo) r.lo = r.hi = (mn + mx) * 0.5f;
-                return r;
-            };
-            const CamRange camRX = camRange(true), camRY = camRange(false);
-            // 橡皮筋：目标冲出夹取范围时按比例探头，松手自己弹回。
-            // 两个数必须分开：kRubber 是「目标」能探多少，kHardBand 是「位置」的硬限。
-            // 之前两者都是 16，纵向准心偏置让上方需求大 31px，目标一饱和就贴在硬限上
-            // → 位置钉死、速度归零 → 上边没有弹簧（左右下有余量所以没事）。
-            // 弹性带 = 键帽的 0.6 倍（≈29px）：世界边缘比键面再外扩这么多，只给过冲用，
-            // 静止时相机停在夹取范围内（不留白），推到底才探进这条带子。
-            // 目标最多探 kRubber，位置硬限再放宽到 kHard（否则目标贴着硬限，弹簧又死了）
-            const float kRubber = float(uic.keySize) * 0.6f;
-            const float kHard = kRubber * 1.4f;
-            auto rubber = [kRubber](float v, const CamRange& r) {
-                if (v < r.lo) return r.lo - std::fmin(kRubber, (r.lo - v) * 0.8f);
-                if (v > r.hi) return r.hi + std::fmin(kRubber, (v - r.hi) * 0.8f);
-                return v;  // 行程为 0 的方向（比如 4 行窗口的纵向）也能有弹性，只是不滚
-            };
-            auto camStep = [&](float& pos, float& vel, float target, const CamRange& range) {
-                // 目标也得收进橡皮筋范围内，否则顶到边界后弹簧每帧都重新生成向外的加速度：
-                // 位置被夹住不动、速度却永远归零不了 → animating 恒为真 → 永远整屏重画
-                target = rubber(target, range);
+            // 相机不夹取：选中键永远钉在准心上（"块固定"），边缘该留白就留白。
+            // 弹性只靠弹簧本身（ζ=0.45 → 过冲 18%），换键时那一下"吸"就是它。
+            auto camStep = [&](float& pos, float& vel, float target) {
                 const float a = k * (target - pos) - cDamp * vel;
                 vel += a * kDt;
                 pos += vel * kDt;
-                // 位置硬限比橡皮筋再宽一圈：目标探到头时弹簧仍有活动空间，不会钉死
-                const float lo = range.lo - kHard, hi = range.hi + kHard;
-                if (pos < lo) {
-                    pos = lo;
-                    if (vel < 0.f) vel = 0.f;
-                } else if (pos > hi) {
-                    pos = hi;
-                    if (vel > 0.f) vel = 0.f;
-                }
             };
 
-            // 目标 = 选中键中心（未吸附时 = 指针），纵向再减掉准心偏置。
-            // 夹取后准心不再恒在选中键上：选到外圈时键会停在窗口边（这就是要的效果——
-            // 窗口永远填满，空白不能进来）
+            // 目标 = 选中键中心（未吸附时 = 最近的高亮键，绝不对准空白）
             auto camTarget = [&](const app::physics::Pointer& p, float& tx, float& ty) {
                 if (p.snapped < 0) {
-                    // 没吸附：优先贴最近的高亮键。分层里空键多，指针可能停在空槽上，
-                    // 直接对准指针 = 把画布滑到没有键的地方（"吸住空气"）
+                    // 没吸附：贴最近的高亮键；连高亮都没有（指针在空槽里）就原地不动，
+                    // 绝不把画布对准空白（"吸住空气"就是这么来的）
                     const int h = p.hovered;
-                    tx = h >= 0 ? keyCx[h] : p.x;
-                    ty = (h >= 0 ? keyCy[h] : p.y) - camHomeOffY;
+                    tx = h >= 0 ? keyCx[h] : camLx;
+                    ty = (h >= 0 ? keyCy[h] : camLy) - camHomeOffY;
                 } else {
                     const float kx = keyCx[p.snapped], ky = keyCy[p.snapped];
                     tx = kx + (p.x - kx) * kParallax;
@@ -982,10 +929,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             float tlx, tly, trx, try_;
             camTarget(ptrL, tlx, tly);
             camTarget(ptrR, trx, try_);
-            camStep(camLx, camVx, tlx, camRX);
-            camStep(camLy, camVy, tly, camRY);
-            camStep(camRx, camRVx, trx, camRX);
-            camStep(camRy, camRVy, try_, camRY);
+            camStep(camLx, camVx, tlx);
+            camStep(camLy, camVy, tly);
+            camStep(camRx, camRVx, trx);
+            camStep(camRy, camRVy, try_);
         }
         st.ptrLeftX = camLx;
         st.ptrLeftY = camLy;
@@ -1039,16 +986,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             std::vector<std::string> titles;  // 每帧现建：tab 会新建/关闭，不留两份真相
             titles.reserve(terms.size());
             for (const Term& t : terms) titles.push_back(t.title);
-            // 状态栏签名：顶栏(时钟/电量) + 底栏(层/输入法/修饰键) + tab 条，全变了才重画这两条。
-            // 每次非整屏帧都画 = 74KB，是剩余拷贝量里最肥的一块
-            std::string barSig = st.clock + '|' + std::to_string(st.battery) +
-                                 (st.charging ? "+" : "") + '|' + st.layerName + '|' +
-                                 std::to_string(st.layer) + '|' + st.imeName + '|' +
-                                 st.modsText + '|' + std::to_string(active);
-            for (const auto& t : titles) {
-                barSig += '|';
-                barSig += t;
-            }
+            // 状态栏签名（实现见 ui::barSignature，挨着两个 draw 函数放）：
+            // 变了才重画顶栏/底栏，省掉每次非整屏帧的 74KB
+            const std::string barSig = ui::barSignature(st, titles, active);
             const bool barsChanged = barSig != lastBarSig;
             lastBarSig = barSig;
 

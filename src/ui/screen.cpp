@@ -92,6 +92,8 @@ struct HintRow {
 // 数据在 drawKeyPanels 里，跟着 keymap.lua 的语义走（改键位记得一起改）
 void drawHints(render::Renderer& r, const FontBook& f, int panelX, int panelY, int panelW,
                int panelH, const HintRow* rows, int n, float s) {
+    std::fprintf(stderr, "[hint] n=%d face=%p px=%.1f\n", n, (void*)f.hints,
+                 f.hints ? f.hints->px : 0.0);
     if (n <= 0 || f.hints == nullptr) return;
     const int padX = S(10, s), padTop = S(10, s), padBot = S(12, s);
     const int rowH = S(16, s), rowGap = S(4, s);
@@ -232,6 +234,19 @@ void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, cons
     r.textInBox({x, 0, 0, g.topBarH}, "·", f.bar, c(col::kFaint), render::Align::Left);
     x -= r.textWidth(st.clock, f.bar) + S(10, s);
     r.textInBox({x, 0, 0, g.topBarH}, st.clock, f.bar, c(col::kText), render::Align::Left);
+}
+
+// 顶栏 + 底栏 + tab 条 的内容签名：脏矩形只在这串变了时才重画这两条。
+// 往 drawTopBar/drawBottomBar 里加新字段，必须同时加到这里，否则那一格永远不会刷新。
+std::string barSignature(const AppState& st, const std::vector<std::string>& titles, int active) {
+    std::string sig = st.clock + '|' + std::to_string(st.battery) + (st.charging ? "+" : "") +
+                      '|' + st.layerName + '|' + std::to_string(st.layer) + '|' + st.imeName +
+                      '|' + st.modsText + '|' + std::to_string(active);
+    for (const auto& t : titles) {
+        sig += '|';
+        sig += t;
+    }
+    return sig;
 }
 
 void drawBottomBar(render::Renderer& r, const FontBook& f, const Geometry& g,
@@ -466,16 +481,18 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
 
     // 面板底部提示表：左右各一张，贴着面板下沿
     static const HintRow kLeftHints[] = {
-        {"L3", "ALPHA ↔ NUM"},
-        {"Tab", "候选翻页"},
-        {"Shift", "双击锁定"},
-        {"ZR / R", "光标 右 / 左"},
+        {"LB", "上屏"},
+        {"LT", "空格"},
+        {"L3", "切层"},
+        {"DPAD", "修饰键"},
+        {"DPAD×2", "锁定"},
     };
     static const HintRow kRightHints[] = {
-        {"A", "回车 · 上屏"},
+        {"A", "回车"},
         {"B", "退格"},
         {"X", "Del"},
         {"Y", "Esc"},
+        {"R/ZR", "光标←→"},
     };
     drawHints(r, f, 0, g.contentY, g.panelW, g.contentH, kLeftHints,
               int(sizeof(kLeftHints) / sizeof(kLeftHints[0])), s);
