@@ -370,20 +370,36 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     // 分侧震动：左右 Joy-Con 各自是一个 FF 设备，事件只打到对应那一边
     input::Rumble rumbleL, rumbleR;
-    if (eng.rumble.enabled) {
+    bool rumbleShared = false;  // 两侧解析到同一台设备：走 strong=左 / weak=右 的双通道模式
+    // 开关震动设备：先按左右各找一台；找不到两台、或两台解析到同一节点（一体化手柄）→
+    // 走双通道模式（strong=左 / weak=右）。重扫也走这里，避免把第二个 fd 又打开
+    auto openRumble = [&](bool selfTest) {
+        rumbleL.close();
+        rumbleR.close();
+        rumbleShared = false;
         rumbleL.setGain(eng.rumble.gainLeft);
         rumbleR.setGain(eng.rumble.gainRight);
         if (!rumbleL.open("Left Joy-Con")) std::fprintf(stderr, "rumble: 左手柄没有 FF_RUMBLE\n");
         if (!rumbleR.open("Right Joy-Con")) std::fprintf(stderr, "rumble: 右手柄没有 FF_RUMBLE\n");
-        // 组合手柄（Pro/一体式）只有一台设备：两侧震动打到同一马达，分不开就直说
-        if (rumbleL.ok() && rumbleR.ok() && rumbleL.device() == rumbleR.device())
-            std::fprintf(stderr, "rumble: 左右落在同一台设备，两侧震动共用马达\n");
-        // 排障：起来先打一发，日志里能看出 EVIOCSFF 到底成不成（摸不到震动就是硬件/驱动）
-        if (std::getenv("SIT_DEBUG")) {
-            rumbleL.thunk(0.9f, 0.9f, 250);
-            rumbleR.thunk(0.9f, 0.9f, 250);
+        if (rumbleL.ok() && rumbleR.ok() && rumbleL.device() == rumbleR.device()) {
+            // 一体化手柄：一个节点带两个马达，实测 strong=左手 weak=右手。
+            // 关掉第二个 fd：省 FF 槽位、也不让两份 effect 抢同一颗马达
+            std::fprintf(stderr, "rumble: 左右共用 %s，按 strong=左 / weak=右 分侧\n",
+                         rumbleL.device().c_str());
+            rumbleR.close();
+            rumbleShared = true;
         }
-    }
+        // 排障：起来先打一发，日志里能看出 EVIOCSFF 到底成不成（摸不到震动就是硬件/驱动）
+        if (selfTest && std::getenv("SIT_DEBUG")) {
+            if (rumbleShared) {
+                rumbleL.thunkLR(0.9f, 0.9f, 250);
+            } else {
+                rumbleL.thunk(0.9f, 0.9f, 250);
+                rumbleR.thunk(0.9f, 0.9f, 250);
+            }
+        }
+    };
+    if (eng.rumble.enabled) openRumble(true);
     long long gpRescanAt = 0;      // 手柄没打开时下次重扫的时刻（ms）
     long long rumbleRescanAt = 0;  // 震动设备掉线时下次重开的时刻（ms）
 
@@ -802,11 +818,11 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                     std::fprintf(stderr, "gamepad: (重扫) %s\n", nm.c_str());
         }
         // Joy-Con 重连会重建 event6/event7，旧 fd 就废了：每 2s 试着补开
-        if (eng.rumble.enabled && (!rumbleL.ok() || !rumbleR.ok()) &&
+        // 共享模式只认 rumbleL 是否活着（rumbleR 是故意关掉的）
+        if (eng.rumble.enabled && (!rumbleL.ok() || (!rumbleShared && !rumbleR.ok())) &&
             msNow() - rumbleRescanAt >= 2000) {
             rumbleRescanAt = msNow();
-            if (!rumbleL.ok()) rumbleL.open("Left Joy-Con");
-            if (!rumbleR.ok()) rumbleR.open("Right Joy-Con");
+            openRumble(false);
         }
         gamepad.pollPad({onPadButton, [](int) {}, [](int) {}, onPadRelease});
 
@@ -852,12 +868,20 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 const bool pushedL = lm > 0.f, pushedR = rm > 0.f;
                 const float magL = pushedL ? std::fmin(vl / ref, 1.f) * eng.rumble.moveMax : 0.f;
                 const float magR = pushedR ? std::fmin(vr / ref, 1.f) * eng.rumble.moveMax : 0.f;
-                rumbleL.setMove(magL, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
-                rumbleR.setMove(magR, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
-                if (snapsL > 0 && pushedL)
-                    rumbleL.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
-                if (snapsR > 0 && pushedR)
-                    rumbleR.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
+                if (rumbleShared) {  // 一体化手柄：strong=左、weak=右，一个 effect 管两侧
+                    rumbleL.setMoveLR(magL, magR, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
+                    const bool sl = snapsL > 0 && pushedL, sr = snapsR > 0 && pushedR;
+                    if (sl || sr)  // 哪一侧换键就只震哪一侧
+                        rumbleL.thunkLR(sl ? eng.rumble.snapStrong : 0.f,
+                                        sr ? eng.rumble.snapStrong : 0.f, eng.rumble.snapMs);
+                } else {
+                    rumbleL.setMove(magL, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
+                    rumbleR.setMove(magR, eng.rumble.rateHz, eng.rumble.moveSmoothMs);
+                    if (snapsL > 0 && pushedL)
+                        rumbleL.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
+                    if (snapsR > 0 && pushedR)
+                        rumbleR.thunk(eng.rumble.snapStrong, eng.rumble.snapWeak, eng.rumble.snapMs);
+                }
             }
         }
 

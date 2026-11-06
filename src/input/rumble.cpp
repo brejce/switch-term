@@ -176,6 +176,38 @@ void Rumble::setMove(float mag, int rateHz, float smoothMs) {
     moveOn_ = true;
 }
 
+void Rumble::setMoveLR(float magL, float magR, int rateHz, float smoothMs) {
+    if (fd_ < 0) return;
+    const long long t0 = nowMs();
+    const float dt = lastCallMs_ < 0 ? 0.016f : float(t0 - lastCallMs_) / 1000.f;
+    lastCallMs_ = t0;
+    auto cl = [](float v) { return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); };
+    const float tau = (smoothMs > 0.f ? smoothMs : 0.f) / 1000.f;
+    const float a = tau <= 1e-5f ? 1.f : std::fmin(1.f, dt / (tau + dt));
+    smoothL_ += (cl(magL) - smoothL_) * a;
+    smoothR_ += (cl(magR) - smoothR_) * a;
+    const long long gap = 1000 / (rateHz > 0 ? rateHz : 25);
+    const bool significant =
+        std::fabs(smoothL_ - lastMove_) > 0.04f || std::fabs(smoothR_ - lastMove_) > 0.04f;
+    if (!significant && t0 - lastMoveMs_ < gap) return;
+    lastMove_ = smoothL_ > smoothR_ ? smoothL_ : smoothR_;  // 复用一个"上次值"做粗滤
+    lastMoveMs_ = t0;
+    if (smoothL_ <= 0.001f && smoothR_ <= 0.001f) {
+        if (moveOn_ && idMove_ >= 0) play(idMove_, false);
+        moveOn_ = false;
+        return;
+    }
+    if (!upload(idMove_, smoothL_, smoothR_, 0)) return;  // strong=左 weak=右
+    play(idMove_, true);
+    moveOn_ = true;
+}
+
+void Rumble::thunkLR(float magL, float magR, int ms) {
+    if (fd_ < 0 || ms <= 0) return;
+    if (!upload(idThunk_, magL * gain_, magR * gain_, ms)) return;
+    play(idThunk_, true);
+}
+
 void Rumble::thunk(float strong, float weak, int ms) {
     if (fd_ < 0 || ms <= 0) return;
     if (!upload(idThunk_, strong, weak, ms)) return;

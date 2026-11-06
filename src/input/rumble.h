@@ -29,6 +29,12 @@ public:
     // 短促一下：strong/weak = 0..1，ms = 持续时长
     void thunk(float strong, float weak, int ms);
 
+    // 一体化手柄（Combined Joy-Cons）：一个节点带两个马达，strong=左手、weak=右手（实测确认）。
+    // 这两个接口只在那种设备上用，和上面的 setMove/thunk 不能混用（语义不同：
+    // 单手柄的 strong/weak 是同一颗马达的低频/高频，一体化的是一个通道管一侧）
+    void setMoveLR(float magL, float magR, int rateHz = 25, float smoothMs = 60.f);
+    void thunkLR(float magL, float magR, int ms);
+
 private:
     bool upload(int& id, float strong, float weak, int ms);
     void play(int id, bool on);
@@ -40,6 +46,7 @@ private:
     float gain_ = 1.f;
     float lastMove_ = -1.f;
     float smooth_ = 0.f;      // 低通后的底噪强度
+    float smoothL_ = 0.f, smoothR_ = 0.f;  // 双通道版（左/右各一路）
     long long lastMoveMs_ = 0;
     long long lastCallMs_ = -1;
     bool moveOn_ = false;
