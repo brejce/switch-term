@@ -387,6 +387,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             std::fprintf(stderr, "rumble: 左右共用 %s，按 strong=左 / weak=右 分侧\n",
                          rumbleL.device().c_str());
             rumbleR.close();
+            rumbleL.setGainLR(eng.rumble.gainLeft, eng.rumble.gainRight);  // strong/weak 各用各的
             rumbleShared = true;
         }
         // 排障：起来先打一发，日志里能看出 EVIOCSFF 到底成不成（摸不到震动就是硬件/驱动）

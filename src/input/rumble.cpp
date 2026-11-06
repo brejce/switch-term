@@ -123,8 +123,8 @@ bool Rumble::upload(int& id, float strong, float weak, int ms) {
     e.direction = 0;
     e.replay.length = uint16_t(ms);
     e.replay.delay = 0;
-    e.u.rumble.strong_magnitude = mag16(strong * gain_);
-    e.u.rumble.weak_magnitude = mag16(weak * gain_);
+    e.u.rumble.strong_magnitude = mag16(strong * gainL_);
+    e.u.rumble.weak_magnitude = mag16(weak * gainR_);
     if (::ioctl(fd_, EVIOCSFF, &e) < 0) {
         if (id < 0) std::fprintf(stderr, "rumble: EVIOCSFF 失败: %s\n", std::strerror(errno));
         return false;
@@ -204,7 +204,7 @@ void Rumble::setMoveLR(float magL, float magR, int rateHz, float smoothMs) {
 
 void Rumble::thunkLR(float magL, float magR, int ms) {
     if (fd_ < 0 || ms <= 0) return;
-    if (!upload(idThunk_, magL * gain_, magR * gain_, ms)) return;
+    if (!upload(idThunk_, magL, magR, ms)) return;
     play(idThunk_, true);
 }
 

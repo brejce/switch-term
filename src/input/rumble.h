@@ -16,7 +16,13 @@ public:
     bool open(const char* preferName = nullptr);
 
     // 增益：两侧马达出厂力度不同（实测右边偏弱），用这个把两边调到一致
-    void setGain(float g) { gain_ = g < 0.f ? 0.f : (g > 1.f ? 1.f : g); }
+    void setGain(float g) { gainL_ = gainR_ = g < 0.f ? 0.f : (g > 1.f ? 1.f : g); }
+    // 一体化手柄：左右两个通道各自的增益（左边通常要压一点，右边马达偏弱但 FF 已到顶）
+    void setGainLR(float l, float r) {
+        auto cl = [](float v) { return v < 0.f ? 0.f : (v > 1.f ? 1.f : v); };
+        gainL_ = cl(l);
+        gainR_ = cl(r);
+    }
     void close();
     bool ok() const { return fd_ >= 0; }
     const std::string& device() const { return dev_; }
@@ -36,14 +42,14 @@ public:
     void thunkLR(float magL, float magR, int ms);
 
 private:
-    bool upload(int& id, float strong, float weak, int ms);
+    bool upload(int& id, float strong, float weak, int ms);  // 内部按 gainL_/gainR_ 缩放
     void play(int id, bool on);
 
     int fd_ = -1;
     std::string dev_;
     int idMove_ = -1;
     int idThunk_ = -1;
-    float gain_ = 1.f;
+    float gainL_ = 1.f, gainR_ = 1.f;
     float lastMove_ = -1.f;
     float smooth_ = 0.f;      // 低通后的底噪强度
     float smoothL_ = 0.f, smoothR_ = 0.f;  // 双通道版（左/右各一路）
