@@ -338,27 +338,35 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         // 上档/大写在输入路由里处理）；副字符只显示"上档真的有别的字"的键（数字、标点）。
         // 字跟着键块一起缩（tscale = ds/side），所以外围小键里也是小字，不会撑爆。
         const float tscale = side > 0 ? float(ds) / float(side) : 1.f;
-        // 行高取字体自己的 lineHeight（textInBox 内部按 ascent/descent 视觉居中）。
-        // 原来写死 mainH/subH 常数再手算居中：字号、键帽尺寸、有没有副字符，任一处一变就偏
-        auto lineH = [tscale](const render::FontFace* f) {
+        // 行盒高度取「字墨」≈0.72em，不用 lineHeight：lineHeight 含行距（36px 字的行盒是 48），
+        // 两行加间距 78 根本进不了 48 的键帽，副字会被顶到键帽外面
+        auto inkH = [tscale](const render::FontFace* f) {
             if (f == nullptr) return 0;
-            const int h = f->lineHeight > 0 ? f->lineHeight : int(std::lround(double(f->px)));
-            return int(std::lround(float(h) * tscale));
+            return int(std::lround(f->px * 0.72 * double(tscale)));
         };
         const std::string& subCh = uic.shifts[L][k];  // 没上档就不画副字符
         const bool hasSub = !subCh.empty();
-        const int mH = lineH(f.keyMain);
-        const int gH = hasSub ? int(std::lround(float(gap) * tscale)) : 0;
-        const int sH = hasSub ? lineH(f.keySub) : 0;
+        // 两行（主字 + 副字）必须塞进键帽：keyMain 36px 的行盒 48、keySub 18px 的行盒 26，
+        // 加上间距 4 = 78，键帽 48 装不下 → 副字会被顶到键帽外面。按「正好塞进去」统一缩一次，
+        // 缩放走 textInBox 的 scale（贴字形位图），不重新栅格化，也不会因为字号缓存跳档
+        const int amH = inkH(f.keyMain);
+        const int agH = hasSub ? int(std::lround(float(gap) * tscale)) : 0;
+        const int asH = hasSub ? inkH(f.keySub) : 0;
+        const int total = amH + agH + asH;
+        const float fit = total > ds ? float(ds) * 0.96f / float(total) : 1.f;
+        const int mH = int(std::lround(float(amH) * fit));
+        const int gH = int(std::lround(float(agH) * fit));
+        const int sH = int(std::lround(float(asH) * fit));
+        const float tsc = tscale * fit;
         const int ty = box.y + (ds - mH - gH - sH) / 2;
         std::string mainCh = uic.layers[L][k];
         if (L == 0 && mainCh.size() == 1 && mainCh[0] >= 'a' && mainCh[0] <= 'z')
             mainCh[0] = char(mainCh[0] - 'a' + 'A');
         r.textInBox({box.x, ty, box.w, mH}, mainCh, f.keyMain, mainCol, render::Align::Center, 0,
-                    0, 0, tscale);
+                    0, 0, tsc);
         if (hasSub)
             r.textInBox({box.x, ty + mH + gH, box.w, sH}, subCh, f.keySub, subCol,
-                        render::Align::Center, 0, 0, 0, tscale);
+                        render::Align::Center, 0, 0, 0, tsc);
     }
     // 径向遮罩：圆心 = 准心在屏幕上的位置；铺满整个面板（只铺窗口的话，
     // 窗口边界会留一道硬边——外面是面板色、里面是被压暗的）
