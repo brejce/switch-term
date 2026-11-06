@@ -583,7 +583,8 @@ static int gamepadEvdevSelfTest() {
     int btn = -1, lsec = -2, rsec = -2;
     input::PadHandlers h{[&](int b) { btn = b; },
                          [&](int s) { lsec = s; },
-                         [&](int s) { rsec = s; }};
+                         [&](int s) { rsec = s; },
+                         nullptr};
     auto ev = [&](int t, int c, int v) {
         input_event e{};
         e.type = t;
@@ -982,7 +983,8 @@ int main(int argc, char** argv) {
                                       got = nm[b];
                                   },
                                   [&](int sec) { got = "Lstick" + std::to_string(sec); },
-                                  [](int) {}};
+                                  [](int) {},
+                                  nullptr};
             auto ev = [&](int t, int c, int v) {
                 input_event e{};
                 e.type = t; e.code = c; e.value = v;
@@ -1511,7 +1513,8 @@ int main(int argc, char** argv) {
         [&](int sec) {
             if (sec >= 0) routeKeys(input::rightLetterFor(sec));
             vt.markDirty();
-        }};
+        },
+        nullptr};  // onRelease：预览/主循环这条路径不需要
 
     // 布局热重载：layout.lua 的 mtime 变了就重读，不用重启
     auto layoutMTime = [](const std::string& p) -> long long {

@@ -42,16 +42,39 @@ void PadState::onEvent(const input_event& ev, const PadHandlers& h) {
             case ABS_Y: lyV_ = ev.value; break;
             case ABS_RX: rxV_ = ev.value; break;
             case ABS_RY: ryV_ = ev.value; break;
+            // hat 轴 -1/0/1：回中(0) 就是松开。按住 Shift 连按 R/ZR 要靠它判断"还按着"
             case ABS_HAT0X:
                 if (ev.value < 0 && h.onButton) h.onButton(kPadLeft);
                 if (ev.value > 0 && h.onButton) h.onButton(kPadRight);
+                if (ev.value == 0 && h.onRelease) {
+                    h.onRelease(kPadLeft);
+                    h.onRelease(kPadRight);
+                }
                 break;
             case ABS_HAT0Y:
                 if (ev.value < 0 && h.onButton) h.onButton(kPadUp);
                 if (ev.value > 0 && h.onButton) h.onButton(kPadDown);
+                if (ev.value == 0 && h.onRelease) {
+                    h.onRelease(kPadUp);
+                    h.onRelease(kPadDown);
+                }
                 break;
             default: break;
         }
+    } else if (ev.type == EV_KEY && ev.value == 0) {
+        int btn = -1;  // 抬起：只报"按住有意义"的那些
+        switch (ev.code) {
+            case BTN_DPAD_UP: btn = kPadUp; break;
+            case BTN_DPAD_DOWN: btn = kPadDown; break;
+            case BTN_DPAD_LEFT: btn = kPadLeft; break;
+            case BTN_DPAD_RIGHT: btn = kPadRight; break;
+            case BTN_TL: btn = kPadLB; break;
+            case BTN_TR: btn = kPadRB; break;
+            case BTN_TL2: btn = kPadLT; break;
+            case BTN_TR2: btn = kPadRT; break;
+            default: break;
+        }
+        if (btn >= 0 && h.onRelease) h.onRelease(btn);
     } else if (ev.type == EV_KEY && ev.value == 1) {
         int btn = -1;
         switch (ev.code) {

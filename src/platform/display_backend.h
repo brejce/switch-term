@@ -125,6 +125,9 @@ public:
     int locks = 0;
     // 一次性修饰键（打给下一个键就释放）：1=Ctrl 2=Shift 4=Alt
     int sticky = 0;
+    // 物理按住的修饰键：和 sticky 的区别是"松手就没了"（有 release 事件的方向键/肩键才有）
+    int holding = 0;
+    int heldUsed = 0;  // 按住期间已经被用掉过：松手时不再留一次性修饰
     std::vector<Point> dblClicks;  // 双击（clicks>=2）单独走，用来切换锁定
 };
 

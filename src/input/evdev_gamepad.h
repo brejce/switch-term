@@ -27,6 +27,7 @@ struct PadHandlers {
     std::function<void(int btn)> onButton;
     std::function<void(int sector)> onLeftStick;   // -1 = 回中
     std::function<void(int sector)> onRightStick;
+    std::function<void(int btn)> onRelease;  // 抬起（DPAD hat 回中 / EV_KEY value==0）
 };
 
 class PadState {  // 纯映射：evdev 事件 → PadButton / 扇区（可用合成事件自检）

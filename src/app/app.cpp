@@ -552,6 +552,14 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // 设备只报按下不报松开，用时间窗口近似「按住 Tab」。
     constexpr long long kTabArmMs = 1200;
     long long tabArmedAt = 0;
+    // 当前生效的修饰键 = 一次性(sticky) | 锁定(locks) | 物理按住(holding)。
+    // 顺带记下"按住期间被用过"——松手时就不该再留一个一次性修饰，否则 Ctrl 会永久粘着
+    auto modMask = [&]() {
+        const int m = bd->sticky | bd->locks | bd->holding;
+        bd->heldUsed |= (m & bd->holding);
+        return m;
+    };
+
     auto doAction = [&](cfg::Action a) {
         if (a != cfg::kTab && a != cfg::kCursorLeft && a != cfg::kCursorRight) tabArmedAt = 0;
         switch (a) {
@@ -562,7 +570,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                     break;
                 }
                 // Shift（一次性或锁定）优先取上档字符；该键没有上档就退回下档
-                const bool sh = ((bd->sticky | bd->locks) & 2) != 0;
+                const bool sh = (modMask() & 2) != 0;
                 const std::string& ch = (sh && !uic.shifts[layerIdx][p.snapped].empty())
                                             ? uic.shifts[layerIdx][p.snapped]
                                             : uic.layers[layerIdx][p.snapped];
@@ -577,27 +585,27 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                     if (const char* cj = cjkPunct(ch)) out = cj;
                 }
                 if (out.size() == 1 && (unsigned char)out[0] < 0x80) {
-                    pending += route(out[0], bd->sticky | bd->locks).bytes;
+                    pending += route(out[0], modMask()).bytes;
                 } else {  // 多字节（中文标点）：先提交组字串，再把整串送出去
                     if (ime.composing()) pending += ime.commit(-1);
                     pending += out;
                 }
                 break;
             }
-            case cfg::kSpace: pending += route(' ', bd->sticky | bd->locks).bytes; break;
+            case cfg::kSpace: pending += route(' ', modMask()).bytes; break;
             case cfg::kTab:
-                pending += route('\t', bd->sticky | bd->locks).bytes;
+                pending += route('\t', modMask()).bytes;
                 tabArmedAt = msNow();  // 窗口内的 R/ZR = 上一个/下一个 tab
                 break;
-            case cfg::kEnter: pending += route('\r', bd->sticky | bd->locks).bytes; break;
-            case cfg::kBackspace: pending += route(0x7f, bd->sticky | bd->locks).bytes; break;
+            case cfg::kEnter: pending += route('\r', modMask()).bytes; break;
+            case cfg::kBackspace: pending += route(0x7f, modMask()).bytes; break;
             case cfg::kDelete: pending += "\x1b[3~"; break;
             case cfg::kEscape:
-                pending += route(0x1b, bd->sticky | bd->locks).bytes;
+                pending += route(0x1b, modMask()).bytes;
                 break;
-            case cfg::kModCtrl: bd->sticky ^= 1; break;
-            case cfg::kModAlt: bd->sticky ^= 4; break;
-            case cfg::kModShift: bd->sticky ^= 2; break;
+            case cfg::kModCtrl: bd->holding |= 1; bd->sticky ^= 1; break;
+            case cfg::kModAlt: bd->holding |= 4; bd->sticky ^= 4; break;
+            case cfg::kModShift: bd->holding |= 2; bd->sticky ^= 2; break;
             case cfg::kLockCtrl: bd->locks ^= 1; break;
             case cfg::kLockAlt: bd->locks ^= 4; break;
             case cfg::kLockShift: bd->locks ^= 2; break;
@@ -622,14 +630,14 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 else if (terms.size() >= 2 && msNow() - tabArmedAt < kTabArmMs) {
                     tabArmedAt = msNow();  // 顺延，按住 Tab 连按能一直翻
                     active = tabStep(active, int(terms.size()), -1);
-                } else pending += ((bd->sticky | bd->locks) & 2) ? "\x1b[A" : "\x1b[D";
+                } else pending += (modMask() & 2) ? "\x1b[A" : "\x1b[D";
                 break;
             case cfg::kCursorRight:
                 if (ime.composing() && !ime.cands().empty()) ime.selStep(+1);
                 else if (terms.size() >= 2 && msNow() - tabArmedAt < kTabArmMs) {
                     tabArmedAt = msNow();  // 顺延
                     active = tabStep(active, int(terms.size()), 1);
-                } else pending += ((bd->sticky | bd->locks) & 2) ? "\x1b[B" : "\x1b[C";
+                } else pending += (modMask() & 2) ? "\x1b[B" : "\x1b[C";
                 break;
             // 面板/触摸独有动作（kIme..kLayer）：手柄路径不会产生，只有 --legacy 用
             case cfg::kIme:
@@ -655,6 +663,23 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             case cfg::kNone: return;
             default: bd->sticky = 0; return;
         }
+    };
+
+    // 抬起：按住期间没被用过 → 保留一次性修饰（单击 = 下一颗键带上它）；
+    // 用过 → 清掉，避免"按住 Shift 再按 R/ZR"之后 Shift 永久粘着
+    auto onPadRelease = [&](int btn) {
+        if (btn < 0 || btn >= cfg::kKeyCount) return;
+        int bit = 0;
+        switch (km.single[btn]) {
+            case cfg::kModCtrl: bit = 1; break;
+            case cfg::kModShift: bit = 2; break;
+            case cfg::kModAlt: bit = 4; break;
+            default: break;
+        }
+        if (bit == 0) return;
+        bd->holding &= ~bit;
+        if (bd->heldUsed & bit) bd->sticky &= ~bit;
+        bd->heldUsed &= ~bit;
     };
 
     bool uiDirty = false;  // 这一帧有没有动过屏幕：静止就不重画靠它
@@ -750,7 +775,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
         // ④ 输入路由：行为都在 app::routeKey / routeRaw 里（可单测）
         for (char ch : keys) {
-            RouteResult rr = route(ch, bd->sticky | bd->locks);
+            RouteResult rr = route(ch, modMask());
             pending += rr.bytes;
             if (bd->sticky) bd->sticky = 0;  // 一次性修饰：这颗键用过就清
         }
@@ -778,7 +803,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             if (!rumbleL.ok()) rumbleL.open("Left Joy-Con");
             if (!rumbleR.ok()) rumbleR.open("Right Joy-Con");
         }
-        gamepad.pollPad({onPadButton, [](int) {}, [](int) {}});
+        gamepad.pollPad({onPadButton, [](int) {}, [](int) {}, onPadRelease});
 
         // 摇杆向量 → 引力场。dt 写死在 physics.cpp（1/60），所以这里每帧步进一次就够。
         {
