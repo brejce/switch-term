@@ -1234,7 +1234,7 @@ int main(int argc, char** argv) {
         if (previewKeys) {  // 三分区版式预览：左右各一个滑窗键区 + 中终端
             static const char* layerNames[] = {"ALPHA", "NUM", "SYM"};
             const int L = std::clamp(previewLayer, 0, 2);
-            const int pw = int(220 * g.scale), tb = int(32 * g.scale);
+            const int pw = int(float(uic.panelW) * g.scale), tb = int(32 * g.scale);
             // 分区底色（与 mockup 一致：左面板 220 / 右面板 220 / 中间终端 840）
             pr.fill({0, tb, pw, g.screenH - tb}, ui::c(ui::col::kPanel));
             pr.fill({g.screenW - pw, tb, pw, g.screenH - tb}, ui::c(ui::col::kPanel));
@@ -1270,13 +1270,7 @@ int main(int argc, char** argv) {
             tx(int(10 * g.scale), int(486 * g.scale), "// DPAD", ui::col::kCyan);
             ui::drawDpad(pr, pfonts, int(10 * g.scale), int(500 * g.scale), int(26 * g.scale), st,
                          g.scale);
-            const int kb = int(640 * g.scale), kl = int(19 * g.scale);
-            tx(int(10 * g.scale), kb, "L3 层循环", ui::col::kText);
-            int xm = tx(int(10 * g.scale), kb + kl, "", ui::col::kText);
-            xm = shape(xm, kb + kl - int(4 * g.scale), false, ui::col::kText);
-            tx(xm, kb + kl, " 待定", ui::col::kText);
-            tx(int(10 * g.scale), kb + 2 * kl, "DPAD ←Ctrl →Shift", ui::col::kDim);
-            tx(int(10 * g.scale), kb + 3 * kl, "↓Alt ↑Tab 双击锁", ui::col::kDim);
+            // 底部提示表由 drawKeyPanels 自己画（和真机同一份），预览不再另画一套假标签
 
             // 右手面板
             tx(int(g.screenW - pw + 10 * g.scale), int(50 * g.scale), "R 光标右", ui::col::kGreen);
@@ -1284,15 +1278,6 @@ int main(int argc, char** argv) {
             tx(int(g.screenW - pw + 10 * g.scale), int(486 * g.scale), "// ABXY", ui::col::kRed);
             ui::drawAbxy(pr, pfonts, int(g.screenW - pw + 10 * g.scale), int(500 * g.scale),
                          int(28 * g.scale), g.scale, -1);
-            tx(int(g.screenW - pw + 10 * g.scale), kb, "A 回车", ui::col::kText);
-            tx(int(g.screenW - pw + 10 * g.scale), kb + kl, "B 退格", ui::col::kText);
-            tx(int(g.screenW - pw + 10 * g.scale), kb + 2 * kl, "X Del", ui::col::kText);
-            tx(int(g.screenW - pw + 10 * g.scale), kb + 3 * kl, "Y Esc", ui::col::kText);
-            int xp = tx(int(g.screenW - pw + 110 * g.scale), kb, "", ui::col::kDim);
-            xp = shape(xp, kb - int(4 * g.scale), true, ui::col::kDim);
-            tx(xp, kb, " 待定", ui::col::kDim);
-            tx(int(g.screenW - pw + 110 * g.scale), kb + kl, "CAP 待定", ui::col::kDim);
-            tx(int(g.screenW - pw + 110 * g.scale), kb + 2 * kl, "HOME 待定", ui::col::kDim);
 
             // 顶栏
             pr.textInBox({int(16 * g.scale), int(9 * g.scale), 0, int(14 * g.scale)},

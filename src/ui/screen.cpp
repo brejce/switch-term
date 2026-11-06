@@ -37,30 +37,31 @@ void fillRound(render::Renderer& r, disp::Rect b, int rad, disp::Color col) {
 
 // 径向遮罩：以 (ccx,ccy) 为心，r0 内全透明、r1 外全不透，中间线性插值，
 // 用背景色叠加（软件光栅器没有模糊）。逐像素 blend 太贵，按 4px 小格填充。
-void vignette(render::Renderer& r, disp::Rect area, float ccx, float ccy, float r0, float r1,
-              disp::Color col) {
-    if (r1 <= r0) return;
-    // 2px 小格 + smoothstep：6px 格子在线性斜坡上会看出棋盘台阶（边缘"生硬"就是这个）
+// tau = 衰减长度（格）：遮盖强度 = 1 - exp(-d/tau)。
+// 用指数而不是线性/smoothstep：线性两头都平，中间的键怎么调都不够透；
+// 指数是「中心掉得快、外面拖一条长尾」，于是邻键明显半透明、数字行还能隐约看见。
+void vignette(render::Renderer& r, disp::Rect area, float ccx, float ccy, float pitchX,
+              float pitchY, float tau, disp::Color col) {
+    if (!(tau > 0.f)) return;
+    const float ix = pitchX > 0.f ? 1.f / pitchX : 0.f;
+    const float iy = pitchY > 0.f ? 1.f / pitchY : 0.f;
+    // 2px 小格：6px 格子会看出棋盘台阶（边缘"生硬"就是这个）
     constexpr int kCell = 2;
-    constexpr int kFar = 10;  // 斜坡外是纯色，可以用大块铺，省调用
-    const float inv = 1.f / (r1 - r0);
-    auto rampAt = [&](float px, float py) {  // 该点的遮盖强度 0..1（smoothstep）
-        const float dx = px - ccx, dy = py - ccy;
-        float t = (std::sqrt(dx * dx + dy * dy) - r0) * inv;
-        if (t <= 0.f) return 0.f;
-        if (t >= 1.f) return 1.f;
-        return t * t * (3.f - 2.f * t);
+    constexpr int kFar = 10;  // 接近饱和的远场用大块铺，省绘制调用
+    auto rampAt = [&](float px, float py) {  // 该点的遮盖强度 0..1
+        const float dx = (px - ccx) * ix, dy = (py - ccy) * iy;  // 距离按「格」算
+        return 1.f - std::exp(-std::sqrt(dx * dx + dy * dy) / tau);
     };
     for (int y = area.y; y < area.bottom();) {
-        const int stepY = (rampAt(ccx, float(y) + kFar * 0.5f) >= 1.f &&
-                           rampAt(ccx, float(y) + kFar - 1.f) >= 1.f)
+        const int stepY = (rampAt(ccx, float(y) + kFar * 0.5f) >= 0.97f &&
+                           rampAt(ccx, float(y) + kFar - 1.f) >= 0.97f)
                               ? kFar
                               : kCell;
         const int h = std::min(stepY, area.bottom() - y);
         for (int x = area.x; x < area.right();) {
             const int stepX =
                 (stepY > kCell &&
-                 rampAt(float(x) + kFar * 0.5f, ccy) >= 1.f)  // 远场：整块都是纯色
+                 rampAt(float(x) + kFar * 0.5f, ccy) >= 0.97f)  // 远场：整块接近饱和
                     ? kFar
                     : kCell;
             const float t = rampAt(float(x) + stepX * 0.5f, float(y) + h * 0.5f);
@@ -80,6 +81,35 @@ void ptitle(render::Renderer& r, const FontBook& f, int x, int y, const std::str
             uint32_t color, float s) {
     r.textInBox({x, y, 0, S(12, s)}, text, f.ptitle, c(color), render::Align::Left, 0, 0,
                 S(1, s));
+}
+
+struct HintRow {
+    const char* key;
+    const char* what;
+};
+
+// 面板底部的「键 | 功能」提示表：两列右/左对齐，顶部一条 1px 分隔线，整块贴着面板下沿。
+// 数据在 drawKeyPanels 里，跟着 keymap.lua 的语义走（改键位记得一起改）
+void drawHints(render::Renderer& r, const FontBook& f, int panelX, int panelY, int panelW,
+               int panelH, const HintRow* rows, int n, float s) {
+    if (n <= 0 || f.hints == nullptr) return;
+    const int padX = S(10, s), padTop = S(10, s), padBot = S(12, s);
+    const int rowH = S(16, s), rowGap = S(4, s);
+    int keyW = 0;
+    for (int i = 0; i < n; ++i) keyW = std::max(keyW, r.textWidth(rows[i].key, f.hints));
+    const int blockH = padTop + n * rowH + (n - 1) * rowGap + padBot;
+    const int top = panelY + panelH - blockH;
+    r.fill({panelX, top, panelW, 1}, c(col::kLine));
+    int y = top + padTop;
+    const int keyX = panelX + padX;
+    const int valX = keyX + keyW + S(9, s);
+    for (int i = 0; i < n; ++i) {
+        r.textInBox({keyX, y, keyW, rowH}, rows[i].key, f.hints, c(col::kDim),
+                    render::Align::Right);
+        r.textInBox({valX, y, 0, rowH}, rows[i].what, f.hints, c(col::kFaint),
+                    render::Align::Left);
+        y += rowH + rowGap;
+    }
 }
 
 }  // namespace
@@ -253,16 +283,22 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
     // 半径是设计像素，和键距同一套：相邻键 70/76，对角 103。
     // 半径按「窗口现在是 3 列 × 4 行」定：相邻行 82、数字行离中心 123，所以内圈要盖住
     // 中心两行（清楚），外圈到对角（≈144）还留一点影子 —— 数字行就是这么"淡但可见"的
-    constexpr float kMaskIn = 48.f;   // 这个距离以内完全不遮（选中键周围一圈是亮的）
-    // 必须在窗口边（横向 82 / 纵向 86，对角 119）之前走完，否则外圈键会被窗口矩形硬切一刀。
-    // 124 = 对角 119 稍微外一点：斜角上最后一颗键刚好淡没，看不出切口
-    constexpr float kMaskOut = 124.f;
-    // 缩放用自己的半径：遮罩 50→230 太宽，按这个曲线相邻键几乎同尺寸（d 和 e 看着一样大）。
-    // 这里收窄到 45→180、最多缩 30%，相邻键才看得出大小差。
-    constexpr float kShrinkIn = 45.f, kShrinkOut = 180.f, kShrinkMax = 0.30f;
+    // 半径按「格」计（横向一格 = 纵向一格）：0.4 格内全亮，2.9 格全遮。
+    // 于是中心实、邻键半透明（0.4→约 15%）、数字行/底行透出来（2 格 → 约 68%）、
+    // 再远就没了。距离用格数而不是像素，横竖邻键的观感才一样。
+    // 遮罩衰减长度（单位=格，横向一格和纵向一格等权）：邻键(d=1)遮 49%、数字行(d=2)遮 74%、
+    // 对角(d=2.2)遮 77% —— 邻键明显透、数字行隐约可见但不抢眼
+    constexpr float kMaskTau = 1.5f;
+    // 缩放半径也按格走：0.6 格开始缩，2.3 格缩到最小（相邻键才看得出大小差）
+    constexpr float kShrinkIn = 0.6f, kShrinkOut = 2.3f, kShrinkMax = 0.30f;
     constexpr float kSnapGrow = 1.09f;  // 选中键静止时的尺寸（相对键帽 64px）
     constexpr float kPulseAmp = 0.14f;  // 换键瞬间额外再涨 14% 然后回落 = 弹簧感
     const float s = g.scale;
+    // 键距（设计像素）：第 1 颗 = 右邻，第 5 颗 = 下邻。遮罩距离按「格」算要用它
+    const float pitchX = float(uic.keysV2[1].x - uic.keysV2[0].x);
+    const float pitchY = float(uic.keysV2[5].y - uic.keysV2[0].y);
+    const float invPitchX = pitchX > 0.f ? 1.f / pitchX : 0.f;
+    const float invPitchY = pitchY > 0.f ? 1.f / pitchY : 0.f;
     const int L = ((layer % cfg::kLayerCount) + cfg::kLayerCount) % cfg::kLayerCount;
 
     const int side = S(uic.keySize, s);          // 键帽边长来自 ui.key_size
@@ -311,10 +347,9 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         }
         // 离准心越远越淡：这里只决定"缩小多少"和"远到看不见就不画"，
         // 真正的变暗交给画完之后铺的径向遮罩（逐键整体降透明度会有整块感，很假）
-        const float dmask = std::hypot(kcx - retX, kcy - retY);
-        const float fade =
-            1.f - std::clamp((dmask - kMaskIn) / (kMaskOut - kMaskIn), 0.f, 1.f);
-        if (fade <= 0.02f) continue;  // 完全沉下去：连框带字都不画
+        const float dmask = std::hypot((kcx - retX) * invPitchX, (kcy - retY) * invPitchY);
+        const float fade = std::exp(-dmask / kMaskTau);
+        if (fade <= 0.04f) continue;  // 沉到底了（约 4.8 格）：连框带字都不画
         // 偏移 = 面板中心 - 指针（世界坐标）：吸附住的键正好压在中心上
         const int kx = cx + px(kcx - ptrX);
         const int ky = cy + px(kcy - ptrY);
@@ -376,7 +411,8 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         const float ccy = float(cy + px(retY - ptrY));
         // 遮罩色 = **背景色**（键淡出就是"透明地沉进背景"），再往黑里压 10% 让外圈更沉
         const disp::Color veil = disp::mix(c(col::kBg), disp::rgb(0x000000), 0.10f);
-        vignette(r, disp::Rect{panelX, panelY, panelW, panelH}, ccx, ccy, kMaskIn, kMaskOut, veil);
+        vignette(r, disp::Rect{panelX, panelY, panelW, panelH}, ccx, ccy, pitchX, pitchY,
+                 kMaskTau, veil);
     }
 }
 
@@ -420,6 +456,24 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
     ptitle(r, f, rightX + padX, dy, uic.abxyTitle, col::kDim, s);
     drawAbxy(r, f, rightX + (g.panelW - 3 * g.abxyCell) / 2, dy + S(16, s), g.abxyCell, s,
              st.pressedKey);
+
+    // 面板底部提示表：左右各一张，贴着面板下沿
+    static const HintRow kLeftHints[] = {
+        {"L3", "ALPHA ↔ NUM"},
+        {"Tab", "候选翻页"},
+        {"Shift", "双击锁定"},
+        {"ZR / R", "光标 右 / 左"},
+    };
+    static const HintRow kRightHints[] = {
+        {"A", "回车 · 上屏"},
+        {"B", "退格"},
+        {"X", "Del"},
+        {"Y", "Esc"},
+    };
+    drawHints(r, f, 0, g.contentY, g.panelW, g.contentH, kLeftHints,
+              int(sizeof(kLeftHints) / sizeof(kLeftHints[0])), s);
+    drawHints(r, f, rightX, g.contentY, g.panelW, g.contentH, kRightHints,
+              int(sizeof(kRightHints) / sizeof(kRightHints[0])), s);
 }
 
 void drawTermBackground(render::Renderer& r, const FontBook& f, const Geometry& g) {

@@ -58,6 +58,7 @@ struct FontBook {
     const render::FontFace* footer = nullptr;    // 10 底栏
     const render::FontFace* keyMain = nullptr;   // 18 键帽主字符（大字）
     const render::FontFace* keySub = nullptr;    // 9 键帽副字符（小淡）
+    const render::FontFace* hints = nullptr;     // 7 面板底部提示表（键|功能 两列）
 
     bool init(render::FontManager& fm) {
         // 两套字号，分开算：
@@ -88,6 +89,7 @@ struct FontBook {
         footer = ui(fam::kMono, 10, fam::kCjk);
         keyMain = ui(fam::kMonoBold, 18, fam::kCjk);
         keySub = ui(fam::kMono, 9, fam::kCjk);
+        hints = ui(fam::kMono, 7, fam::kCjk);
         return term && stick && kk && kd;
     }
 };
