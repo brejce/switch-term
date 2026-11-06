@@ -1,6 +1,7 @@
 #pragma once
-// libvterm → 格网格。damage 只做「整屏需重绘」标记：101×29 全量重读的代价远小于脏矩形维护
-// shortcut: 无局部脏矩形；滚动回放只往上攒历史行，往下 pop 不还原（libvterm sb_popline 返回 0）
+// libvterm → 格网格。damage 只记「整屏要重绘 + 哪几行变过」：行位图直接来自
+// libvterm 的 damage/movecursor 回调，不再额外维护局部脏矩形。
+// shortcut: 只有行粒度（不做列），滚动时按整屏；列粒度要改绘制层的按格重画
 #include <vterm.h>
 
 #include <cstdint>
@@ -38,20 +39,25 @@ public:
     int colsNow() const { return cols_; }
     int rowsNow() const { return rows_; }
     bool dirty() const { return dirty_; }
-    void clearDirty() { dirty_ = false; }
-    void markDirty() { dirty_ = true; }
+    void clearDirty();
+    void markDirty();  // 整块脏：所有行都置位
+    // 行级脏位：libvterm 的 damage/movecursor 回调已经带行号，顺手记下就够
+    bool rowDirty(int row) const;
+    void markRowDirty(int row);
     bool cursorVisible() const { return cursorVisible_; }
     size_t bytesIn() const { return bytesIn_; }
 
 private:
     uint32_t colorOf(VTermColor c, bool isFg) const;
     CellView toView(const VTermScreenCell& c) const;
+    void markRows(int first, int last);  // [first, last) 行变脏
 
     VTerm* vt_ = nullptr;
     VTermScreen* screen_ = nullptr;
     bool dirty_ = true;
     bool cursorVisible_ = true;
     int rows_ = 0, cols_ = 0;
+    std::vector<uint8_t> rowDirty_;  // 每行一个字节（用 vector 是为了不引入 <bitset>）
     std::deque<std::vector<CellView>> hist_;
     size_t histMax_ = 2000;  // 默认 = config/engine.lua 的 terminal.scrollback
     size_t bytesIn_ = 0;

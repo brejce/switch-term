@@ -101,7 +101,9 @@ void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, floa
     p.x += p.vx * kDt;
     p.y += p.vy * kDt;
 
-    // 5. 边界：本场 15 键的包围盒外扩 hover_radius
+    // 5. 边界：本场所有键心的包围盒，硬夹。原来外扩 hover_radius + pointer_radius（=60px），
+    // 指针会被留在键区外的空白里：放大镜中心跑出键阵、最近的角键被点亮却吸不住（离太远），
+    // 看着就像按在一个不存在的键上。收到键心上：顶到边就必然落在最外圈那颗真键上。
     float minX = keyX[f.first], maxX = minX, minY = keyY[f.first], maxY = minY;
     for (int i = 1; i < kFieldKeys; ++i) {
         if (valid && !valid[i]) continue;
@@ -111,10 +113,21 @@ void step(Pointer& p, const Field& f, const float* keyX, const float* keyY, floa
         minY = std::fmin(minY, keyY[k]);
         maxY = std::fmax(maxY, keyY[k]);
     }
-    p.x = std::fmin(std::fmax(p.x, minX - pr.hoverRadius - pr.pointerRadius),
-                     maxX + pr.hoverRadius + pr.pointerRadius);
-    p.y = std::fmin(std::fmax(p.y, minY - pr.hoverRadius - pr.pointerRadius),
-                     maxY + pr.hoverRadius + pr.pointerRadius);
+    // 夹住的轴要把速度也归零：否则指针人不动、速度还满格，底噪震动一直顶格
+    if (p.x < minX) {
+        p.x = minX;
+        p.vx = 0.f;
+    } else if (p.x > maxX) {
+        p.x = maxX;
+        p.vx = 0.f;
+    }
+    if (p.y < minY) {
+        p.y = minY;
+        p.vy = 0.f;
+    } else if (p.y > maxY) {
+        p.y = maxY;
+        p.vy = 0.f;
+    }
 
     // 6. 吸附 / 悬停
     int n = -1;

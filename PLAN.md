@@ -120,8 +120,8 @@ cmake -B build -DBACKEND_GLX=ON -DBACKEND_HEADLESS=ON -DENABLE_DEBUG_OVERLAY=ON
 # Switchroot 部署
 cmake -B build-arm -DCMAKE_TOOLCHAIN_FILE=cmake/aarch64-linux-gnu.cmake \
   -DBACKEND_FBDEV=ON -DBACKEND_EGL_GLES=ON
-scp build-arm/switch-ime-term switch:/home/user/
-scp -r data switch:/home/user/
+scp build-arm/switch-ime-term brejce@<Switch IP>:~/switch-ime-term/
+scp -r data brejce@<Switch IP>:~/switch-ime-term/
 
 # CI
 cmake -B build-ci -DBACKEND_HEADLESS=ON -DBACKEND_FBDEV=OFF -DBACKEND_EGL_GLES=OFF

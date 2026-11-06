@@ -1,12 +1,39 @@
 #include "term/vterm_bridge.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace term {
 
+void VTermBridge::markRows(int first, int last) {
+    dirty_ = true;
+    if (rowDirty_.size() != size_t(rows_)) rowDirty_.assign(size_t(rows_), 1);
+    const int lo = std::max(0, first), hi = std::min(rows_, last);
+    if (lo >= hi) {  // 没行号可用（如 resize 中）：按整屏
+        std::fill(rowDirty_.begin(), rowDirty_.end(), uint8_t(1));
+        return;
+    }
+    std::fill(rowDirty_.begin() + lo, rowDirty_.begin() + hi, uint8_t(1));
+}
+
+void VTermBridge::markDirty() { markRows(0, rows_); }
+
+void VTermBridge::markRowDirty(int row) { markRows(row, row + 1); }
+
+void VTermBridge::clearDirty() {
+    dirty_ = false;
+    std::fill(rowDirty_.begin(), rowDirty_.end(), uint8_t(0));
+}
+
+bool VTermBridge::rowDirty(int row) const {
+    if (row < 0 || row >= int(rowDirty_.size())) return dirty_;  // 尺寸对不上：别漏画
+    return rowDirty_[size_t(row)] != 0;
+}
+
 bool VTermBridge::init(int rows, int cols) {
     rows_ = rows;
     cols_ = cols;
+    rowDirty_.assign(size_t(rows), 1);
     vt_ = vterm_new(rows, cols);
     if (!vt_) return false;
     vterm_set_utf8(vt_, 1);
@@ -15,12 +42,16 @@ bool VTermBridge::init(int rows, int cols) {
 
     static VTermScreenCallbacks cb;
     std::memset(&cb, 0, sizeof cb);
-    cb.damage = [](VTermRect, void* u) {
-        static_cast<VTermBridge*>(u)->markDirty();
+    cb.damage = [](VTermRect rect, void* u) {
+        // end_row/end_col 是开区间
+        static_cast<VTermBridge*>(u)->markRows(rect.start_row, rect.end_row);
         return 1;
     };
-    cb.movecursor = [](VTermPos, VTermPos, int, void* u) {
-        static_cast<VTermBridge*>(u)->markDirty();
+    cb.movecursor = [](VTermPos pos, VTermPos oldpos, int, void* u) {
+        // 旧位置和新位置都要重画：光标是从一个格子抹掉再画到另一个格子
+        auto* self = static_cast<VTermBridge*>(u);
+        self->markRows(pos.row, pos.row + 1);
+        self->markRows(oldpos.row, oldpos.row + 1);
         return 1;
     };
     cb.settermprop = [](VTermProp prop, VTermValue* val, void* u) {
@@ -30,7 +61,9 @@ bool VTermBridge::init(int rows, int cols) {
         return 1;
     };
     cb.sb_pushline = [](int cols, const VTermScreenCell* cells, void* u) {
-        static_cast<VTermBridge*>(u)->sbPush(cols, cells);
+        auto* self = static_cast<VTermBridge*>(u);
+        self->sbPush(cols, cells);
+        self->markDirty();  // 滚出一行 = 整屏上移
         return 1;
     };
     vterm_screen_set_callbacks(screen_, &cb, this);
@@ -43,6 +76,7 @@ void VTermBridge::resize(int rows, int cols) {
     if (!vt_) return;
     rows_ = rows;
     cols_ = cols;
+    rowDirty_.assign(size_t(rows), 1);
     vterm_set_size(vt_, rows, cols);
     vterm_screen_flush_damage(screen_);
     dirty_ = true;

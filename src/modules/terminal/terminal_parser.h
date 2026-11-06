@@ -39,6 +39,16 @@ public:
     virtual bool dirty() const = 0;
     virtual void clearDirty() = 0;
     virtual void markDirty() = 0;
+    // 行级脏位图：true = 这一行自上次 clearDirty 后变过（默认按整屏脏处理）
+    virtual bool rowDirty(int row) const {
+        (void)row;
+        return dirty();
+    }
+    // 只标一行脏（光标闪烁这类只动一行的变化）；默认退回整屏脏
+    virtual void markRowDirty(int row) {
+        (void)row;
+        markDirty();
+    }
 
     virtual int rows() const = 0;
     virtual int cols() const = 0;

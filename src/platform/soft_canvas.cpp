@@ -9,6 +9,7 @@ void SoftCanvas::resize(int w, int h) {
     w_ = w;
     h_ = h;
     fb_.assign(size_t(w) * h * 4, 0);
+    baseClip_ = Rect{0, 0, w, h};
     clearClip();
 }
 
@@ -17,8 +18,8 @@ void SoftCanvas::clear() {
     clearClip();  // 新一帧不带上一帧残留的裁剪矩形
 }
 
-void SoftCanvas::setClip(const Rect& r) { clipRect_ = r; }
-void SoftCanvas::clearClip() { clipRect_ = Rect{0, 0, w_, h_}; }
+void SoftCanvas::setClip(const Rect& r) { clipRect_ = intersect(r, baseClip_); }
+void SoftCanvas::clearClip() { clipRect_ = baseClip_; }
 
 TextureId SoftCanvas::createTexture(const TextureDesc& d) {
     Tex t;
@@ -76,6 +77,15 @@ void SoftCanvas::blendPixel(int x, int y, Color c) {
 void SoftCanvas::fillRect(const Rect& r0, Color c) {
     Rect r = clip(intersect(r0, clipRect_));
     if (r.empty() || c.a == 0) return;
+    if (c.a == 255) {  // 不透明：按行 32 位填充。全屏重画时这里是热点（逐像素走一遍混合分支）
+        const uint32_t px =
+            uint32_t(c.r) | (uint32_t(c.g) << 8) | (uint32_t(c.b) << 16) | 0xFF000000u;
+        for (int y = r.y; y < r.bottom(); ++y) {
+            uint32_t* d = reinterpret_cast<uint32_t*>(&fb_[(size_t(y) * w_ + r.x) * 4]);
+            std::fill(d, d + r.w, px);
+        }
+        return;
+    }
     for (int y = r.y; y < r.bottom(); ++y)
         for (int x = r.x; x < r.right(); ++x) blendPixel(x, y, c);
 }

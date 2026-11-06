@@ -17,6 +17,10 @@ public:
 
     void beginFrame();
     void endFrame();
+    // 脏矩形版：只重画 base clip 内的像素，endFrame 只把这些块搬到 fb
+    void beginFrame(const disp::DamageList& d) { bd_->beginFrame(d); }
+    void endFrame(const disp::DamageList& d) { bd_->endFrame(d); }
+    void setBaseClip(const disp::Rect& r) { bd_->setBaseClip(r); }
 
     void fill(disp::Rect r, disp::Color c);
     // 裁剪：后续 fill/text 只在 r 里落地（textInBox/textBaseline 走 drawTexture，逐字形被裁）；

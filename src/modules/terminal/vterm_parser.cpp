@@ -49,6 +49,8 @@ public:
     bool dirty() const override { return bridge_.dirty(); }
     void clearDirty() override { bridge_.clearDirty(); }
     void markDirty() override { bridge_.markDirty(); }
+    bool rowDirty(int row) const override { return bridge_.rowDirty(row); }
+    void markRowDirty(int row) override { bridge_.markRowDirty(row); }
 
     int rows() const override { return bridge_.rowsNow(); }
     int cols() const override { return bridge_.colsNow(); }

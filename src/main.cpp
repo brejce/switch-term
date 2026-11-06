@@ -24,6 +24,7 @@
 #include "ui/screen.h"
 #include "input/evdev_gamepad.h"
 #include "input/uinput_kbd.h"
+#include "platform/damage.h"
 #include "platform/display_backend.h"
 #include "render/font_manager.h"
 #include "ime/builtin_ime.h"
@@ -134,6 +135,142 @@ static int fbdevSelfTest() {
     chk(w - 8, h - 8, 0, 0, 0xFF);
     std::fclose(f);
     std::printf("[selftest] fbdev %s（XRGB8888 打包 + 居中）\n", bad ? "FAIL" : "OK");
+    return bad ? 1 : 0;
+}
+
+// 脏矩形集合：相交合并 / 裁剪 / 超阈值退化整屏 / 空表
+static int damageSelfTest() {
+    int bad = 0;
+    disp::DamageList d;
+    if (!d.empty() || d.size() != 0) ++bad;
+    // 光标格落在行矩形里：合一块，面积不能变大（800x21 不变）
+    d.push({0, 100, 800, 21});
+    d.push({40, 100, 8, 21});
+    if (d.size() != 1 || d.data()[0].x != 0 || d.data()[0].y != 100 || d.data()[0].w != 800 ||
+        d.data()[0].h != 21)
+        ++bad;
+    d.clear();
+    if (!d.empty()) ++bad;
+    // 超出画布的矩形裁到画布内
+    d.push({-10, -10, 50, 50});
+    d.clip(100, 100);
+    if (d.size() != 1 || d.data()[0].x != 0 || d.data()[0].y != 0 || d.data()[0].w != 40 ||
+        d.data()[0].h != 40)
+        ++bad;
+    d.clear();
+    // 面积超过屏幕 60% → 退化整屏（600000 > 1280*720*60%）
+    d.push({0, 0, 1000, 600});
+    d.clip(1280, 720);
+    if (d.size() != 1 || d.data()[0].w != 1280 || d.data()[0].h != 720) ++bad;
+    d.clear();
+    // 块数超过 8 → 退化整屏
+    for (int i = 0; i < 9; ++i) d.push({i * 100, 300, 10, 10});
+    d.clip(1280, 720);
+    if (d.size() != 1 || d.data()[0].w != 1280 || d.data()[0].h != 720) ++bad;
+    std::printf("[selftest] damage %s（合并/裁剪/超阈值退化整屏/空表）\n", bad ? "FAIL" : "OK");
+    return bad ? 1 : 0;
+}
+
+static bool readRawFile(const char* path, std::vector<uint8_t>& out) {
+    FILE* f = std::fopen(path, "rb");
+    if (!f) return false;
+    std::fseek(f, 0, SEEK_END);
+    const long n = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    out.resize(size_t(n < 0 ? 0 : n));
+    const bool ok = !out.empty() && std::fread(out.data(), 1, out.size(), f) == out.size();
+    std::fclose(f);
+    return ok;
+}
+
+// 脏矩形提交必须和整屏提交得到同一个 fb：只搬脏区漏一点/写错位置，比较就会露出来
+static int fbdevDamageSelfTest() {
+    const char* path = "/tmp/sit_fbdamage.raw";
+    ::setenv("SIT_FBDEV", path, 1);
+    const int w = 1280, h = 720;
+    // 普通文件按 init(w,h) 定 xres/yres；两套尺寸才能把 rot 0/180 和 90/270 都整幅覆盖到
+    const int geom[][2] = {{w, h}, {h, w}};
+    int bad = 0;
+    for (const auto& g : geom) {
+        disp::DisplayBackend* bd = disp::DisplayRegistry::instance().create("fbdev");
+        if (!bd || !bd->init(g[0], g[1])) {
+            std::printf("[selftest] fbdev-damage SKIP（没有可用的 fbdev）\n");
+            delete bd;
+            ::unsetenv("SIT_FBDEV");
+            return 0;
+        }
+        bd->setCanvasSize(w, h);
+        // 每个像素都不一样的图案：旋转映射错一像素就能看出来
+        std::vector<uint8_t> pattern(size_t(w) * size_t(h) * 4);
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                uint8_t* p = &pattern[(size_t(y) * size_t(w) + size_t(x)) * 4];
+                p[0] = uint8_t(x * 7 + y * 3);
+                p[1] = uint8_t(x * 13 + y * 5);
+                p[2] = uint8_t(x * 3 + y * 11);
+                p[3] = 255;
+            }
+        const disp::TextureId tex =
+            bd->createTexture(disp::TextureDesc{w, h, disp::PixelFormat::RGBA8888, false});
+        bd->updateTexture(tex, pattern.data(), w * 4);
+        const disp::Rect R{100, 80, 37, 23};  // 脏区：改这一块，只提交这一块
+        for (int rot : {0, 90, 180, 270}) {
+            bd->setRotation(rot);
+            bd->beginFrame();
+            bd->drawTexture(tex, {0, 0, w, h}, {0, 0, w, h}, disp::Color{255, 255, 255, 255});
+            bd->endFrame();
+            std::vector<uint8_t> prev, damaged, ref;
+            if (!readRawFile(path, prev)) ++bad;
+            bd->fillRect(R, disp::rgb(0x00FF00));
+            disp::DamageList dmg;
+            dmg.push(R);
+            dmg.clip(w, h);
+            bd->endFrame(dmg);
+            if (!readRawFile(path, damaged)) ++bad;
+            bd->endFrame();  // 整屏提交 = 参考帧
+            if (!readRawFile(path, ref)) ++bad;
+            // ① 脏区提交必须和整屏提交逐字节一致
+            if (damaged != ref) {
+                std::printf("[selftest] fbdev-damage rot=%d 与整屏提交不一致\n", rot);
+                ++bad;
+            }
+            // ② 变化只能落在 R 旋转后的矩形里（映射算错会写到别处 → 这里露出来）
+            const int x1 = R.right(), y1 = R.bottom();
+            const int ox = std::max(0, (g[0] - w) / 2), oy = std::max(0, (g[1] - h) / 2);
+            disp::Rect m;  // R 在 fb 坐标系里的映射（rot 0 带居中偏移，旋转时不带）
+            switch (rot) {
+                case 90: m = {h - y1, R.x, R.h, R.w}; break;
+                case 180: m = {w - x1, h - y1, R.w, R.h}; break;
+                case 270: m = {R.y, w - x1, R.h, R.w}; break;
+                default: m = {R.x + ox, R.y + oy, R.w, R.h}; break;
+            }
+            int changed = 0, outside = 0;
+            const int stride = g[0] * 4;  // 文件 fb 的行宽 = xres*4（不是画布宽）
+            for (int fy = 0; fy < g[1]; ++fy) {
+                for (int fx = 0; fx < g[0]; ++fx) {
+                    const size_t o = size_t(fy) * size_t(stride) + size_t(fx) * 4;
+                    if (o + 4 > prev.size() || o + 4 > damaged.size()) continue;
+                    if (prev[o] == damaged[o] && prev[o + 1] == damaged[o + 1] &&
+                        prev[o + 2] == damaged[o + 2] && prev[o + 3] == damaged[o + 3])
+                        continue;
+                    ++changed;
+                    if (fx < m.x || fx >= m.right() || fy < m.y || fy >= m.bottom()) ++outside;
+                }
+            }
+            const int inX = std::max(0, std::min(g[0], m.right()) - std::max(0, m.x));
+            const int inY = std::max(0, std::min(g[1], m.bottom()) - std::max(0, m.y));
+            if (outside > 0 || (inX > 0 && inY > 0 && changed == 0)) {
+                std::printf("[selftest] fbdev-damage rot=%d 映射错位（变化 %d，矩形外 %d）\n", rot,
+                            changed, outside);
+                ++bad;
+            }
+        }
+        bd->shutdown();
+        delete bd;
+    }
+    ::unsetenv("SIT_FBDEV");
+    std::printf("[selftest] fbdev-damage %s（脏区提交 == 整屏提交，旋转映射不越界）\n",
+                bad ? "FAIL" : "OK");
     return bad ? 1 : 0;
 }
 
@@ -768,7 +905,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--help" || a == "-h") { usage(); return 0; }
-        if (a == "--selftest") return selfTest() + gamepadSelfTest() + imeSelfTest() + fbdevSelfTest() + themeSelfTest() +
+        if (a == "--selftest") return selfTest() + gamepadSelfTest() + imeSelfTest() + fbdevSelfTest() + damageSelfTest() + fbdevDamageSelfTest() + themeSelfTest() +
                scrollSelfTest() + switchSelfTest() + selectSelfTest() + gamepadEvdevSelfTest() +
                configSelfTest() + uinputSelfTest() + tabsSelfTest() + oscSelfTest();
         if (a == "--list-backends") {

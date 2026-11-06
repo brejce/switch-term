@@ -32,18 +32,19 @@ sudo systemctl restart NetworkManager
 
 切换 WiFi 时不用删旧的：`nmcli con up "家里SSID"`，找不到就自动回落下一个 profile。
 
-### 0.2 SSH + mDNS（换网不用记 IP）
+### 0.2 SSH（靠 IP 连，mDNS 不可靠）
 
 ```bash
 sudo apt install -y openssh-server avahi-daemon
 sudo systemctl enable --now ssh avahi-daemon
-hostname                      # 假设 switchroot
-ip -4 addr show wlan0         # 记下当前 IP，作为 mDNS 失败时的备份
+hostname
+ip -4 addr show wlan0         # ← 每次换网都在 Switch 上跑这条，记下新 IP
 ```
 
-PC 上：`ssh ubuntu@switchroot.local`。
-`.local` 解析不了（某些 Android 热点开了 AP 隔离）就用 `ip -4 addr` 查到的 IP。
-配密钥：`ssh-copy-id ubuntu@switchroot.local`。
+PC 上：`ssh brejce@<Switch 屏幕上显示的 IP>`。
+**用户名是 `brejce`，不是 `ubuntu`**（镜像文档里写的 `ubuntu@` 是旧示例，照抄会连不上）。
+**只靠 IP。** mDNS（`switchroot.local`）实测解析不了，且换子网 / VLAN / 开了 AP 隔离的热点必然失效 —— 当成锦上添花，失败不要排查，直接用 IP。
+配密钥：`ssh-copy-id brejce@<IP>`。密钥配一次就永久有效，之后 IP 变了也不用重配。
 
 ### 0.3 删桌面前的强制检查
 
@@ -185,7 +186,7 @@ sudo apt install -y build-essential cmake pkg-config \
 拷源码 + 数据过去（`data/` 必须一起，相对路径）：
 
 ```fish
-rsync -av --exclude build ~/Project/switch-ime-term/ switch:~/switch-ime-term/
+rsync -av --exclude build ~/Project/switch-ime-term/ brejce@<Switch IP>:~/switch-ime-term/
 ```
 
 首次编译：

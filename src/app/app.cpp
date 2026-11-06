@@ -28,6 +28,7 @@
 #include "input/uinput_kbd.h"
 #include "input/uinput_mouse.h"
 #include "modules/terminal/terminal_parser.h"
+#include "platform/damage.h"
 #include "render/font_manager.h"
 #include "render/renderer.h"
 #include "term/osc_filter.h"
@@ -374,6 +375,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         rumbleR.setGain(eng.rumble.gainRight);
         if (!rumbleL.open("Left Joy-Con")) std::fprintf(stderr, "rumble: 左手柄没有 FF_RUMBLE\n");
         if (!rumbleR.open("Right Joy-Con")) std::fprintf(stderr, "rumble: 右手柄没有 FF_RUMBLE\n");
+        // 组合手柄（Pro/一体式）只有一台设备：两侧震动打到同一马达，分不开就直说
+        if (rumbleL.ok() && rumbleR.ok() && rumbleL.device() == rumbleR.device())
+            std::fprintf(stderr, "rumble: 左右落在同一台设备，两侧震动共用马达\n");
     }
     long long gpRescanAt = 0;      // 手柄没打开时下次重扫的时刻（ms）
     long long rumbleRescanAt = 0;  // 震动设备掉线时下次重开的时刻（ms）
@@ -510,6 +514,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     ui::AppState st;
     st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "EN 直通";
+
 
     // 动作分发：手柄/面板都走这里（映射来自 keymap.lua）
     auto msNow = [] {
@@ -659,8 +664,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         }
     };
 
+    bool uiDirty = false;  // 这一帧有没有动过屏幕：静止就不重画靠它
     auto onPadButton = [&](int btn) {
         if (btn < 0 || btn >= cfg::kKeyCount) return;
+        uiDirty = true;
         long long now = msNow();
         st.pressedKey = btn;  // 提示条闪一下（150ms）
         st.pressedKeyMs = now;
@@ -680,6 +687,12 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     long long lastBlink = 0;
     bool cursorOn = true;
     bool running = true;
+    bool prevAnimating = false;  // 上一帧在动？用来补画动画收尾那一次
+    int lastActiveSeen = -1;     // 上一帧画的是哪个 tab：切换要整屏重画
+    bool fullNext = false;       // 布局/尺寸/配置变了：下一帧必须整屏重画
+    bool lastComposing = false;  // 上一帧画过组字/候选行：退出组字要把它擦掉
+    int lastScrollSeen = 0;      // 上一帧终端是不是在看历史：退出回看要擦掉滚动条
+    std::string lastBarSig;      // 上一帧顶栏/底栏/tab 条的内容签名：没变就不重画
 
     while (running) {
         std::string keys;
@@ -694,6 +707,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 bd->setCanvasSize(g.screenW, g.screenH);
                 bd->setRotation(eng.rotate);
                 fonts.init(fm);
+                fullNext = true;
                 for (Term& t : terms) {  // 每个 tab 的网格和 PTY 都得改尺寸
                     t.tp->resize(g.termRows, g.termCols);
                     t.pty->resize(g.termCols, g.termRows);
@@ -717,6 +731,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 bd->setCanvasSize(g.screenW, g.screenH);
                 bd->setRotation(eng.rotate);
                 fonts.init(fm);
+                fullNext = true;  // 布局可能变了：整屏重画一次，别拿旧脏区套新几何
                 for (Term& t : terms) {
                     t.tp->resize(g.termRows, g.termCols);
                     t.tp->setHistoryLimit(eng.scrollback);
@@ -851,10 +866,14 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             now - lastBlink > 500) {
             lastBlink = now;
             cursorOn = !cursorOn;
-            terms[active].tp->markDirty();
+            if (cv)  // 程序自己把光标藏了（pi 这类全屏 TUI）就不用闪，也别为此重画
+                terms[active].tp->markRowDirty(cr);  // 光标只动一行：别把整屏标脏
         }
 
+        const std::string clockBefore = st.clock;
+        const int batteryBefore = st.battery;
         refreshTopBar();
+        if (st.clock != clockBefore || st.battery != batteryBefore) uiDirty = true;
         // 底栏语言/输入法每帧从 ime 现算：按键路径（键盘 keys 循环、手柄 doAction）都会改
         // ime.chinese，但只有前者的 RouteResult 带了 langChanged，手柄那条路以前永远不更新底栏
         st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "EN 直通";
@@ -892,15 +911,49 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             // 所以选中的键最终还是正躺在中间。
             constexpr float kParallax = 0.30f;
             const float k = kOmega * kOmega, cDamp = 2.f * kZeta * kOmega;
-            auto camStep = [&](float& pos, float& vel, float target) {
+            // 画布夹取：画布是飞船，准心固定在世界里。窗口必须永远被世界填满，
+            // 所以相机中心只能落在 [世界边 + 半窗口, 世界边 - 半窗口]；
+            // 该方向的行程为空（窗口比世界大）就钉死在正中。
+            // 位置也硬夹：弹簧欠阻尼（过冲 18%）只能在行程内部晃，不许把空白带进窗口。
+            struct CamRange {
+                float lo = 0, hi = 0;
+            };
+            auto camRange = [&](bool horiz) {
+                const disp::Rect win = ui::keyWindowRect(g, uic, 0, 0, g.panelW, g.contentH);
+                const float halfKey = float(uic.keySize) * 0.5f;
+                const float halfWin = (float(horiz ? win.w : win.h) / g.scale - halfKey * 2.f) * 0.5f;
+                float mn = keyCx[0], mx = mn;  // 左右手坐标相同，取左手那一份就是整个世界
+                for (int i = 1; i < cfg::kKeyV2Count / 2; ++i) {
+                    const float v = horiz ? keyCx[i] : keyCy[i];
+                    mn = std::fmin(mn, v);
+                    mx = std::fmax(mx, v);
+                }
+                CamRange r;
+                r.lo = mn - halfKey + halfWin;
+                r.hi = mx + halfKey - halfWin;
+                if (r.hi <= r.lo) r.lo = r.hi = (mn + mx) * 0.5f;
+                return r;
+            };
+            const CamRange camRX = camRange(true), camRY = camRange(false);
+            auto camStep = [&](float& pos, float& vel, float target, const CamRange& range) {
+                // 目标也得夹进去，否则顶到边界后弹簧每帧都重新生成向外的加速度：
+                // 位置被夹住不动、速度却永远归零不了 → animating 恒为真 → 永远整屏重画
+                target = std::clamp(target, range.lo, range.hi);
                 const float a = k * (target - pos) - cDamp * vel;
                 vel += a * kDt;
                 pos += vel * kDt;
+                if (pos < range.lo) {
+                    pos = range.lo;
+                    if (vel < 0.f) vel = 0.f;
+                } else if (pos > range.hi) {
+                    pos = range.hi;
+                    if (vel > 0.f) vel = 0.f;
+                }
             };
-            // 范围为空（窗口比键场大）→ 钉死在正中，不许滚
 
             // 目标 = 选中键中心（未吸附时 = 指针），纵向再减掉准心偏置。
-            // 不做边界夹取：夹取会让准心在边缘偏移，就不"固定"了。
+            // 夹取后准心不再恒在选中键上：选到外圈时键会停在窗口边（这就是要的效果——
+            // 窗口永远填满，空白不能进来）
             auto camTarget = [&](const app::physics::Pointer& p, float& tx, float& ty) {
                 if (p.snapped < 0) {
                     tx = p.x;
@@ -914,10 +967,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             float tlx, tly, trx, try_;
             camTarget(ptrL, tlx, tly);
             camTarget(ptrR, trx, try_);
-            camStep(camLx, camVx, tlx);
-            camStep(camLy, camVy, tly);
-            camStep(camRx, camRVx, trx);
-            camStep(camRy, camRVy, try_);
+            camStep(camLx, camVx, tlx, camRX);
+            camStep(camLy, camVy, tly, camRY);
+            camStep(camRx, camRVx, trx, camRX);
+            camStep(camRy, camRVy, try_, camRY);
         }
         st.ptrLeftX = camLx;
         st.ptrLeftY = camLy;
@@ -947,20 +1000,106 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         if (bd->locks & 4) mods += mods.empty() ? "ALT" : "+ALT";
         st.modsText = mods;
 
-        r.beginFrame();
-        r.fill({0, 0, g.screenW, g.screenH}, ui::c(ui::col::kBg));
-        ui::drawTopBar(r, fonts, uic, g, st);
-        std::vector<std::string> titles;  // 每帧现建：tab 会新建/关闭，不留两份真相
-        titles.reserve(terms.size());
-        for (const Term& t : terms) titles.push_back(t.title);
-        ui::drawTabBar(r, fonts, g, uic, titles, active);
-        ui::drawKeyPanels(r, fonts, uic, g, st);
-        ui::drawTermBackground(r, fonts, g);
-        drawGrid(r, fonts, g, *terms[active].tp, cr, cc, cv && cursorOn,
-                 terms[active].scroll);
-        ui::drawComposeLine(r, fonts, g, st, cr, cc, cv && terms[active].scroll == 0);
-        ui::drawBottomBar(r, fonts, g, st);
-        r.endFrame();
+        // 没有变化就不画：空闲时这一屏一个像素都不会变，照旧整屏重画 = 白烧一个核
+        // （fbdev 后端每帧还要软件旋转 92 万像素）。动画看速度/脉冲，输入看 uiDirty /
+        // PTY 输出 / 终端脏标记；宁可多画一帧，也别漏掉刷新。
+        const bool animating =
+            st.snapPulseL > 0.004f || st.snapPulseR > 0.004f || st.pressedKey >= 0 ||
+            std::fabs(ptrL.vx) + std::fabs(ptrL.vy) + std::fabs(ptrR.vx) + std::fabs(ptrR.vy) >
+                0.5f ||
+            std::fabs(camVx) + std::fabs(camVy) + std::fabs(camRVx) + std::fabs(camRVy) > 0.5f;
+        const bool changed =
+            uiDirty || n > 0 || terms[active].tp->dirty() || active != lastActiveSeen;
+        const bool forced = prevAnimating && !animating;  // 动画收尾补画一帧，别停在半路
+        prevAnimating = animating;
+        if (animating || changed || forced) {
+            // 脏区只有四类：整屏兜底 / 顶栏 / 底栏 / 终端脏行。动画、窗口/布局变化、
+            // 面板类输入（uiDirty 可能改键区任意像素）一律整屏；纯终端输出走行级。
+            const bool full = fullNext || uiDirty || active != lastActiveSeen;
+            const bool composing = !st.compose.empty() || !st.cands.empty();
+            uiDirty = false;
+            fullNext = false;
+            lastActiveSeen = active;
+
+            std::vector<std::string> titles;  // 每帧现建：tab 会新建/关闭，不留两份真相
+            titles.reserve(terms.size());
+            for (const Term& t : terms) titles.push_back(t.title);
+            // 状态栏签名：顶栏(时钟/电量) + 底栏(层/输入法/修饰键) + tab 条，全变了才重画这两条。
+            // 每次非整屏帧都画 = 74KB，是剩余拷贝量里最肥的一块
+            std::string barSig = st.clock + '|' + std::to_string(st.battery) +
+                                 (st.charging ? "+" : "") + '|' + st.layerName + '|' +
+                                 std::to_string(st.layer) + '|' + st.imeName + '|' +
+                                 st.modsText + '|' + std::to_string(active);
+            for (const auto& t : titles) {
+                barSig += '|';
+                barSig += t;
+            }
+            const bool barsChanged = barSig != lastBarSig;
+            lastBarSig = barSig;
+
+            disp::DamageList dmg;
+            if (full) {
+                dmg.push({0, 0, g.screenW, g.screenH});
+            } else {
+                // 摇杆/吸附动画只动两块键面板：键只画在窗口里，但径向遮罩铺满整个面板、
+                // 而且圆心跟着准心走（drawKeyHand 里 clearClip 之后那段），所以得推整块面板
+                if (animating || forced) {
+                    dmg.push({0, g.contentY, g.panelW, g.contentH});
+                    dmg.push({g.screenW - g.panelW, g.contentY, g.panelW, g.contentH});
+                }
+                // 顶栏带 tab 条、底栏带输入法状态：内容真变了才重画
+                if (barsChanged) {
+                    dmg.push({0, 0, g.screenW, g.topBarH});
+                    dmg.push({0, g.contentY + g.contentH, g.screenW, g.botBarH});
+                }
+                if (terms[active].scroll > 0 || lastScrollSeen > 0) {
+                    // 回看历史：滚动条画在行网格外，整块终端兜底
+                    dmg.push({g.termX, g.contentY, g.termW, g.contentH});
+                } else {
+                    for (int row = 0; row < terms[active].tp->rows(); ++row) {
+                        if (!terms[active].tp->rowDirty(row)) continue;
+                        dmg.push({g.termX, g.contentY + g.termPadTop + row * g.termCellH,
+                                  g.termW, g.termCellH});
+                    }
+                    // 组字串和候选固定画在终端底部 ime_rows 行：只推那两行，
+                    // 别像原来那样整块终端兜底（928×662 = 67%，直接顶到整屏阈值）
+                    if (composing || lastComposing) {
+                        const int y = g.contentY + g.termPadTop + g.termRows * g.termCellH;
+                        dmg.push({g.termX, y, g.termW, g.imeRows * g.termCellH});
+                    }
+                }
+            }
+            lastComposing = composing;
+            lastScrollSeen = terms[active].scroll;
+            dmg.clip(g.screenW, g.screenH);
+
+            // 同一份绘制代码按脏区跑：base clip 外的像素一个都不写，只拷脏区到 fb
+            auto drawFrame = [&]() {
+                r.fill({0, 0, g.screenW, g.screenH}, ui::c(ui::col::kBg));
+                ui::drawTopBar(r, fonts, uic, g, st);
+                ui::drawTabBar(r, fonts, g, uic, titles, active);
+                ui::drawKeyPanels(r, fonts, uic, g, st);
+                ui::drawTermBackground(r, fonts, g);
+                drawGrid(r, fonts, g, *terms[active].tp, cr, cc, cv && cursorOn,
+                         terms[active].scroll);
+                ui::drawComposeLine(r, fonts, g, st, cr, cc, terms[active].scroll == 0);
+                ui::drawBottomBar(r, fonts, g, st);
+            };
+            r.beginFrame(dmg);
+            for (int i = 0; i < dmg.size(); ++i) {
+                r.setBaseClip(dmg.data()[i]);
+                drawFrame();
+            }
+            r.endFrame(dmg);
+            if (std::getenv("SIT_DEBUG")) {  // 量一下这次实际搬了多少像素
+                long px = 0;
+                for (int i = 0; i < dmg.size(); ++i)
+                    px += long(dmg.data()[i].w) * long(dmg.data()[i].h);
+                std::fprintf(stderr, "[damage] %d 块 %ld 像素 = %ld B\n", dmg.size(), px,
+                             px * 4);
+            }
+            terms[active].tp->clearDirty();  // 画过了：下一次变化由 vterm 的 damage 重新置位
+        }
 
         if (n < 0) running = false;
     }

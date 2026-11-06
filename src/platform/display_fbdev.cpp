@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "platform/damage.h"
 #include "platform/display_backend.h"
 #include "platform/soft_canvas.h"
 
@@ -97,6 +98,8 @@ public:
         canvas_.updateTexture(id, p, stride);
     }
     void beginFrame() override { canvas_.clear(); }
+    // 局部重画：不清画布，只有脏区会被重画；没画到的像素跟 fb 一样停在上一帧
+    void beginFrame(const disp::DamageList&) override {}
     void fillRect(const disp::Rect& r, disp::Color c) override { canvas_.fillRect(r, c); }
     void drawTexture(disp::TextureId id, const disp::Rect& src, const disp::Rect& dst,
                      disp::Color tint) override {
@@ -104,37 +107,11 @@ public:
     }
     void setClip(const disp::Rect& r) override { canvas_.setClip(r); }
     void clearClip() override { canvas_.clearClip(); }
+    void setBaseClip(const disp::Rect& r) override { canvas_.setBaseClip(r); }
 
-    void endFrame() override {
-        // rot_ = 90/180/270 时做软件旋转（面板原生 720x1280 竖装，画布是 1280x720）
-        const uint8_t* px = canvas_.pixels().data();
-        const int CW = fbW_, CH = fbH_;
-        const int bpc = bpp_ / 8;
-        for (int y = 0; y < CH; ++y) {
-            const uint8_t* src = px + size_t(y) * size_t(CW) * 4;
-            for (int x = 0; x < CW; ++x, src += 4) {
-                int fx, fy;
-                switch (rot_) {
-                    case 90: fx = CH - 1 - y; fy = x; break;
-                    case 180: fx = CW - 1 - x; fy = CH - 1 - y; break;
-                    case 270: fx = y; fy = CW - 1 - x; break;
-                    default: fx = x + ox_; fy = y + oy_; break;
-                }
-                if (fx < 0 || fx >= xres_ || fy < 0 || fy >= yres_) continue;
-                uint8_t* dst = fb_ + size_t(fy) * size_t(stride_) + size_t(fx) * bpc;
-                if (bpp_ == 32) {  // XRGB8888 小端
-                    dst[0] = src[2];
-                    dst[1] = src[1];
-                    dst[2] = src[0];
-                    dst[3] = 0;
-                } else {  // RGB565
-                    uint16_t v =
-                        uint16_t(((src[0] >> 3) << 11) | ((src[1] >> 2) << 5) | (src[2] >> 3));
-                    dst[0] = uint8_t(v & 0xFF);
-                    dst[1] = uint8_t(v >> 8);
-                }
-            }
-        }
+    void endFrame() override { blit(disp::Rect{0, 0, fbW_, fbH_}); }
+    void endFrame(const disp::DamageList& d) override {
+        for (int i = 0; i < d.size(); ++i) blit(d.data()[i]);
     }
 
     bool captureFrame(const std::string&) override { return false; }
@@ -166,6 +143,62 @@ public:
     }
 
 private:
+    // 把画布上的一块（画布坐标）搬进 fb。rot_ = 90/180/270 时一并做旋转
+    // （面板原生 720x1280 竖装，画布是 1280x720）。
+    // 按 16×16 小块遍历：块内读是一行里连续 64B、写是一段连续 64B，两边都落在
+    // 同一条缓存行里。原来按行扫、旋转时写侧是跨列的，实测空闲就把一个核吃满。
+    void blit(const disp::Rect& r0) {
+        disp::Rect r = r0;
+        if (r.x < 0) {
+            r.w += r.x;
+            r.x = 0;
+        }
+        if (r.y < 0) {
+            r.h += r.y;
+            r.y = 0;
+        }
+        if (r.right() > fbW_) r.w = fbW_ - r.x;
+        if (r.bottom() > fbH_) r.h = fbH_ - r.y;
+        if (r.empty()) return;
+
+        const uint8_t* px = canvas_.pixels().data();
+        const int CW = fbW_, CH = fbH_;
+        const int bpc = bpp_ / 8;
+        auto put = [&](int fx, int fy, const uint8_t* src) {
+            if (fx < 0 || fx >= xres_ || fy < 0 || fy >= yres_) return;
+            uint8_t* dst = fb_ + size_t(fy) * size_t(stride_) + size_t(fx) * size_t(bpc);
+            if (bpp_ == 32) {  // XRGB8888 小端
+                dst[0] = src[2];
+                dst[1] = src[1];
+                dst[2] = src[0];
+                dst[3] = 0;
+            } else {  // RGB565
+                const uint16_t v =
+                    uint16_t(((src[0] >> 3) << 11) | ((src[1] >> 2) << 5) | (src[2] >> 3));
+                dst[0] = uint8_t(v & 0xFF);
+                dst[1] = uint8_t(v >> 8);
+            }
+        };
+        constexpr int kTile = 16;  // 16px × 4B = 64B = 一条缓存行
+        for (int y0 = r.y; y0 < r.bottom(); y0 += kTile) {
+            const int yEnd = std::min(y0 + kTile, r.bottom());
+            for (int x0 = r.x; x0 < r.right(); x0 += kTile) {
+                const int xEnd = std::min(x0 + kTile, r.right());
+                for (int y = y0; y < yEnd; ++y) {
+                    const uint8_t* src = px + (size_t(y) * size_t(CW) + size_t(x0)) * 4;
+                    for (int x = x0; x < xEnd; ++x, src += 4) {
+                        switch (rot_) {
+                            case 90: put(CH - 1 - y, x, src); break;
+                            case 180: put(CW - 1 - x, CH - 1 - y, src); break;
+                            case 270: put(y, CW - 1 - x, src); break;
+                            default: put(x + ox_, y + oy_, src); break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     static bool bitSet(const unsigned long* bits, int bit) {
         constexpr int kWordBits = int(sizeof(unsigned long) * 8);
         return (bits[bit / kWordBits] & (1UL << (bit % kWordBits))) != 0;

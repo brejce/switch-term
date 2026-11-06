@@ -40,6 +40,8 @@ struct ClickEvent {
     int x = 0, y = 0, button = 1;
 };
 
+class DamageList;
+
 struct TextureDesc {
     int width = 0, height = 0;
     PixelFormat format = PixelFormat::RGBA8888;
@@ -64,12 +66,23 @@ public:
     virtual void destroyTexture(TextureId) = 0;
     virtual void updateTexture(TextureId, const uint8_t* pixels, int row_stride) = 0;
     virtual void beginFrame() = 0;
+    // 带脏区的一帧：默认忽略脏区走旧路径（整屏清 + 整屏提交），SDL/headless 不用改
+    virtual void beginFrame(const DamageList& d) {
+        (void)d;
+        beginFrame();
+    }
     virtual void fillRect(const Rect&, Color) = 0;
     virtual void drawTexture(TextureId, const Rect& src, const Rect& dst, Color tint) = 0;
-    // 裁剪矩形：之后的 fillRect/drawTexture（含字形）只在它里面落地；clearClip = 整块画布
+    // 裁剪矩形：之后的 fillRect/drawTexture（含字形）只在它里面落地；clearClip = 回到基础裁剪
     virtual void setClip(const Rect&) = 0;
     virtual void clearClip() = 0;
+    // 基础裁剪 = 本帧要重画的范围（脏区，由 beginFrame(damage) 的调用方设置）；默认不启用
+    virtual void setBaseClip(const Rect&) {}
     virtual void endFrame() = 0;
+    virtual void endFrame(const DamageList& d) {
+        (void)d;
+        endFrame();
+    }
     // 窗口分辨率变了：重排画布（UI 会按新尺寸重画）
     virtual void setCanvasSize(int w, int h) { (void)w; (void)h; }
     // 平台方向（engine.display.rotate）：只对 fbdev 这种“面板原生竖装”的后端有意义

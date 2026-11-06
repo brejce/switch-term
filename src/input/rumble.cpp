@@ -5,10 +5,12 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 namespace input {
 namespace {
@@ -28,8 +30,23 @@ uint16_t mag16(float v) {  // 0..1 → 0..65535
 
 bool Rumble::open(const char* preferName) {
     close();
-    int fallback = -1;
-    std::string fallbackDev;
+    // 按可信度分三档挑，名字没对上也不至于两边都落到同一台设备：
+    //   3 名字里含 preferName（原来的子串匹配）
+    //   2 名字里有同侧的 left/right 或 (l)/(r)——换手柄后名字常变成 "Joy-Con (L)"
+    //   1 这台设备有同侧摇杆轴（左 = ABS_X，右 = ABS_RX）
+    //   0 只要支持 FF_RUMBLE 就用（左右一体的组合手柄）
+    const std::string want = preferName ? preferName : "";
+    auto lower = [](const char* s) {
+        std::string o;
+        for (const char* c = s; *c; ++c) o += char(std::tolower((unsigned char)*c));
+        return o;
+    };
+    const std::string wantLow = lower(want.c_str());
+    const char* sideWord = wantLow.find("left") != std::string::npos
+                               ? "left"
+                               : (wantLow.find("right") != std::string::npos ? "right" : nullptr);
+    int bestTier = -1, bestFd = -1;
+    std::string bestDev;
     for (int i = 0; i < 64; ++i) {
         char path[64];
         std::snprintf(path, sizeof path, "/dev/input/event%d", i);
@@ -46,27 +63,38 @@ bool Rumble::open(const char* preferName) {
         }
         char name[256] = "?";
         ::ioctl(fd, EVIOCGNAME(sizeof name), name);
-        if (preferName && std::strstr(name, preferName)) {  // 指名的那个：直接用
-            fd_ = fd;
-            dev_ = path;
-            std::fprintf(stderr, "rumble: %s (%s)\n", dev_.c_str(), name);
-            if (fallback >= 0) ::close(fallback);
-            return true;
+        const std::string nameLow = lower(name);
+        int tier = 0;
+        if (!want.empty() && std::strstr(name, want.c_str())) {
+            tier = 3;
+        } else if (sideWord != nullptr) {
+            if (nameLow.find(sideWord) != std::string::npos ||
+                nameLow.find(std::string("(") + sideWord[0] + ")") != std::string::npos) {
+                tier = 2;
+            } else {  // 名字看不出来，就按「有没有同侧摇杆轴」认
+                unsigned char abs[(ABS_MAX + 8) / 8] = {0};
+                const int ax = sideWord[0] == 'l' ? ABS_X : ABS_RX;
+                if (::ioctl(fd, EVIOCGBIT(EV_ABS, sizeof abs), abs) >= 0 &&
+                    (abs[ax / 8] & (1 << (ax % 8))))
+                    tier = 1;
+            }
         }
-        if (fallback < 0) {  // 记下第一个可用的，指名的找不到就退回去
-            fallback = fd;
-            fallbackDev = std::string(path) + " (" + name + ")";
-            continue;
+        if (tier > bestTier) {
+            if (bestFd >= 0) ::close(bestFd);
+            bestFd = fd;
+            bestTier = tier;
+            bestDev = std::string(path) + " (" + name + ")";
+            if (tier >= 3) break;  // 名字对上了就不用再猜
+        } else {
+            ::close(fd);
         }
-        ::close(fd);
     }
-    if (fallback >= 0) {
-        fd_ = fallback;
-        dev_ = fallbackDev;
-        std::fprintf(stderr, "rumble: %s\n", dev_.c_str());
-        return true;
-    }
-    return false;
+    if (bestFd < 0) return false;
+    fd_ = bestFd;
+    dev_ = bestDev;
+    std::fprintf(stderr, "rumble: %s%s\n", dev_.c_str(),
+                 bestTier >= 2 ? "" : "（名字没对上，按摇杆轴/FF 猜的）");
+    return true;
 }
 
 void Rumble::close() {

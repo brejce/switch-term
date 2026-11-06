@@ -63,21 +63,21 @@ constexpr int kKeyV2Count = 40;  // 每手 5 列 × 4 行 = 20，共 40（真实
 constexpr int kLayerCount = 2;  // 0=alpha（字母+数字）1=num（主键区放不下的标点）
 
 struct Ui {
-    int panelW = 220, topBarH = 32, botBarH = 26;
+    int panelW = 176, topBarH = 32, botBarH = 26;
     int stickBox = 180, dpadCell = 28, abxyCell = 30, shoulderH = 20;
     int termPadX = 14, termPadTop = 10, termPadBot = 8;
     int cellW = 8, cellH = 21, imeRows = 2;
-    std::string title = "SYS.TERM";
+    std::string title = "sit/0.1";
     // v2：键位顺序 = 左场 row-major(3×5) 再接右场 row-major(3×5)；缺键/缺层保持空
     KeyV2 keysV2[kKeyV2Count];
-    int keySize = 64;  // 键帽边长（设计像素），来自 ui.key_size
+    int keySize = 48;  // 键帽边长（设计像素），来自 ui.key_size
     // 面板一屏露几列几行（滑窗可见范围），来自 ui.key_window；左右手各是一个 5×4 的世界
     int keyWindowCols = 3, keyWindowRows = 3;
     int keyAreaDy = 0;  // 键区整体纵向偏移（负 = 上移），ui.key_area_dy
     std::string layers[kLayerCount][kKeyV2Count];  // 每键一个 UTF-8 字符（下档）
     // 上档字符（Shift / 锁定 Shift 时用）：ui.shifts.<alpha|num|sym>，缺省为空 = 该键没上档
     std::string shifts[kLayerCount][kKeyV2Count];
-    std::string dpadTitle = "// DPAD (MODS)", abxyTitle = "// ABXY";
+    std::string dpadTitle = "// DPAD", abxyTitle = "// ABXY";
 };
 
 struct KeyMap {
