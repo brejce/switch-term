@@ -317,7 +317,10 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         retX = float(uic.keysV2[snap].x) + float(uic.keySize) * 0.5f;
         retY = float(uic.keysV2[snap].y) + float(uic.keySize) * 0.5f;
     }
-    r.setClip(win);  // 窗外的键画不出去，终端区不会被脏到
+    // 窗外不外溢，但外扩 2px：最外圈键的描边正好落在窗口边界上时，
+    // 按窗口裁会把那条 1px 边切掉 —— 看着就是"数字行头部被横切一条"
+    const int cl = std::max(1, S(2, s));
+    r.setClip({win.x - cl, win.y - cl, win.w + 2 * cl, win.h + 2 * cl});
     for (int i = 0; i < cfg::kKeyV2Count / 2; ++i) {
         const int k = first + i;
         const bool isSnap = snap == k;

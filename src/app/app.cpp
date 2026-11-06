@@ -937,6 +937,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             // → 位置钉死、速度归零 → 上边没有弹簧（左右下有余量所以没事）。
             constexpr float kRubber = 12.f, kHardBand = 24.f;
             auto rubber = [](float v, const CamRange& r) {
+                // 行程为 0（窗口正好等于世界，比如 4 行窗口）：一点位移就会把世界推出窗口，
+                // 表现为「数字行头部被横切一条 + 对面留白」。这种方向必须钉死，不给橡皮筋
+                if (!(r.hi > r.lo)) return r.lo;
                 if (v < r.lo) return r.lo - std::fmin(kRubber, (r.lo - v) * 0.8f);
                 if (v > r.hi) return r.hi + std::fmin(kRubber, (v - r.hi) * 0.8f);
                 return v;
@@ -948,8 +951,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 const float a = k * (target - pos) - cDamp * vel;
                 vel += a * kDt;
                 pos += vel * kDt;
-                // 位置硬限比橡皮筋再宽一圈：目标探到 12px 时弹簧仍有活动空间，不会钉死
-                const float lo = range.lo - kHardBand, hi = range.hi + kHardBand;
+                // 位置硬限比橡皮筋再宽一圈：目标探到 12px 时弹簧仍有活动空间，不会钉死。
+                // 行程为 0 的方向不留这条带子，否则弹簧过冲照样会把世界顶出窗口
+                const float band = range.hi > range.lo ? kHardBand : 0.f;
+                const float lo = range.lo - band, hi = range.hi + band;
                 if (pos < lo) {
                     pos = lo;
                     if (vel < 0.f) vel = 0.f;
