@@ -108,6 +108,12 @@ int EvdevGamepad::open() {
 
         char name[256] = "?";
         ::ioctl(fd, EVIOCGNAME(sizeof name), name);
+        // IMU（陀螺仪，量程 ±32767000）/ Serial（序列号）是同一台手柄的辅助节点，
+        // 但它们也报 ABS_X/Y，会被当成摇杆读数抢走真正的摇杆
+        if (std::strstr(name, "IMU") != nullptr || std::strstr(name, "Serial") != nullptr) {
+            ::close(fd);
+            continue;
+        }
         fds_.push_back(fd);
         names_.push_back(name);
         PadState ps(stickDz_, stickHyst_);
@@ -133,15 +139,21 @@ bool EvdevGamepad::stickVec(bool right, float& dx, float& dy) const {
     // 不这么滤的话，只有左摇杆的那半个 Joy-Con 会用这个噪声值抢掉右摇杆的结果。
     constexpr float kStill = 1e-3f;
     dx = dy = 0.f;
+    // 取「推得最狠」的那台，而不是第一台非零的：两台手柄同时连着时，
+    // 没被碰的那台回中漂移会永久抢住另一台的推杆
+    float bestX = 0.f, bestY = 0.f, best = kStill;
     for (const PadState& p : pads_) {
         float x = 0, y = 0;
         if (!p.stickVec(right, x, y)) continue;
-        if (std::fabs(x) < kStill && std::fabs(y) < kStill) continue;
-        dx = x;
-        dy = y;
-        return true;
+        const float m = std::sqrt(x * x + y * y);
+        if (m <= best) continue;
+        best = m;
+        bestX = x;
+        bestY = y;
     }
-    return false;
+    dx = bestX;
+    dy = bestY;
+    return best > kStill;
 }
 
 bool EvdevGamepad::pollPad(const PadHandlers& h) {
