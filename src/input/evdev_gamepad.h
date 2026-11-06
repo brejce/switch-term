@@ -67,6 +67,9 @@ public:
     }
     void close();
     int count() const { return int(fds_.size()); }
+    // 有设备掉线（拔掉/蓝牙断开/换了手柄）：下次循环要整组重开，否则旧的 fd 一直报错、
+    // 新设备的 event 节点根本不会被打开（这正是"换手柄后摇杆失灵、必须重启"的原因）
+    bool lost() const { return lost_; }
     const std::vector<std::string>& names() const { return names_; }
 
     // 第一个报了向量的 pad 的值（合成设备与单侧 Joy-Con 上报一致，取谁都一样）。
@@ -78,6 +81,7 @@ public:
 private:
     std::vector<int> fds_;
     std::vector<std::string> names_;
+    mutable bool lost_ = false;
     std::vector<PadState> pads_;
     std::string lastError_;
     float stickDz_ = 0.35f, stickHyst_ = 8.f;  // 默认值 = src/input/gamepad.h

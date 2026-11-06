@@ -151,6 +151,7 @@ int EvdevGamepad::open() {
 }
 
 void EvdevGamepad::close() {
+    lost_ = false;
     for (int fd : fds_) ::close(fd);
     fds_.clear();
     names_.clear();
@@ -187,6 +188,8 @@ bool EvdevGamepad::pollPad(const PadHandlers& h) {
             pads_[i].onEvent(ev, h);
             any = true;
         }
+        // ENODEV = 设备没了（拔线/蓝牙断/换了手柄）。非阻塞读的 EAGAIN 不算
+        if (errno == ENODEV) lost_ = true;
     }
     return any;
 }
