@@ -1,5 +1,5 @@
 > 历史存档（2026-10 的设计稿原文，含当时的 `docs/DESIGN.md` / `docs/ui-mockup.html` 内容）。
-> 现行文档：`STATUS.md`（现状）、`docs/ARCH.md`（架构与配置）、`docs/LAYOUT-v2.md`（布局）。
+> 现行文档：`MANUAL.md`（索引见 `docs/README.md`）（现状）、`docs/ARCH.md`（架构与配置）、`docs/LAYOUT-v2.md`（布局）。
 
 为你重新整理最终的**设计手册**和**设计稿**。这次完全按照“启动装配，运行纯 C++”和“终端解析器解耦”的终极架构来定稿。
 

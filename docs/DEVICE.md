@@ -993,3 +993,53 @@ WantedBy=multi-user.target
 
 `Color Mode:` 子菜单在本机**不出现**：源码里 `color_modes = False` 写死，运行时还被 helper 探测覆盖
 （`panel_color_mode` 节点存在才显示）。要改面板配色只能直接写 `/sys/devices/50000000.host1x/tegradc.0/panel_color_mode`。
+
+## 15. 2026-11-07：GUI/浏览器那条路的结论（overlay + openbox）
+
+**目标**：tab 里能放浏览器等图形程序 —— 起 openbox 管真窗口（alacritty / chromium），
+我们只画顶栏（窗口列表）和左右键盘，中间用 `XShape` 挖洞把真窗口透出来。
+
+**结论：放弃，代码已回滚到 A（`775662e` 的树）。** 实现留在历史里（`e76dea3` 及之后），
+真要重来可以从那里捡，但先读完下面四个硬阻塞。
+
+### 15.1 四个硬阻塞（都实测过）
+
+1. **触摸屏没有 `INPUT_PROP_DIRECT` / `BTN_TOOL_FINGER`**（只有 `BTN_TOUCH=1`）
+   → libinput 把它当"绝对坐标鼠标"：**只有 hover，没有按下**。指针会变成 I 形但点不动输入框。
+   绕法是"自己读触摸 + 造一个 uinput 绝对鼠标打移动+点击"（做过，能用，`e76dea3` 里
+   `UInputMouse` + 触摸桥），但那等于我们接管指针，多一层要维护。
+2. **uinput 用老的 `uinput_user_dev` 建出来的设备 X 认得到（`xinput` 可见）但按键不生效**。
+   同样发 `Alt+Up`，`UI_DEV_SETUP` 建的设备能切窗口，老写法毫无反应。→ 一律用 `UI_DEV_SETUP`。
+3. **覆盖层置顶后会变成 WM 的"活动窗口"**：uinput 打的字先进我们自己；每次把焦点还回去又跟
+   openbox 的 `Alt+Up/A-Down` 切换互相打架（切过去就被按回来）。要靠 `WM_HINTS.input=False`
+   才不抢，但焦点/输入路由就变成一堆特例。
+4. **Xlib 默认错误处理是 `exit`**：`XSetInputFocus` 撞上刚被关掉的窗口就 `BadWindow` 带走整个进程。
+   所有 X 写操作都要包一个吞错的 `ErrorGuard`。
+
+### 15.2 顺带验证可用的事实（重来时能省时间）
+
+- **chromium 能跑**：真二进制是 `/opt/chromium.org/chromium/chrome`，`/usr/bin/chromium-browser`
+  只是启动壳；一个进程开 **4 个顶层窗**（主窗 + 200×200 辅助 + 剪贴板），要"收编"必须按
+  **面积最大 + IsViewable** 挑；被 `XReparentWindow` 之后它**会重建窗口**（所以窗口记录必须每次对账）。
+- **alacritty 0.13.2 可用**（非 KDE 生态）：CJK 正常、~39MB RSS、GPU 渲染（本机 OpenGL 4.6 nvidia）、
+  窗口大小可用 `--window-size/--window-position` 钉死（它启动后会自己 resize，openbox 的 `<size>` 管不住）。
+- **openbox 没有面板**：要顶栏得另装 `tint2`/`lxpanel`；per-app 规则必须写在 `<applications>` 段**内**，
+  写到 `</openbox_config>` 前面是无效的。
+- 切窗口：我们合成 `Alt+Up`/`Alt+Down`，openbox 绑 `A-Up`=NextWindow / `A-Down`=PreviousWindow
+  （别用裸方向键：那样 openbox 会把方向键全吞掉，终端里就用不了）。
+
+### 15.3 触摸方向的铁律（别再踩）
+
+**触摸屏的 abs 轴和画布同向，触摸换算永远不旋转。**
+证据：X 下 `rot=0` 实测四个角 1:1（`abs(10,10)→画布(9,9)`）。
+fbdev 只是**我们**把 1280×720 的画布转进 720×1280 的 fb，面板原生的触摸坐标没变；
+`engine.display.rotate=270` 只属于画布→fb 那一步。之前把 `displayRotation()` 传给触摸，
+纵向拖动被映射成横向 → `wheel` 恒为 0，表现就是"触摸滑不动"。
+
+### 15.4 现在的机器状态（回滚后）
+
+- `switch-ime-term.service`（fbdev 自绘终端）开机自启，`systemctl is-enabled` = enabled
+- `sddm` 已 disable、`default.target` = `multi-user.target` → 开机不进 X
+- `/etc/X11/xorg.conf.d/99-sit-ignore-input.conf`：手柄**和**触摸屏都 ignore，都由我们读
+  （自绘终端要自己读触摸做拖动翻页）
+- 额外装的包只有 `alacritty`（`sudo apt remove alacritty` 可清）

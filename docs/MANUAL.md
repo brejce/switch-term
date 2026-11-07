@@ -61,14 +61,18 @@ Switch 2017 上跑的**纯字符终端 + 手柄键盘**，不开 Xorg，直接�
 
 ## 4. 上机与排障
 
-```fish
-# 本机 → Switch（Switch 的 git 仓库和本机是同一个 remote 关系）
-ssh brejce@192.168.43.17          # 用户名就是 brejce，不是 ubuntu
-cd ~/Project/switch-ime-term && git log --oneline -1
+```bash
+# 本机 → Switch（用户名就是 brejce，不是 ubuntu；IP 以实际为准，当前是 192.168.3.193）
+ssh brejce@192.168.3.193
 
-# 同步（本机改完）
-rsync -a --exclude=.git --exclude=build --exclude='*.png' -e ssh ./ brejce@192.168.43.17:~/Project/switch-ime-term/
-ssh brejce@192.168.43.17 'cd ~/Project/switch-ime-term && cmake --build build -j$(nproc) && sudo systemctl restart switch-ime-term'
+# 同步：直接推 HEAD 过去，Switch 那边 receive.denyCurrentBranch=updateInstead 会自动 checkout
+git push ssh://brejce@192.168.3.193/home/brejce/Project/switch-ime-term HEAD:refs/heads/wip-damage-camera
+ssh brejce@192.168.3.193 'cd ~/Project/switch-ime-term && cmake --build build -j4 && sudo -n systemctl restart switch-ime-term'
+```
+
+**开机形态**：`sddm` 已 disable、`default.target = multi-user.target` → 开机直接进我们的 fbdev 终端，不起 X。
+要临时试 X（GUI 程序/浏览器）：`sudo systemctl start sddm` 或手动 `Xorg :0 &` + `DISPLAY=:0 ./build/switch-ime-term --backend sdl`。
+注意起过 X 之后 `tegra_dc` 可能不再扫 `fb0`，屏幕会黑——**这种时候重启是最省事的恢复**。
 
 # 看屏（抓 /dev/fb0 → PNG，然后 read 图片路径）
 ssh brejce@192.168.43.17 'sudo dd if=/dev/fb0 bs=1M count=4 status=none | head -c 3686400 > /tmp/f.raw && convert -size 720x1280 -depth 8 bgra:/tmp/f.raw -alpha off -rotate 90 /tmp/f.png'
