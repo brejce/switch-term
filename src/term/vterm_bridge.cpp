@@ -67,6 +67,9 @@ bool VTermBridge::init(int rows, int cols) {
         self->markDirty();  // 滚出一行 = 整屏上移
         return 1;
     };
+    // libvterm 默认不启用备用屏：不调这句的话 ?1049h 被忽略，VTERM_PROP_ALTSCREEN 永远不报，
+    // 全屏 TUI（pi/vim/less）就变成"在普通屏上画"，滚轮也永远走不到转发分支
+    vterm_screen_enable_altscreen(screen_, 1);
     vterm_screen_set_callbacks(screen_, &cb, this);
     vterm_screen_set_damage_merge(screen_, VTERM_DAMAGE_SCROLL);
     vterm_screen_reset(screen_, 1);
