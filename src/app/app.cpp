@@ -996,8 +996,34 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 pos += vel * kDt;
             };
 
+            // 稀疏层（这一层用到的格子装得进键窗）→ 相机对准整块中心，不对准选中键。
+            // 否则块占 3 列时选中边列，窗口一挪必有 1 列被挤出屏幕（NUM 层"右边看不见"就是这么来的）；
+            // 只占 2 列时又总有一列空白。装不下（ALPHA 满 5 列）就还是跟选中键。
+            auto blockCenter = [&](int base, float& bx, float& by) -> bool {
+                int c0 = 9, c1 = -1, r0 = 9, r1 = -1;
+                for (int k = 0; k < 20; ++k) {
+                    if (uic.layers[st.layer][base + k].empty()) continue;
+                    const int col = k % 5, row = k / 5;
+                    c0 = std::min(c0, col);
+                    c1 = std::max(c1, col);
+                    r0 = std::min(r0, row);
+                    r1 = std::max(r1, row);
+                }
+                if (c1 < 0) return false;
+                if (c1 - c0 + 1 > uic.keyWindowCols || r1 - r0 + 1 > uic.keyWindowRows) return false;
+                const int i0 = base + r0 * 5 + c0, i1 = base + r1 * 5 + c1;
+                bx = (keyCx[i0] + keyCx[i1]) * 0.5f;
+                by = (keyCy[i0] + keyCy[i1]) * 0.5f;
+                return true;
+            };
             // 目标 = 选中键中心（未吸附时 = 最近的高亮键，绝不对准空白）
-            auto camTarget = [&](const app::physics::Pointer& p, float& tx, float& ty) {
+            auto camTarget = [&](const app::physics::Pointer& p, int base, float& tx, float& ty) {
+                float bx, by;
+                if (blockCenter(base, bx, by)) {
+                    tx = bx;
+                    ty = by - camHomeOffY;
+                    return;
+                }
                 if (p.snapped < 0) {
                     // 没吸附：贴最近的高亮键；连高亮都没有（指针在空槽里）就原地不动，
                     // 绝不把画布对准空白（"吸住空气"就是这么来的）
@@ -1011,8 +1037,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 }
             };
             float tlx, tly, trx, try_;
-            camTarget(ptrL, tlx, tly);
-            camTarget(ptrR, trx, try_);
+            camTarget(ptrL, 0, tlx, tly);
+            camTarget(ptrR, 20, trx, try_);
             camStep(camLx, camVx, tlx);
             camStep(camLy, camVy, tly);
             camStep(camRx, camRVx, trx);
