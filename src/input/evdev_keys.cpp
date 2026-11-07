@@ -51,7 +51,7 @@ int EvdevSysKeys::open() {
         // IMU（陀螺仪）/ Serial（序列号）是手柄的辅助节点；能力位图里没有按键，按名字再挡一次。
         // CEC 是 HDMI 遥控透传，它也带 114/115（电视遥控的音量），不挡会变成幽灵音量键
         if (std::strstr(name, "IMU") != nullptr || std::strstr(name, "Serial") != nullptr ||
-            std::strstr(name, "CEC") != nullptr) {
+            std::strstr(name, "cec") != nullptr || std::strstr(name, "CEC") != nullptr) {
             ::close(fd);
             continue;
         }
