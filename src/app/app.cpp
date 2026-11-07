@@ -288,6 +288,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     auto applyOverlayShape = [&] {
         if (overlayMode) {
             overlay.setAlwaysOnTop();  // 只发一次：WM 会记住；窗口重建才需要再发
+            overlay.setNoFocus();      // 覆盖层不接受焦点（否则会跟 openbox 的切换打架）
             overlay.applyShape(overlayRects(g), g.screenW, g.screenH);
         }
     };
@@ -593,10 +594,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         const bool actIsUs = act == 0 || act == hostWin;
         if (!actIsUs) {
             frontWin = act;
-        } else {
-            // 我们自己占着活动窗口：把焦点还给前台那个；从来没记到过就挑列表里第一个
-            if (!frontWin && !wins.empty()) frontWin = wins.front().id;
-            if (frontWin) overlay.focus(frontWin);
+        } else if (!frontWin) {
+            // 只在从没记到过活动窗口时补一次（启动瞬间）：挑列表第一个给它焦点。
+            // 平时绝不抢——抢焦点会跟 openbox 的 Alt+Up 切换互相打架
+            if (!wins.empty()) {
+                frontWin = wins.front().id;
+                overlay.focus(frontWin);
+            }
         }
         bool diff = act != st.activeWin || wins.size() != st.windows.size();
         for (size_t i = 0; !diff && i < wins.size(); ++i)

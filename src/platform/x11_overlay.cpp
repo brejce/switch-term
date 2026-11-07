@@ -87,6 +87,19 @@ void X11Overlay::setAlwaysOnTop() {
     XFlush(dpy_);
 }
 
+void X11Overlay::setNoFocus() {
+    if (!dpy_ || !host_) return;
+    ErrorGuard guard(dpy_);
+    XWMHints* h = XGetWMHints(dpy_, host_);
+    if (!h) h = XAllocWMHints();
+    if (!h) return;
+    h->flags |= InputHint;
+    h->input = False;  // 不接受键盘焦点
+    XSetWMHints(dpy_, host_, h);
+    XFree(h);
+    XFlush(dpy_);
+}
+
 void X11Overlay::focus(unsigned long w) {
     if (!dpy_ || !w || w == host_) return;
     ErrorGuard guard(dpy_);  // frontWin 可能刚好已经被关掉
