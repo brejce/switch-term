@@ -797,6 +797,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         // 这里现算修饰态（和 st.modAlt 同一套 locks|holding|sticky，但不晚一帧），Alt 优先于 Shift；
         // 没按 Alt 时 R/ZR 原样走 keymap（光标左/右，带 Shift 时上/下）
         const int modsLive = bd->locks | bd->holding | bd->sticky;
+        if (std::getenv("SIT_DEBUG"))
+            std::fprintf(stderr, "[pad] btn=%d mods=%d overlay=%d\n", btn, modsLive, overlayMode ? 1 : 0);
         if (overlayMode && (modsLive & 4) && (btn == cfg::kRB || btn == cfg::kRT)) {
             if (btn == cfg::kRB) ukbd.tapAltUp();
             else ukbd.tapAltDown();
