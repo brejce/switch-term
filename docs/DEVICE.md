@@ -993,3 +993,29 @@ WantedBy=multi-user.target
 
 `Color Mode:` 子菜单在本机**不出现**：源码里 `color_modes = False` 写死，运行时还被 helper 探测覆盖
 （`panel_color_mode` 节点存在才显示）。要改面板配色只能直接写 `/sys/devices/50000000.host1x/tegradc.0/panel_color_mode`。
+
+## 15. overlay 形态：openbox + 真终端（2026-11-07）
+
+目标形态：不再自绘终端，改成「窗口管理器管真窗口 + 我们只画覆盖层」。
+
+```
+顶栏（我们画，XShape 可见区之一）：前台窗口完整标题，其它窗口只显示标题前两个码位
+中间（我们窗口的"洞"）：alacritty / chromium 的真实窗口，触摸点击直接落到它们身上
+左右侧栏（我们画）：现有键区、吸附、震动、IME —— 逻辑一行没改
+```
+
+要点与踩过的坑：
+
+- **没有合成器**，所以"透明"只能用 `XShape`：`ShapeBounding`（看得见）和 `ShapeInput`（点得到）
+  设成同一组矩形 = 顶栏 + 左右侧栏，中间是真空洞。
+- 覆盖层必须 `_NET_WM_STATE_ABOVE`（否则普通窗口盖住顶栏和键区）；同时它会成为"活动窗口"，
+  所以每 500ms 把 X 焦点还给真正的那个窗口，否则 uinput 打的字全进覆盖层自己。
+- **Xlib 默认错误处理是 exit**：`XSetInputFocus` 撞上刚被关掉的窗口会 `BadWindow` 直接带走进程，
+  X 写操作都要包 `ErrorGuard`（`src/platform/x11_overlay.cpp`）。
+- 窗口几何靠 openbox 的 per-app 规则钉死（`~/.config/openbox/rc.xml` 的 `<applications>` 里，
+  **必须在 `<applications>` 段内**，写到 `</openbox_config>` 前是无效的）：
+  `decor=no` + `position force=yes` 176,32 + `size` 928x662。chromium 会自己 resize，
+  得用它的 `--window-position=176,32 --window-size=928,662`。
+- 切窗口：我们合成 `Alt+Up` / `Alt+Down`（`Alt` = DPAD_RIGHT），openbox 绑 `A-Up`=NextWindow、
+  `A-Down`=PreviousWindow。为什么不是裸方向键：那样 openbox 会把方向键全吞掉，alacritty 里就用不了。
+- 一键启动：`tools/start-overlay.sh`。
