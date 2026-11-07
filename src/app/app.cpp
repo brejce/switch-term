@@ -258,6 +258,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // overlay 形态没有 PTY：键只能当虚拟键盘打给系统当前焦点窗口（alacritty/chromium）
     const bool overlayMode = uic.mode == "overlay" || std::getenv("SIT_OVERLAY") != nullptr;
     if (overlayMode) eng.sink = "uinput";
+    // overlay 下默认关掉我们自己的 IME：组字中的候选条没有地方画（终端区已经是别人的窗口了），
+    // 打开只会让"敲字母什么都看不见"。要中文就交给系统输入法（fcitx5），或等候选条做好。
+    // SIT_IME=1 可强制打开（调试用）
+    if (overlayMode && !std::getenv("SIT_IME")) eng.imeEnabled = false;
 
     // 输出口：uinput = 当虚拟键盘打给系统；打不开就回落 pty（不抢键、不少一条警告）
     input::UinputKeyboard ukbd;
