@@ -7,23 +7,6 @@
 #include <cstdio>
 
 namespace disp {
-namespace {
-
-// Xlib 的默认错误处理是 exit：对已经销毁的窗口 reparent/map/setfocus 都会报
-// BadWindow/BadMatch，不能让"某个窗口刚被关掉"顺手带走我们的覆盖层
-int ignoreXError(Display*, XErrorEvent*) { return 0; }
-
-struct ErrorGuard {
-    Display* dpy;
-    XErrorHandler prev;
-    explicit ErrorGuard(Display* d) : dpy(d), prev(XSetErrorHandler(ignoreXError)) {}
-    ~ErrorGuard() {
-        XSync(dpy, False);
-        XSetErrorHandler(prev);
-    }
-};
-
-}  // namespace
 
 namespace {
 
