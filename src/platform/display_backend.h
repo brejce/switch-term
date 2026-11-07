@@ -106,6 +106,9 @@ public:
         return false;
     }
     virtual const char* name() const = 0;
+    // 这个后端把画布送上屏幕时做了多少度旋转（0/90/180/270）。触摸坐标要按同一个量反向换算：
+    // fbdev 自己把 1280x720 画布转进 720x1280 的 fb，所以是 270；X/SDL 窗口就是画布尺寸，是 0
+    virtual int displayRotation() const { return 0; }
 
     // 鼠标位置（帧缓冲坐标，-1 = 指针不在画面内/从没动过）。后端写，主循环读来算悬停格。
     // 默认 -1：无鼠标后端（fbdev/headless）+ 手柄时悬停不能把选中清掉。

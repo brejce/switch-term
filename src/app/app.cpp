@@ -377,7 +377,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     // 触屏也归输入层：fbdev 与 SDL(X) 共用这一份（拖动翻页 / 轻点），后端不再管
     input::EvdevTouch evTouch;
-    evTouch.setRotation(eng.rotate);
+    evTouch.setRotation(bd->displayRotation());
     evTouch.open();
     if (evTouch.count() > 0) std::fprintf(stderr, "touch: %s\n", evTouch.name().c_str());
 
@@ -785,7 +785,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 g.fromConfig(uic, ui::layout::kScale);
                 bd->setCanvasSize(g.screenW, g.screenH);
                 bd->setRotation(eng.rotate);
-                evTouch.setRotation(eng.rotate);
+                evTouch.setRotation(bd->displayRotation());
                 fonts.init(fm);
                 fullNext = true;  // 布局可能变了：整屏重画一次，别拿旧脏区套新几何
                 for (Term& t : terms) {

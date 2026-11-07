@@ -123,6 +123,7 @@ public:
     }
 
     void setRotation(int deg) override { rot_ = ((deg % 360) + 360) % 360; }
+    int displayRotation() const override { return rot_; }
 
     // 控制台键盘：stdin 已在 raw 模式，Ctrl+Q 退出，其余原样送 PTY
     bool pump(std::string& keys, std::vector<disp::ClickEvent>& clicks) override {
