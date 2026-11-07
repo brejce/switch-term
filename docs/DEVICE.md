@@ -962,8 +962,8 @@ WantedBy=multi-user.target
 
 | 菜单项 | 实际命令/行为 |
 |---|---|
-| `Apps: Tegra Stats` | `x-terminal-emulator -e pkexec tegrastats-l4t`（看实时 CPU/GPU/EMC/内存） |
-| `Reboot 2 Config` | `pkexec r2c`（switchroot 的启动配置切换） |
+| `Apps: Tegra Stats` | `x-terminal-emulator -e pkexec tegrastats-l4t`：L4T 自带的实时监控（C 程序，读 /sys + /proc），一行形如 `RAM 1263/3992M` / `CPU 8%@1785 11%@1785 …` / `EMC_FREQ 1%@1600 GR3D_FREQ 0%@76`。**验证 powermode 是否生效最快的办法**（括号里的频率就是当前上限档位） |
+| `Reboot 2 Config` | `pkexec r2c`（`/usr/bin/r2c`，252 行 bash + yad 图形列表 "Choose an entry to reboot to:"）：选一个启动项，写 `/sys/devices/r2p/action` + `param1/param2` 然后**立刻 reboot**，进 Hekate / Android / 另一个 Linux，不改当前系统的启动文件。`/sys/devices/r2p` 是 switchroot 内核的 "reboot to payload" 驱动 |
 | `Joy-Con Mapping Help` | 开一个 GTK 窗口显示 `jc_map.png`（就是手柄映射的那张图） |
 | `Settings: Automatic profiles` | 勾选 = `/var/lib/nvpmodel/auto_profiles` 为 1（见 §14.3） |
 
