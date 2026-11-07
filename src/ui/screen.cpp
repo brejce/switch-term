@@ -506,9 +506,8 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
     drawAbxy(r, f, rightX + (g.panelW - 3 * g.abxyCell) / 2, dy, g.abxyCell, s, st.pressedKey);
 
     // 面板底部提示表：左右各一张，贴着面板下沿
+    // 肩键（L/ZL、R/ZR）不写在这里：面板顶部那行已经画了，重复只是噪声
     static const HintRow kLeftHints[] = {
-        {"L", "魔法键"},
-        {"ZL", "空格"},
         {"L3", "切层"},
         {"DPAD", "修饰"},
         {"双击DPAD", "锁定"},
@@ -518,19 +517,11 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
         {"B", "退格"},
         {"X", "Del"},
         {"Y", "Esc"},
-        {"R/ZR", "光标←→"},
-    };
-    static const HintRow kRightHintsShift[] = {
-        {"A", "回车"},
-        {"B", "退格"},
-        {"X", "Del"},
-        {"Y", "Esc"},
-        {"R/ZR", "光标↑↓"},
     };
     drawHints(r, f, 0, g.contentY, g.panelW, g.contentH, kLeftHints,
               int(sizeof(kLeftHints) / sizeof(kLeftHints[0])), s);
-    const HintRow* rh = st.modShift ? kRightHintsShift : kRightHints;
-    drawHints(r, f, rightX, g.contentY, g.panelW, g.contentH, rh, 5, s);
+    drawHints(r, f, rightX, g.contentY, g.panelW, g.contentH, kRightHints,
+              int(sizeof(kRightHints) / sizeof(kRightHints[0])), s);
 }
 
 void drawTermBackground(render::Renderer& r, const FontBook& f, const Geometry& g) {
