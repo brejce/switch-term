@@ -255,6 +255,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                  eng.logLevel.c_str(), eng.logPath.empty() ? "" : "@", eng.logPath.c_str(),
                  eng.ngram, eng.imeEnabled ? "on" : "off", eng.rotate);
 
+    // overlay 形态没有 PTY：键只能当虚拟键盘打给系统当前焦点窗口（alacritty/chromium）
+    const bool overlayMode = uic.mode == "overlay" || std::getenv("SIT_OVERLAY") != nullptr;
+    if (overlayMode) eng.sink = "uinput";
+
     // 输出口：uinput = 当虚拟键盘打给系统；打不开就回落 pty（不抢键、不少一条警告）
     input::UinputKeyboard ukbd;
     if (eng.sink == "uinput" && !ukbd.open()) {
@@ -274,7 +278,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // overlay：只当压在 openbox 上面的覆盖层，中间挖洞让给下面的 alacritty / chromium。
     // 形态只在启动时定：运行中换要重建窗口和 PTY，热重载那里只提示不切
     // SIT_OVERLAY=1 强制 overlay：试跑用，免得为了试一次去改 config（设备上的 git 工作区要保持干净才能 push）
-    const bool overlayMode = uic.mode == "overlay" || std::getenv("SIT_OVERLAY") != nullptr;
+
     disp::X11Overlay overlay;
     if (overlayMode &&
         !overlay.init(static_cast<Display*>(bd->nativeDisplay()),
@@ -885,9 +889,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             }
         }
 
-        // ④ 输入路由：行为都在 app::routeKey / routeRaw 里（可单测）
-        // overlay 模式没有终端：键盘字节没人收，这层路由整段跳过
-        if (!overlayMode) {
+        // ④ 输入路由：行为都在 app::routeKey / routeRaw 里（可单测）。
+        // overlay 下也要跑——产出的字节由 uinput 打给系统焦点窗口，不是丢进 PTY
+        {
             for (char ch : keys) {
                 RouteResult rr = route(ch, modMask());
                 pending += rr.bytes;
