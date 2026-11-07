@@ -31,7 +31,6 @@
 #include "input/uinput_mouse.h"
 #include "modules/terminal/terminal_parser.h"
 #include "platform/damage.h"
-#include "platform/x11_guest.h"
 #include "render/font_manager.h"
 #include "render/renderer.h"
 #include "term/osc_filter.h"
@@ -262,12 +261,6 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     g.fromConfig(uic, ui::layout::kScale);
     bd->setCanvasSize(g.screenW, g.screenH);
     bd->setRotation(eng.rotate);  // engine.display.rotate（仅 fbdev 生效）
-    // GUI 子程序收编：只有 X11（SDL）后端有原生窗口可嵌；fbdev/headless 的 nativeWindow() 恒 0，
-    // 下面每一处都先判它，非 X 路径零影响
-    disp::X11Guest xguest;
-    const bool xembed = bd->nativeDisplay() && bd->nativeWindow() &&
-                        xguest.init(static_cast<Display*>(bd->nativeDisplay()),
-                                    static_cast<Window>(bd->nativeWindow()));
 
     render::FontManager fm;
     if (!fm.init()) return 1;
@@ -284,9 +277,6 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         std::string title;
         std::string pend;  // OSC 跨 read 的残余（见 term/osc_filter.h）
         int scroll = 0;    // 回看行数；0 = 跟随最新输出
-        // 嵌进来的 GUI 窗口（tab 里敲 chromium 这类）：没有 WM，只有我们自己知道它在哪
-        unsigned long guest = 0;
-        bool guestMapped = false, guestHidden = false;
     };
     std::vector<Term> terms;
     int active = 0;
@@ -318,15 +308,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         std::unique_ptr<term::Pty> pty(new term::Pty);
         if (!pty->spawn(argv, g.termCols, g.termRows, termCwd, home)) return false;
         terms.push_back(
-            {std::move(tp), std::move(pty), "TERM " + std::to_string(++tabSeq), {}, 0, 0, false});
+            {std::move(tp), std::move(pty), "TERM " + std::to_string(++tabSeq), {}, 0});
         return true;
     };
 
     // 关第 i 个 tab；只剩一个时原地重启（像 xterm，窗口不空）
     auto closeTab = [&](int i) {
         if (i < 0 || i >= int(terms.size())) return;
-        // 关的 tab 上还嵌着 GUI 窗口就先收起来：Term 一没了，就再没人认领它
-        if (terms[i].guest) xguest.show(terms[i].guest, false);
         if (terms.size() > 1) {
             int a = tabAfterClose(active, int(terms.size()));
             if (i < active) a = active - 1;  // 关的是活动 tab 前面的：后面的全体前移一位
@@ -750,7 +738,6 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         }
     };
     long long lastBlink = 0;
-    long long guestPollAt = 0;  // 上次找 GUI 子程序窗口的时刻（ms）
     bool cursorOn = true;
     bool running = true;
     bool prevAnimating = false;  // 上一帧在动？用来补画动画收尾那一次
@@ -982,49 +969,6 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             if (tab < 0) continue;
             if (tab == int(terms.size())) spawnTerm();
             else active = tab;
-        }
-
-        // GUI 子程序收编：只有 X11(SDL) 后端有 nativeWindow()，其余后端整段跳过。
-        // 每 500ms 看一眼（用现成的 msNow 计时，不新增线程/定时器）；没有窗口管理器，
-        // 位置和大小都是我们给它的，直接就是终端区矩形（1:1 像素，不缩放）
-        if (xembed) {
-            Term& at = terms[active];
-            if (nowMs - guestPollAt >= 500) {
-                guestPollAt = nowMs;
-                // 每个 tab 各自对账：窗口可能被销毁（程序退出），也可能被 reparent 之后重建
-                //（chromium 就会重建）——只记一次"发现时的那个窗口"必然会留下一个盖住全屏的新窗口
-                for (Term& t : terms) {
-                    if (t.guest && !xguest.alive(t.guest)) {
-                        t.guest = 0;
-                        t.guestMapped = t.guestHidden = false;
-                        uiDirty = true;
-                    }
-                    const unsigned long w = xguest.findChildWindow(t.pty->pid());
-                    if (w && w != t.guest) {
-                        if (t.guest) xguest.show(t.guest, false);
-                        t.guest = w;
-                        t.guestMapped = t.guestHidden = false;
-                    }
-                }
-            }
-            for (Term& t : terms) {
-                if (!t.guest) continue;
-                if (&t == &at) {
-                    if (!t.guestMapped) {
-                        t.guestMapped =
-                            xguest.adopt(t.guest, g.termX, g.contentY, g.termW, g.contentH);
-                        t.guestHidden = !t.guestMapped;
-                        if (!t.guestMapped) {  // 记着的窗口已经不在了：当这个 tab 没有 GUI 程序
-                            t.guest = 0;
-                            uiDirty = true;
-                        }
-                    }
-                } else if (!t.guestHidden) {
-                    xguest.show(t.guest, false);  // 别的 tab 的窗口一律收起，否则会盖住当前终端
-                    t.guestHidden = true;
-                    t.guestMapped = false;
-                }
-            }
         }
 
         // ⑥ 画
@@ -1265,10 +1209,6 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         if (n < 0) running = false;
     }
 
-    // 宿主窗口马上就销毁了，先把 GUI 窗口交还根窗口，别把它一起带走
-    for (Term& t : terms)
-        if (t.guest) xguest.release(t.guest);
-    xguest.shutdown();
     if (ukbd.dropped())
         std::fprintf(stderr, "uinput: 丢弃 %zu 个非 ASCII 字符（中文需要 fcitx5/wtype，见 DESIGN §4.4）\n",
                      ukbd.dropped());
