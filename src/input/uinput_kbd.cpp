@@ -80,15 +80,17 @@ bool UinputKeyboard::open(const char* name) {
     ::ioctl(fd_, UI_SET_EVBIT, EV_SYN);
     for (int k = 1; k < 128; ++k) ::ioctl(fd_, UI_SET_KEYBIT, k);  // 够 ASCII 用
 
-    uinput_user_dev dev;
-    std::memset(&dev, 0, sizeof dev);
-    std::snprintf(dev.name, UINPUT_MAX_NAME_SIZE, "%s", name);
-    dev.id.bustype = BUS_USB;
-    dev.id.vendor = 0x1209;   // 自定义
-    dev.id.product = 0x0001;
-    dev.id.version = 1;
-    if (::write(fd_, &dev, sizeof dev) < 0) {
-        std::fprintf(stderr, "uinput: 写入设备描述失败: %s\n", std::strerror(errno));
+    // 用新的 UI_DEV_SETUP：同样发 Alt+Up，老的 uinput_user_dev 写法在这台机器上
+    // 建出来的设备 X 认得（xinput 里能看到）但按键事件不生效，实测切不了窗口
+    struct uinput_setup us;
+    std::memset(&us, 0, sizeof us);
+    std::snprintf(us.name, UINPUT_MAX_NAME_SIZE, "%s", name);
+    us.id.bustype = BUS_USB;
+    us.id.vendor = 0x1209;   // 自定义
+    us.id.product = 0x0001;
+    us.id.version = 1;
+    if (::ioctl(fd_, UI_DEV_SETUP, &us) < 0) {
+        std::fprintf(stderr, "uinput: UI_DEV_SETUP 失败: %s\n", std::strerror(errno));
         close();
         return false;
     }
