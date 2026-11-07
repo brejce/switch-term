@@ -172,6 +172,16 @@ disp::X11Guest xguest;   // 找窗 / adopt / show / alive / release
 
 ## 4. IME 层
 
+**2026-11-07 真机实测（chromium）**：
+
+- 收编成功：`XReparentWindow` 后 chromium 窗口成为我们窗口的子窗口，几何正好是终端区
+  （`928x662+176+32`，即 `termX/contentY/termW/contentH`），切 tab 时能正确 unmap/map。
+- **chromium 被 reparent 后会重建自己的窗口**（新的仍在根下），所以每收编一次都可能多出一个
+  旧窗口。因此窗口记录必须**按 tab 各自持有**、每 500ms 重新对账（死了清、换了换、非当前 tab
+  一律 unmap）；只记"发现时的那个窗口"会导致新窗口永远露着、盖住所有 tab。
+- 挑窗口要选**面积最大且 IsViewable** 的那个：chromium 一个进程会开 4 个顶层窗
+  （主窗 + 200×200 辅助 + 剪贴板），挑第一个会嵌进一个看不见的小窗。
+
 ### 4.1 分层
 
 ```
