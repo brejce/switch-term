@@ -282,7 +282,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         std::fprintf(stderr, "ui: mode=overlay 但拿不到 X 窗口（不是 X11 会话？），中间不会挖洞\n");
     // 窗口尺寸变了就得重算洞的位置：几何一变（启动/缩放/热重载）都走这里
     auto applyOverlayShape = [&] {
-        if (overlayMode) overlay.applyShape(overlayRects(g), g.screenW, g.screenH);
+        if (overlayMode) {
+            overlay.setAlwaysOnTop();  // 只发一次：WM 会记住；窗口重建才需要再发
+            overlay.applyShape(overlayRects(g), g.screenW, g.screenH);
+        }
     };
     applyOverlayShape();
 

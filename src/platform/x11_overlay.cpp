@@ -68,6 +68,23 @@ bool X11Overlay::init(Display* dpy, Window host) {
     return true;
 }
 
+void X11Overlay::setAlwaysOnTop() {
+    if (!dpy_ || !host_) return;
+    // 用 EWMH 的 _NET_WM_STATE 加 ABOVE：openbox 会把它放到 above 层，普通窗口就在下面了
+    XEvent ev{};
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = host_;
+    ev.xclient.message_type = XInternAtom(dpy_, "_NET_WM_STATE", False);
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = 1;  // 1 = _NET_WM_STATE_ADD
+    ev.xclient.data.l[1] = long(XInternAtom(dpy_, "_NET_WM_STATE_ABOVE", False));
+    ev.xclient.data.l[2] = 0;
+    ev.xclient.data.l[3] = 2;  // source = pager
+    XSendEvent(dpy_, DefaultRootWindow(dpy_), False,
+               SubstructureNotifyMask | SubstructureRedirectMask, &ev);
+    XFlush(dpy_);
+}
+
 void X11Overlay::applyShape(const std::vector<Rect>& visible, int screenW, int screenH) {
     if (!dpy_ || !host_ || !shapeOk_) return;
     std::vector<XRectangle> rects;

@@ -19,6 +19,9 @@ public:
     // visible = 要保留的矩形（窗口内坐标，屏幕像素）。两个 shape 必须同时设成同一组：
     // ShapeBounding 管"看得见"、ShapeInput 管"点得到"。只设前者的话洞里的鼠标仍被我们收走，
     // 下面的终端永远点不动；只设后者则是看得见但点不穿的灰板。
+    // 覆盖层必须永远在最上层（否则普通窗口会盖住顶栏和键区）；
+    // 没有 WM 时这一句会被忽略，不影响
+    void setAlwaysOnTop();
     void applyShape(const std::vector<Rect>& visible, int screenW, int screenH);
 
     struct Win {
