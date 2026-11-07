@@ -227,7 +227,12 @@ public:
                                             (e.key.keysym.mod & KMOD_ALT) || (locks & 4));
                     break;
                 case SDL_MOUSEBUTTONDOWN: {
-                    if (e.button.which == SDL_TOUCH_MOUSEID) break;  // 触摸由 FINGER* 判滑动/轻点
+                    // 触摸产生的鼠标事件不能丢：X 下触摸屏由 X/libinput 管，轻点就是 button 1；
+                    // 以前这里 break 掉等 SDL_FINGER*，但那个分支根本不存在 → 只能 hover 不能点
+                    if (std::getenv("SIT_DEBUG"))
+                        std::fprintf(stderr, "[mouse] down which=%d btn=%d at (%d,%d)\n",
+                                     int(e.button.which), int(e.button.button), e.button.x,
+                                     e.button.y);
                     // 用 e.button.button 判键：左=1 右=3 中=2 → 我们的 1/2/3
                     const int btn = e.button.button == SDL_BUTTON_LEFT     ? 1
                                     : e.button.button == SDL_BUTTON_RIGHT ? 2
