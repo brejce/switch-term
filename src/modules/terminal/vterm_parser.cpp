@@ -11,6 +11,9 @@ public:
     bool init(int rows, int cols) override { return bridge_.init(rows, cols); }
     void resize(int rows, int cols) override { bridge_.resize(rows, cols); }
     void feed(const char* data, size_t len) override { bridge_.feed(data, len); }
+    bool altScreen() const override { return bridge_.altScreen(); }
+    bool mouseReports() const override { return bridge_.mouseReports(); }
+    bool mouseSgr() const override { return bridge_.mouseSgr(); }
 
     Cell cellAt(int row, int col) const override {
         term::CellView v = bridge_.cellAt(row, col);

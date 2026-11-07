@@ -30,6 +30,10 @@ public:
     // 滚动历史（可选，默认不支持）
     virtual void setHistoryLimit(int lines) { (void)lines; }  // engine.terminal.scrollback
     virtual int historySize() const { return 0; }
+    // 备用屏里没有 scrollback：滚轮要转发给里面的程序（见 app 的 wheel 处理）
+    virtual bool altScreen() const { return false; }
+    virtual bool mouseReports() const { return false; }
+    virtual bool mouseSgr() const { return false; }
     virtual Cell historyAt(int line, int col) const {
         (void)line;
         (void)col;

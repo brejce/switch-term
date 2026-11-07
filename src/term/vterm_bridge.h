@@ -45,17 +45,26 @@ public:
     bool rowDirty(int row) const;
     void markRowDirty(int row);
     bool cursorVisible() const { return cursorVisible_; }
+    // 备用屏（vim/less/pi 这类全屏 TUI）：这里没有 scrollback，滚轮要转发给里面的程序
+    bool altScreen() const { return altScreen_; }
+    // 里面的程序开了鼠标上报（?1000/?1002/?1003）与 SGR 坐标（?1006）
+    bool mouseReports() const { return mouse_; }
+    bool mouseSgr() const { return mouseSgr_; }
     size_t bytesIn() const { return bytesIn_; }
 
 private:
     uint32_t colorOf(VTermColor c, bool isFg) const;
     CellView toView(const VTermScreenCell& c) const;
     void markRows(int first, int last);  // [first, last) 行变脏
+    // shortcut: CSI ?N h/l 只在单次 feed 内识别（跨 read 拆开的情况忽略）——
+    // 这些模式都是程序启动时一次性设的，拆开几乎不会发生
+    void scanModes(const char* p, size_t n);
 
     VTerm* vt_ = nullptr;
     VTermScreen* screen_ = nullptr;
     bool dirty_ = true;
     bool cursorVisible_ = true;
+    bool altScreen_ = false, mouse_ = false, mouseSgr_ = false;
     int rows_ = 0, cols_ = 0;
     std::vector<uint8_t> rowDirty_;  // 每行一个字节（用 vector 是为了不引入 <bitset>）
     std::deque<std::vector<CellView>> hist_;

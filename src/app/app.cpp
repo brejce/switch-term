@@ -932,9 +932,30 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         if (bd->wheel != 0) {
             if (std::getenv("SIT_DEBUG")) std::fprintf(stderr, "[touch] wheel=%d\n", bd->wheel);
             Term& t = terms[active];
-            t.scroll = std::clamp(t.scroll + bd->wheel, 0, t.tp->historySize());
+            const int w = bd->wheel;
             bd->wheel = 0;
-            t.tp->markDirty();
+            if (t.tp->altScreen()) {
+                // 备用屏（vim / less / pi 这类全屏 TUI）没有 scrollback，本地滚就是滚空气：
+                // 得把滚轮转发给里面的程序。开了鼠标上报就发 SGR 滚轮（xterm 同款），
+                // 没开就退成方向键——这是各终端模拟器的通用兜底
+                const int n = std::min(std::abs(w), 10);  // 一帧最多 10 下，别糊屏
+                std::string seq;
+                char buf[40];
+                for (int i = 0; i < n; ++i) {
+                    if (t.tp->mouseReports() && t.tp->mouseSgr()) {
+                        // 指针位置我们用终端中心（没有真实指针坐标，程序只关心方向）
+                        std::snprintf(buf, sizeof buf, "\x1b[<%d;%d;%dM", w > 0 ? 64 : 65,
+                                      t.tp->cols() / 2 + 1, t.tp->rows() / 2 + 1);
+                        seq += buf;
+                    } else {
+                        seq += w > 0 ? "\x1b[A" : "\x1b[B";
+                    }
+                }
+                if (!seq.empty()) t.pty->writeMaster(seq.data(), seq.size());
+            } else {
+                t.scroll = std::clamp(t.scroll + w, 0, t.tp->historySize());
+                t.tp->markDirty();
+            }
         }
 
         // 鼠标：只处理 tab 条（点「+」新建，点已有 tab 切过去）；键区暂时不接鼠标

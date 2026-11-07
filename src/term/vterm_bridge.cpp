@@ -57,6 +57,7 @@ bool VTermBridge::init(int rows, int cols) {
     cb.settermprop = [](VTermProp prop, VTermValue* val, void* u) {
         auto* self = static_cast<VTermBridge*>(u);
         if (prop == VTERM_PROP_CURSORVISIBLE) self->cursorVisible_ = val->boolean != 0;
+        if (prop == VTERM_PROP_ALTSCREEN) self->altScreen_ = val->boolean != 0;
         self->markDirty();
         return 1;
     };
@@ -82,8 +83,27 @@ void VTermBridge::resize(int rows, int cols) {
     dirty_ = true;
 }
 
+void VTermBridge::scanModes(const char* p, size_t n) {
+    for (size_t i = 0; i + 3 < n; ++i) {
+        if (p[i] != '\x1b' || p[i + 1] != '[' || p[i + 2] != '?') continue;
+        size_t j = i + 3;
+        int val = 0;
+        bool any = false;
+        while (j < n && p[j] >= '0' && p[j] <= '9') {
+            val = val * 10 + (p[j] - '0');
+            any = true;
+            ++j;
+        }
+        if (!any || j >= n || (p[j] != 'h' && p[j] != 'l')) continue;
+        const bool on = p[j] == 'h';
+        if (val == 1000 || val == 1002 || val == 1003) mouse_ = on;
+        else if (val == 1006) mouseSgr_ = on;
+    }
+}
+
 void VTermBridge::feed(const char* bytes, size_t n) {
     if (!vt_) return;
+    scanModes(bytes, n);
     vterm_input_write(vt_, bytes, n);
     bytesIn_ += n;
     vterm_screen_flush_damage(screen_);
