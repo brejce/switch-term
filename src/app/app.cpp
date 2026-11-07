@@ -29,6 +29,7 @@
 #include "input/rumble.h"
 #include "input/uinput_kbd.h"
 #include "input/uinput_mouse.h"
+#include "input/uinput_mouse.h"
 #include "modules/terminal/terminal_parser.h"
 #include "platform/damage.h"
 #include "platform/x11_overlay.h"
@@ -265,12 +266,15 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     // 输出口：uinput = 当虚拟键盘打给系统；打不开就回落 pty（不抢键、不少一条警告）
     input::UinputKeyboard ukbd;
+    UInputMouse umouse;   // overlay：触摸 → 系统鼠标（移动+点击）
+    disp::Point lastTouchPt{-1, -1};
     if (eng.sink == "uinput" && !ukbd.open()) {
         std::fprintf(stderr,
                      "警告：/dev/uinput 打不开，回落到 pty（需要 root 或 input 组 / udev 规则）\n");
         eng.sink = "pty";
     }
     const bool useUinput = eng.sink == "uinput";
+    if (overlayMode) umouse.ensure(1280, 720);  // 量程 = 屏幕像素（X 下画布与屏幕 1:1）
     if (useUinput)
         std::fprintf(stderr, "sink: uinput（打到前台程序；PTY 仅作监视器，按键不写进去）\n");
 
@@ -838,6 +842,24 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         running = bd->pump(keys, clicks);
         // 触屏事件每帧取一次：clicks 追加轻点，bd->wheel 累加翻页行数（后面统一消费并清零）
         evTouch.pump(clicks, bd->wheel, g.screenW, g.screenH);
+        // overlay：X 把这台触摸屏当"绝对坐标鼠标"（没有 INPUT_PROP_DIRECT/BTN_TOOL_FINGER），
+        // 只出移动不出按下 → 我们自己读触摸，用标准鼠标把"移动 + 左键点击"打进系统
+        if (overlayMode && umouse.ok()) {
+            if (evTouch.down()) {
+                const disp::Point p = evTouch.lastPoint(g.screenW, g.screenH);
+                if (p.x != lastTouchPt.x || p.y != lastTouchPt.y) {
+                    umouse.moveTo(p.x, p.y);
+                    lastTouchPt = p;
+                }
+            }
+            for (const disp::ClickEvent& ck : clicks) {
+                umouse.moveTo(ck.x, ck.y);
+                if (std::getenv("SIT_DEBUG"))
+                    std::fprintf(stderr, "[touchptr] click at (%d,%d)\n", ck.x, ck.y);
+                umouse.click(0x110);  // BTN_LEFT
+                lastTouchPt = {ck.x, ck.y};
+            }
+        }
         if (bd->uiDirty) {  // 窗口尺寸变了：重排 + 重建字体
             bd->uiDirty = 0;
             float want = bd->scaleHint(ui::layout::kDesignW, ui::layout::kDesignH);

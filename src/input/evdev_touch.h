@@ -28,6 +28,9 @@ public:
     // 读一帧事件：clicks 追加轻点（画布坐标），wheel 累加翻页行数（正 = 向上回看）。
     // canvasW/canvasH = 画布尺寸（跟后端 setCanvasSize 同值），触摸坐标换算到它上面
     void pump(std::vector<disp::ClickEvent>& clicks, int& wheel, int canvasW, int canvasH);
+    // overlay：由我们把触摸转成系统鼠标（X 认不出这台触摸屏，只出 motion 不出按下）
+    bool down() const { return active_; }
+    disp::Point lastPoint(int canvasW, int canvasH) const { return point(canvasW, canvasH); }
 
 private:
     disp::Point point(int canvasW, int canvasH) const;
