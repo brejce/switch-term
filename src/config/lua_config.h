@@ -66,9 +66,6 @@ constexpr int kKeyV2Count = 40;  // 每手 5 列 × 4 行 = 20，共 40（真实
 constexpr int kLayerCount = 2;  // 0=alpha（字母+数字）1=num（主键区放不下的标点）
 
 struct Ui {
-    // "terminal" = 自绘终端（fbdev 裸机那条路）；"overlay" = 只当覆盖层：中间挖洞让给 openbox
-    // 下面的 alacritty，我们只画顶栏和左右面板（见 platform/x11_overlay.h）
-    std::string mode = "terminal";
     int panelW = 176, topBarH = 32, botBarH = 26;
     int stickBox = 180, dpadCell = 28, abxyCell = 30, shoulderH = 20;
     int termPadX = 14, termPadTop = 10, termPadBot = 8;

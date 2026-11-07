@@ -4,11 +4,6 @@
 ui = {}
 
 ui.title      = "sit/0.1"
-
--- 运行形态：terminal = 自己就是终端（fbdev 裸机那条路，行为不变）；
--- overlay = 只当覆盖层，顶栏一张 + 左右两块面板，中间那块用 XShape 挖掉，
---           让下面的 alacritty / chromium 原样可见、也能直接点
-ui.mode       = "terminal"
 ui.panel_w    = 176
 ui.top_bar_h  = 32
 ui.bot_bar_h  = 26

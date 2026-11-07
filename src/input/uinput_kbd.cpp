@@ -80,17 +80,15 @@ bool UinputKeyboard::open(const char* name) {
     ::ioctl(fd_, UI_SET_EVBIT, EV_SYN);
     for (int k = 1; k < 128; ++k) ::ioctl(fd_, UI_SET_KEYBIT, k);  // 够 ASCII 用
 
-    // 用新的 UI_DEV_SETUP：同样发 Alt+Up，老的 uinput_user_dev 写法在这台机器上
-    // 建出来的设备 X 认得（xinput 里能看到）但按键事件不生效，实测切不了窗口
-    struct uinput_setup us;
-    std::memset(&us, 0, sizeof us);
-    std::snprintf(us.name, UINPUT_MAX_NAME_SIZE, "%s", name);
-    us.id.bustype = BUS_USB;
-    us.id.vendor = 0x1209;   // 自定义
-    us.id.product = 0x0001;
-    us.id.version = 1;
-    if (::ioctl(fd_, UI_DEV_SETUP, &us) < 0) {
-        std::fprintf(stderr, "uinput: UI_DEV_SETUP 失败: %s\n", std::strerror(errno));
+    uinput_user_dev dev;
+    std::memset(&dev, 0, sizeof dev);
+    std::snprintf(dev.name, UINPUT_MAX_NAME_SIZE, "%s", name);
+    dev.id.bustype = BUS_USB;
+    dev.id.vendor = 0x1209;   // 自定义
+    dev.id.product = 0x0001;
+    dev.id.version = 1;
+    if (::write(fd_, &dev, sizeof dev) < 0) {
+        std::fprintf(stderr, "uinput: 写入设备描述失败: %s\n", std::strerror(errno));
         close();
         return false;
     }
@@ -121,7 +119,7 @@ void UinputKeyboard::sync() {
     ::write(fd_, &ev, sizeof ev);
 }
 
-void UinputKeyboard::tap(int keycode, int mod) {
+void UinputKeyboard::tap(int keycode, bool shift) {
     if (fd_ < 0 || !keycode) return;
     auto send = [&](int code, int value) {
         input_event ev;
@@ -131,16 +129,13 @@ void UinputKeyboard::tap(int keycode, int mod) {
         ev.value = value;
         ::write(fd_, &ev, sizeof ev);
     };
-    if (mod) send(mod, 1);
+    if (shift) send(KEY_LEFTSHIFT, 1);
     send(keycode, 1);
     sync();
     send(keycode, 0);
-    if (mod) send(mod, 0);
+    if (shift) send(KEY_LEFTSHIFT, 0);
     sync();
 }
-
-void UinputKeyboard::tapAltUp() { tap(KEY_UP, KEY_LEFTALT); }
-void UinputKeyboard::tapAltDown() { tap(KEY_DOWN, KEY_LEFTALT); }
 
 void UinputKeyboard::typeBytes(const std::string& bytes, int gapMs) {
     for (size_t i = 0; i < bytes.size(); ++i) {
@@ -177,7 +172,7 @@ void UinputKeyboard::typeBytes(const std::string& bytes, int gapMs) {
             } else {
                 key = KEY_ESC;  // 单独一个 ESC
             }
-            tap(key, 0);
+            tap(key, false);
         } else if (ch >= 0x80) {
             // uinput 不送 Unicode，UTF-8 多字节没法用键码表达（中文要靠系统输入法）
             ++dropped_;
@@ -185,7 +180,7 @@ void UinputKeyboard::typeBytes(const std::string& bytes, int gapMs) {
                 ++i;  // 跳完这个 UTF-8 字符的延续字节，一个字符只算一次
         } else {
             KeyStroke ks = asciiToKey(char(ch));
-            tap(ks.key, ks.shift ? KEY_LEFTSHIFT : 0);
+            tap(ks.key, ks.shift);
         }
         if (gapMs > 0) ::usleep(useconds_t(gapMs) * 1000);
     }

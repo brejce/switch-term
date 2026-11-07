@@ -1,6 +1,5 @@
 // SDL2 窗口后端：Wayland/X11 都能开窗，键盘/鼠标/触摸三源都收
 #include <SDL.h>
-#include <SDL_syswm.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -227,12 +226,7 @@ public:
                                             (e.key.keysym.mod & KMOD_ALT) || (locks & 4));
                     break;
                 case SDL_MOUSEBUTTONDOWN: {
-                    // 触摸产生的鼠标事件不能丢：X 下触摸屏由 X/libinput 管，轻点就是 button 1；
-                    // 以前这里 break 掉等 SDL_FINGER*，但那个分支根本不存在 → 只能 hover 不能点
-                    if (std::getenv("SIT_DEBUG"))
-                        std::fprintf(stderr, "[mouse] down which=%d btn=%d at (%d,%d)\n",
-                                     int(e.button.which), int(e.button.button), e.button.x,
-                                     e.button.y);
+                    if (e.button.which == SDL_TOUCH_MOUSEID) break;  // 触摸由 FINGER* 判滑动/轻点
                     // 用 e.button.button 判键：左=1 右=3 中=2 → 我们的 1/2/3
                     const int btn = e.button.button == SDL_BUTTON_LEFT     ? 1
                                     : e.button.button == SDL_BUTTON_RIGHT ? 2
@@ -313,16 +307,6 @@ public:
     bool captureFrame(const std::string&) override { return false; }
     const char* name() const override { return "sdl"; }
 
-    // X11 下才有原生窗口可挖洞；Wayland 会话里没有 X 窗口，返回空（overlay 模式会退回不挖洞）
-    void* nativeDisplay() const override {
-        SDL_SysWMinfo i;
-        return wmInfo(i) ? i.info.x11.display : nullptr;
-    }
-    unsigned long nativeWindow() const override {
-        SDL_SysWMinfo i;
-        return wmInfo(i) ? i.info.x11.window : 0;
-    }
-
     std::string preedit() const override { return preedit_; }
 
     void setTextInputRect(const disp::Rect& r) override {
@@ -336,13 +320,6 @@ public:
     }
 
 private:
-    // subsystem 不是 X11 时 info 里的联合体内容是垃圾，必须先确认再看
-    bool wmInfo(SDL_SysWMinfo& i) const {
-        SDL_VERSION(&i.version);
-        if (!win_ || !SDL_GetWindowWMInfo(win_, &i)) return false;
-        return i.subsystem == SDL_SYSWM_X11;
-    }
-
     // 窗口可能被合成器缩放（niri 把 1280×720 放成 1024×576），点击坐标要换算回帧缓冲
     // 画面在窗口里的位置（输出像素坐标）：等比缩放 + 居中
     disp::Rect viewport() const {
