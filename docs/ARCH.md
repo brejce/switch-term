@@ -59,6 +59,7 @@ main.cpp ──┬─ cfg::loadProfile("config")            src/config/lua_confi
 | `src/input/evdev_gamepad.*` | evdev → `PadState`/legacy `GamepadMapper` | 生效 |
 | `src/input/uinput_kbd.*` `uinput_mouse.*` | 虚拟键盘/鼠标（`/dev/uinput`） | 生效（控制码缺口见 §7） |
 | `src/platform/display_{registry,fbdev,headless,sdl}.cpp` `soft_canvas.*` | 显示后端 | fbdev/headless/SDL 生效；drm/egl/glx 零代码 |
+| `src/platform/x11_guest.*` | 把别的程序的 X 窗口嵌进我们的窗口（§3.5） | 生效（真机验证待做） |
 | `src/render/*` `src/theme/palette.*` | 字体/atlas/绘制/配色 | 生效 |
 | `src/ui/screen.*` `layout.*` `theme.h` `char_grid.h` | 三分区绘制、几何、颜色常量 | 生效 |
 | `src/ui/panels.*` `terminal_view.*` `layout_lua.*` + 根 `layout.lua` | legacy UI | **双栈**，待删（§8） |
@@ -142,6 +143,32 @@ tab 条画在顶栏里（起点 x=常量 180，格宽 96），绘制与命中共
 
 **已知未验**：只用假 shell 验过 OSC 路径；真实 bash/fish 的交互（敲 `term` 真能建、`quit` 真能关）
 还没在带输入的环境跑过。
+
+### 3.5 GUI 程序嵌到 tab（X11）
+
+在 tab 里敲 `chromium` 这类 GUI 程序，它开的 X 窗口被 reparent 进我们的窗口、摆在终端区矩形里。
+**原理一句话**：X11 允许任何客户端把别人的窗口 `XReparentWindow` 到自己窗口下，位置和大小由父窗口这边给。
+
+```cpp
+Term { ...; unsigned long guest = 0; bool guestMapped = false; }   // 一个 tab 最多收一个窗口
+disp::X11Guest xguest;   // 找窗 / adopt / show / alive / release
+```
+
+- 找窗靠 `_NET_WM_PID`：扫根窗口的直接子窗口（没有 WM，顶层窗口就挂在根下），命中条件是 PID
+  等于某个 tab 的 PTY pid（= shell），或它的**子孙**（`/proc/<pid>/stat` 的 ppid 往上追 8 层，
+  程序常隔着启动脚本）。
+- 主循环每 **500ms** 用现成的 `msNow()` 看一眼当前 tab（无新线程/定时器）：没有窗口就找、找不到就下次再找；
+  切 tab 时把非当前的窗口 `show(false)`、当前的 `adopt`（同一个宿主只露一个）。
+- 没窗口管理器 = 坐标是我们自己算的：直接拿 `Geometry` 的 `termX/contentY/termW/contentH` 当窗口像素，
+  1:1 不缩放。
+- 子程序退出：`X11Guest` 用自己的 X 连接选 `StructureNotify`（SDL 会吞掉同一个连接上的事件），
+  非阻塞 `XCheckWindowEvent` 收到 `DestroyNotify` → 清掉记录并整屏重画终端。
+- 退出程序时 `release()` 把窗口放回根窗口 `(0,0)`，否则我们的窗口销毁会把它一起杀掉。
+- `bd->nativeWindow() == 0`（fbdev/headless）整段跳过，那条路径零影响。
+
+**已知限制**：一个 tab 只收一个窗口（第二个程序开窗仍留在根窗口上）；没有 WM 就没有装饰/缩放/焦点切换，
+键盘输入只进 PTY 不转发给 GUI 程序；窗口坐标按 1:1，窗口被合成器缩放（非 1280×720）时会对不上；
+关掉的 tab 上嵌着的窗口会跟着宿主窗口一起销毁，不还回根窗口。
 
 ## 4. IME 层
 
