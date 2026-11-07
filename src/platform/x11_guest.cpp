@@ -82,8 +82,6 @@ void X11Guest::shutdown() {
     if (dpy_) XCloseDisplay(dpy_);  // 子窗口先由 release() 交还，这里只管关连接
     dpy_ = nullptr;
     host_ = 0;
-    guest_ = 0;
-    gone_ = false;
 }
 
 // XQueryTree 不会因为窗口不存在而报错（XGetWindowAttributes 会 → Xlib 直接 exit），
@@ -131,9 +129,6 @@ bool X11Guest::adopt(unsigned long win, int x, int y, int w, int h) {
     // 先确认它还在：记着的是上一个 tab 的窗口时，程序可能早就退出了
     if (!childOf(host_, win) && !childOf(DefaultRootWindow(dpy_), win)) return false;
     ErrorGuard guard(dpy_);
-    if (guest_ && guest_ != win) XUnmapWindow(dpy_, guest_);  // 一个宿主只摆一个程序，换 tab 先收上一个
-    guest_ = win;
-    gone_ = false;
     // 没有窗口管理器，坐标就是我们算的像素，1:1 不缩放
     XReparentWindow(dpy_, win, host_, x, y);
     XResizeWindow(dpy_, win, w, h);
@@ -144,36 +139,35 @@ bool X11Guest::adopt(unsigned long win, int x, int y, int w, int h) {
     return true;
 }
 
-void X11Guest::show(bool on) {
-    if (!dpy_ || !guest_) return;
+void X11Guest::show(unsigned long win, bool on) {
+    if (!dpy_ || !win) return;
     ErrorGuard guard(dpy_);
     if (on)
-        XMapRaised(dpy_, guest_);
+        XMapRaised(dpy_, win);
     else
-        XUnmapWindow(dpy_, guest_);
+        XUnmapWindow(dpy_, win);
     XFlush(dpy_);
 }
 
-void X11Guest::release() {
-    if (!dpy_ || !guest_) return;
-    {
-        // 回根窗口放 (0,0)：我们退出后它至少还活着，不会跟着宿主窗口一起被销毁
-        ErrorGuard guard(dpy_);
-        XReparentWindow(dpy_, guest_, DefaultRootWindow(dpy_), 0, 0);
-        XFlush(dpy_);
-    }
-    guest_ = 0;
-    gone_ = false;
+void X11Guest::release(unsigned long win) {
+    if (!dpy_ || !win) return;
+    // 回根窗口放 (0,0)：我们退出后它至少还活着，不会跟着宿主窗口一起被销毁
+    ErrorGuard guard(dpy_);
+    XReparentWindow(dpy_, win, DefaultRootWindow(dpy_), 0, 0);
+    XFlush(dpy_);
 }
 
-bool X11Guest::alive() {
-    if (!dpy_ || !guest_) return false;
-    // 只取这条连接上收编窗口的 StructureNotify：不碰 SDL 的事件队列，也不会阻塞主循环
+bool X11Guest::alive(unsigned long win) {
+    if (!dpy_ || !win) return false;
+    // 只取这条连接上该窗口的 StructureNotify：不碰 SDL 的事件队列，也不会阻塞主循环
     XEvent ev;
-    while (XCheckWindowEvent(dpy_, guest_, StructureNotifyMask, &ev)) {
-        if (ev.type == DestroyNotify) gone_ = true;
+    bool gone = false;
+    while (XCheckWindowEvent(dpy_, win, StructureNotifyMask, &ev)) {
+        if (ev.type == DestroyNotify) gone = true;
     }
-    return !gone_;
+    if (gone) return false;
+    // 只用 XQueryTree 判存在（XGetWindowAttributes 对已销毁窗口会走 Xlib 默认处理直接 exit）
+    return childOf(host_, win) || childOf(DefaultRootWindow(dpy_), win);
 }
 
 }  // namespace disp

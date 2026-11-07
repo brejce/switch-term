@@ -286,7 +286,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         int scroll = 0;    // 回看行数；0 = 跟随最新输出
         // 嵌进来的 GUI 窗口（tab 里敲 chromium 这类）：没有 WM，只有我们自己知道它在哪
         unsigned long guest = 0;
-        bool guestMapped = false;
+        bool guestMapped = false, guestHidden = false;
     };
     std::vector<Term> terms;
     int active = 0;
@@ -326,7 +326,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     auto closeTab = [&](int i) {
         if (i < 0 || i >= int(terms.size())) return;
         // 关的 tab 上还嵌着 GUI 窗口就先收起来：Term 一没了，就再没人认领它
-        if (terms[i].guestMapped) xguest.show(false);
+        if (terms[i].guest) xguest.show(terms[i].guest, false);
         if (terms.size() > 1) {
             int a = tabAfterClose(active, int(terms.size()));
             if (i < active) a = active - 1;  // 关的是活动 tab 前面的：后面的全体前移一位
@@ -991,26 +991,38 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             Term& at = terms[active];
             if (nowMs - guestPollAt >= 500) {
                 guestPollAt = nowMs;
-                if (at.guest && at.guestMapped && !xguest.alive()) {
-                    at.guest = 0;  // 程序退出了：它盖住的终端要重画回来
-                    at.guestMapped = false;
-                    uiDirty = true;
+                // 每个 tab 各自对账：窗口可能被销毁（程序退出），也可能被 reparent 之后重建
+                //（chromium 就会重建）——只记一次"发现时的那个窗口"必然会留下一个盖住全屏的新窗口
+                for (Term& t : terms) {
+                    if (t.guest && !xguest.alive(t.guest)) {
+                        t.guest = 0;
+                        t.guestMapped = t.guestHidden = false;
+                        uiDirty = true;
+                    }
+                    const unsigned long w = xguest.findChildWindow(t.pty->pid());
+                    if (w && w != t.guest) {
+                        if (t.guest) xguest.show(t.guest, false);
+                        t.guest = w;
+                        t.guestMapped = t.guestHidden = false;
+                    }
                 }
-                // pty 的 pid 是 shell，程序是它的子孙（中间可能还隔着启动脚本）
-                if (!at.guest) at.guest = xguest.findChildWindow(at.pty->pid());
             }
-            // 同一时刻只露当前 tab 那个窗口：切走了的先收起来，否则它会盖在新 tab 的终端上
-            for (Term& t : terms)
-                if (t.guestMapped && &t != &at) {
-                    xguest.show(false);
+            for (Term& t : terms) {
+                if (!t.guest) continue;
+                if (&t == &at) {
+                    if (!t.guestMapped) {
+                        t.guestMapped =
+                            xguest.adopt(t.guest, g.termX, g.contentY, g.termW, g.contentH);
+                        t.guestHidden = !t.guestMapped;
+                        if (!t.guestMapped) {  // 记着的窗口已经不在了：当这个 tab 没有 GUI 程序
+                            t.guest = 0;
+                            uiDirty = true;
+                        }
+                    }
+                } else if (!t.guestHidden) {
+                    xguest.show(t.guest, false);  // 别的 tab 的窗口一律收起，否则会盖住当前终端
+                    t.guestHidden = true;
                     t.guestMapped = false;
-                }
-            if (at.guest && !at.guestMapped) {
-                if (xguest.adopt(at.guest, g.termX, g.contentY, g.termW, g.contentH))
-                    at.guestMapped = true;
-                else {  // 记着的窗口已经不在了（在后台 tab 里退出的）：当这个 tab 没有 GUI 程序
-                    at.guest = 0;
-                    uiDirty = true;
                 }
             }
         }
@@ -1254,7 +1266,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     }
 
     // 宿主窗口马上就销毁了，先把 GUI 窗口交还根窗口，别把它一起带走
-    xguest.release();
+    for (Term& t : terms)
+        if (t.guest) xguest.release(t.guest);
     xguest.shutdown();
     if (ukbd.dropped())
         std::fprintf(stderr, "uinput: 丢弃 %zu 个非 ASCII 字符（中文需要 fcitx5/wtype，见 DESIGN §4.4）\n",
