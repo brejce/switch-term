@@ -82,6 +82,7 @@ void EvdevTouch::pump(std::vector<disp::ClickEvent>& clicks, int& wheel, int can
     for (size_t di = 0; di < devs_.size(); ++di) {
     cur_ = int(di);
     input_event ev{};
+    errno = 0;  // 不重置的话，上一轮/别的调用的 ENODEV 会让 lost_ 误置 → 每 2s 白重扫一次
     while (::read(devs_[di].fd, &ev, sizeof ev) == ssize_t(sizeof ev)) {
         if (ev.type == EV_ABS) {
             if (ev.code == ABS_MT_TRACKING_ID) {
