@@ -312,6 +312,12 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
     return {panelX + (panelW - w) / 2, panelY + (panelH - h) / 2 + dy, w, h};
 }
 
+// 全角/CJK 的首字节：>= E3 起就是 CJK 区（U+3000 以上）。只用来给键帽挑字号系数，
+// 不需要精确解码——ASCII 和拉丁扩展都是 1~2 字节，不会误判
+static bool firstCodepointIsFullWidth(const std::string& s) {
+    return !s.empty() && static_cast<unsigned char>(s[0]) >= 0xE3;
+}
+
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
                  int layer, int first, int panelX, int panelY, int panelW, int panelH,
                  float ptrX, float ptrY, int snap, int hover, float attractRadius,
@@ -442,8 +448,12 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         std::string mainCh = uic.layers[L][k];
         if (L == 0 && mainCh.size() == 1 && mainCh[0] >= 'a' && mainCh[0] <= 'z')
             mainCh[0] = char(mainCh[0] - 'a' + 'A');
+        // Maple Mono 的 CJK 字形按 em 框满铺（墨高 35px@36px），拉丁只到 cap height（27px）。
+        // 同一字号下汉字/全角标点会比字母高一截，NUM 层整片都是标点就显小/显大不齐；
+        // 按 27/35 缩一下把墨高对齐拉丁（只是字面缩放，不改字号缓存）
+        const float cjkK = firstCodepointIsFullWidth(mainCh) ? 0.78f : 1.f;
         r.textInBox({box.x, ty, box.w, mH}, mainCh, f.keyMain, mainCol, render::Align::Center, 0,
-                    0, 0, tsc);
+                    0, 0, tsc * cjkK);
         if (hasSub)
             r.textInBox({box.x, ty + mH + gH, box.w, sH}, subCh, f.keySub, subCol,
                         render::Align::Center, 0, 0, 0, tsc);
