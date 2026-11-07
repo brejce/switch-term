@@ -20,4 +20,4 @@ pgrep -f 'bin/alacritty' > /dev/null || {
 }
 # 4) 我们的覆盖层（挖洞 + 顶栏 + 键盘）
 pkill -f 'switch-ime-term --backend sdl'
-"$REPO/build/switch-ime-term" --backend sdl --overlay-env 2>/dev/null &
+SIT_OVERLAY=1 "$REPO/build/switch-ime-term" --backend sdl > /tmp/overlay.log 2>&1 &
