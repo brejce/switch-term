@@ -923,8 +923,17 @@ GL_VERSION  = OpenGL ES 3.2 NVIDIA 32.3.1
 ### 14.4 充电限制
 
 - 内核节点：`/sys/class/power_supply/usb/charge_control_limit`，`0` = 无限制（当前就是 0）
-- 档位定义 `/etc/nvpmodel/nvpmodel_charging.conf`：`LIMIT=55 Always_Docked`、`LIMIT=85 High_Charge`
-  （名字看着是「电量百分比上限」，**单位没在源码里核实**，只知道是直接写进那个节点）
+- 档位定义 `/etc/nvpmodel/nvpmodel_charging.conf`：`LIMIT=0` / `LIMIT=55 Always_Docked` / `LIMIT=85 High_Charge`
+- **托盘显示的数字和实际写的值不一样**（`nvpmodel_indicator.py` 里的 `no = eval(mode.id); if no is not 0: no += 5 else: no = 100`，
+  纯显示修饰）：
+
+  | 托盘菜单显示 | 实际写进 `charge_control_limit` |
+  |---|---|
+  | `100%: No Limit` | `0` |
+  | `60%: Always Docked` | `55` |
+  | `90%: High Charge` | `85` |
+
+  **脚本里要写 55 / 85，照菜单写 60 / 90 会得到另一个限制值。**
 - 设置 / 读取走 helper（设置会同时写 `/var/lib/nvpmodel/charging_status` 做持久化）：
 
 ```bash
@@ -948,3 +957,15 @@ WantedBy=multi-user.target
 ```
 
 长期插底座当终端用，建议 55~85，别常年顶在 100%。
+
+### 14.5 托盘菜单里其它几项（同样是那个 python）
+
+| 菜单项 | 实际命令/行为 |
+|---|---|
+| `Apps: Tegra Stats` | `x-terminal-emulator -e pkexec tegrastats-l4t`（看实时 CPU/GPU/EMC/内存） |
+| `Reboot 2 Config` | `pkexec r2c`（switchroot 的启动配置切换） |
+| `Joy-Con Mapping Help` | 开一个 GTK 窗口显示 `jc_map.png`（就是手柄映射的那张图） |
+| `Settings: Automatic profiles` | 勾选 = `/var/lib/nvpmodel/auto_profiles` 为 1（见 §14.3） |
+
+`Color Mode:` 子菜单在本机**不出现**：源码里 `color_modes = False` 写死，运行时还被 helper 探测覆盖
+（`panel_color_mode` 节点存在才显示）。要改面板配色只能直接写 `/sys/devices/50000000.host1x/tegradc.0/panel_color_mode`。
