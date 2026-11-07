@@ -910,6 +910,11 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             }
         }
         if (!pending.empty()) {
+            if (std::getenv("SIT_DEBUG")) {  // 排障：看键到底变成了什么字节
+                std::fprintf(stderr, "[type] %zu 字节:", pending.size());
+                for (unsigned char c : pending) std::fprintf(stderr, " %02x", c);
+                std::fprintf(stderr, "  (\"%s\")\n", pending.c_str());
+            }
             if (useUinput)
                 ukbd.typeBytes(pending);  // 打给系统；PTY 只收 shell 输出，不再收这些键
             else if (!terms.empty())
