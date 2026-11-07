@@ -800,6 +800,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         if (std::getenv("SIT_DEBUG"))
             std::fprintf(stderr, "[pad] btn=%d mods=%d overlay=%d\n", btn, modsLive, overlayMode ? 1 : 0);
         if (overlayMode && (modsLive & 4) && (btn == cfg::kRB || btn == cfg::kRT)) {
+            if (std::getenv("SIT_DEBUG")) std::fprintf(stderr, "[pad] -> tapAlt%s\n", btn == cfg::kRB ? "Up" : "Down");
             if (btn == cfg::kRB) ukbd.tapAltUp();
             else ukbd.tapAltDown();
             return;
