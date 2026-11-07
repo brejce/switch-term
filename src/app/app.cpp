@@ -25,6 +25,7 @@
 #include "ime/builtin_ime.h"
 #include "input/evdev_gamepad.h"
 #include "input/evdev_keys.h"
+#include "input/evdev_touch.h"
 #include "input/rumble.h"
 #include "input/uinput_kbd.h"
 #include "input/uinput_mouse.h"
@@ -373,6 +374,12 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     input::EvdevSysKeys syskeys;
     syskeys.open();
     for (const auto& nm : syskeys.names()) std::fprintf(stderr, "syskeys: %s\n", nm.c_str());
+
+    // 触屏也归输入层：fbdev 与 SDL(X) 共用这一份（拖动翻页 / 轻点），后端不再管
+    input::EvdevTouch evTouch;
+    evTouch.setRotation(eng.rotate);
+    evTouch.open();
+    if (evTouch.count() > 0) std::fprintf(stderr, "touch: %s\n", evTouch.name().c_str());
 
     // 分侧震动：左右 Joy-Con 各自是一个 FF 设备，事件只打到对应那一边
     input::Rumble rumbleL, rumbleR;
@@ -744,6 +751,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         std::string keys;
         std::vector<disp::ClickEvent> clicks;
         running = bd->pump(keys, clicks);
+        // 触屏事件每帧取一次：clicks 追加轻点，bd->wheel 累加翻页行数（后面统一消费并清零）
+        evTouch.pump(clicks, bd->wheel, g.screenW, g.screenH);
         if (bd->uiDirty) {  // 窗口尺寸变了：重排 + 重建字体
             bd->uiDirty = 0;
             float want = bd->scaleHint(ui::layout::kDesignW, ui::layout::kDesignH);
@@ -776,6 +785,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 g.fromConfig(uic, ui::layout::kScale);
                 bd->setCanvasSize(g.screenW, g.screenH);
                 bd->setRotation(eng.rotate);
+                evTouch.setRotation(eng.rotate);
                 fonts.init(fm);
                 fullNext = true;  // 布局可能变了：整屏重画一次，别拿旧脏区套新几何
                 for (Term& t : terms) {
@@ -819,7 +829,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         long n = readInto();
         // 手柄没打开就每 2s 重扫：Joy-Con 走串口握手，开机后几十秒才出设备，启动时扫不到这里补上
         // 电源键/音量键设备也复用这个时机（它们掉线同样要重开，但没必要多一个定时器）
-        if ((gamepad.count() == 0 || gamepad.lost() || syskeys.count() == 0 || syskeys.lost()) &&
+        if ((gamepad.count() == 0 || gamepad.lost() || syskeys.count() == 0 || syskeys.lost() ||
+             evTouch.count() == 0 || evTouch.lost()) &&
             msNow() - gpRescanAt >= 2000) {
             gpRescanAt = msNow();
             if (gamepad.count() == 0 || gamepad.lost()) {
@@ -832,6 +843,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                     for (const auto& nm : syskeys.names())
                         std::fprintf(stderr, "syskeys: (重扫) %s\n", nm.c_str());
             }
+            if ((evTouch.count() == 0 || evTouch.lost()) && evTouch.open() > 0)
+                std::fprintf(stderr, "touch: (重扫) %s\n", evTouch.name().c_str());
         }
         // Joy-Con 重连会重建 event6/event7，旧 fd 就废了：每 2s 试着补开
         // 共享模式只认 rumbleL 是否活着（rumbleR 是故意关掉的）
@@ -917,6 +930,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
         // 滚轮、Shift+PgUp/PgDn 与触摸滑动都按“行”累计：正数向上回看。
         if (bd->wheel != 0) {
+            if (std::getenv("SIT_DEBUG")) std::fprintf(stderr, "[touch] wheel=%d\n", bd->wheel);
             Term& t = terms[active];
             t.scroll = std::clamp(t.scroll + bd->wheel, 0, t.tp->historySize());
             bd->wheel = 0;
@@ -927,6 +941,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         const long long nowMs = msNow();
         if (st.pressedKey >= 0 && nowMs - st.pressedKeyMs >= kFlashMs) st.pressedKey = -1;
         for (const disp::ClickEvent& ck : clicks) {
+            // 排障：触屏坐标换算错位时一眼能看出来（SIT_DEBUG 才打）
+            if (std::getenv("SIT_DEBUG"))
+                std::fprintf(stderr, "[touch] click fb=(%d,%d)\n", ck.x, ck.y);
             int tab = ui::tabAt(g, uic, int(terms.size()), ck.x, ck.y);
             if (tab < 0) continue;
             if (tab == int(terms.size())) spawnTerm();

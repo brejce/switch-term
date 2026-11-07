@@ -2,7 +2,6 @@
 // 只做 1:1 居中贴图，不做缩放（Switch 恰好 1280×720）
 #include <fcntl.h>
 #include <linux/fb.h>
-#include <linux/input.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -76,14 +75,12 @@ public:
 
         canvas_.resize(w, h);
         enterRaw();
-        if (!S_ISREG(st.st_mode)) scanTouch();
         return true;
     }
 
     void shutdown() override {
         leaveRaw();
         if (fb_) ::munmap(fb_, mapLen_);
-        if (touchFd_ >= 0) ::close(touchFd_);
         if (fd_ >= 0) ::close(fd_);
         fb_ = nullptr;
         fd_ = -1;
@@ -129,7 +126,7 @@ public:
 
     // 控制台键盘：stdin 已在 raw 模式，Ctrl+Q 退出，其余原样送 PTY
     bool pump(std::string& keys, std::vector<disp::ClickEvent>& clicks) override {
-        pumpTouch(clicks);
+        (void)clicks;  // 触屏已搬到 input::EvdevTouch，后端不再产点击
         unsigned char buf[64];
         ssize_t n = ::read(STDIN_FILENO, buf, sizeof buf);
         if (n > 0) {
@@ -199,102 +196,6 @@ private:
         }
     }
 
-    static bool bitSet(const unsigned long* bits, int bit) {
-        constexpr int kWordBits = int(sizeof(unsigned long) * 8);
-        return (bits[bit / kWordBits] & (1UL << (bit % kWordBits))) != 0;
-    }
-
-    void scanTouch() {
-        constexpr int kWords = (ABS_MAX + int(sizeof(unsigned long) * 8)) /
-                               int(sizeof(unsigned long) * 8);
-        for (int i = 0; i < 64; ++i) {
-            char path[64];
-            std::snprintf(path, sizeof path, "/dev/input/event%d", i);
-            int fd = ::open(path, O_RDONLY | O_NONBLOCK);
-            if (fd < 0) continue;
-            unsigned long absBits[kWords]{};
-            if (::ioctl(fd, EVIOCGBIT(EV_ABS, sizeof absBits), absBits) >= 0 &&
-                bitSet(absBits, ABS_MT_POSITION_X) && bitSet(absBits, ABS_MT_POSITION_Y) &&
-                ::ioctl(fd, EVIOCGABS(ABS_MT_POSITION_X), &touchXInfo_) == 0 &&
-                ::ioctl(fd, EVIOCGABS(ABS_MT_POSITION_Y), &touchYInfo_) == 0) {
-                touchFd_ = fd;
-                return;
-            }
-            ::close(fd);
-        }
-    }
-
-    disp::Point touchPoint() const {
-        const int xr = std::max(1, touchXInfo_.maximum - touchXInfo_.minimum);
-        const int yr = std::max(1, touchYInfo_.maximum - touchYInfo_.minimum);
-        const int px = (touchX_ - touchXInfo_.minimum) * std::max(1, xres_ - 1) / xr;
-        const int py = (touchY_ - touchYInfo_.minimum) * std::max(1, yres_ - 1) / yr;
-        switch (rot_) {
-            case 90:
-                return {py * fbW_ / std::max(1, yres_),
-                        fbH_ - 1 - px * fbH_ / std::max(1, xres_)};
-            case 180:
-                return {fbW_ - 1 - px * fbW_ / std::max(1, xres_),
-                        fbH_ - 1 - py * fbH_ / std::max(1, yres_)};
-            case 270:
-                return {fbW_ - 1 - py * fbW_ / std::max(1, yres_),
-                        px * fbH_ / std::max(1, xres_)};
-            default:
-                return {px * fbW_ / std::max(1, xres_),
-                        py * fbH_ / std::max(1, yres_)};
-        }
-    }
-
-    void pumpTouch(std::vector<disp::ClickEvent>& clicks) {
-        if (touchFd_ < 0) return;
-        input_event ev{};
-        while (::read(touchFd_, &ev, sizeof ev) == ssize_t(sizeof ev)) {
-            if (ev.type == EV_ABS) {
-                if (ev.code == ABS_MT_TRACKING_ID) {
-                    if (ev.value >= 0) {
-                        touchActive_ = true;
-                        touchEnding_ = false;
-                        touchHavePoint_ = false;
-                        touchMoved_ = false;
-                        touchRemainder_ = 0;
-                    } else {
-                        touchEnding_ = touchActive_;
-                        touchActive_ = false;
-                    }
-                } else if (ev.code == ABS_MT_POSITION_X) {
-                    touchX_ = ev.value;
-                } else if (ev.code == ABS_MT_POSITION_Y) {
-                    touchY_ = ev.value;
-                }
-            }
-            if (ev.type != EV_SYN || ev.code != SYN_REPORT ||
-                (!touchActive_ && !touchEnding_))
-                continue;
-
-            const disp::Point p = touchPoint();
-            if (!touchHavePoint_) {
-                touchStart_ = touchLast_ = p;
-                touchHavePoint_ = true;
-            } else if (touchActive_) {
-                touchRemainder_ += p.y - touchLast_.y;
-                touchLast_ = p;
-                const int rowPx = std::max(8, fbH_ * 21 / 720);
-                while (std::abs(touchRemainder_) >= rowPx) {
-                    const int d = touchRemainder_ > 0 ? 1 : -1;
-                    wheel += d;
-                    touchRemainder_ -= d * rowPx;
-                }
-                touchMoved_ = touchMoved_ || std::abs(p.y - touchStart_.y) >= rowPx / 2;
-            }
-            if (touchEnding_) {
-                if (!touchMoved_ && touchHavePoint_)
-                    clicks.push_back({touchLast_.x, touchLast_.y, 1});
-                touchEnding_ = false;
-                touchHavePoint_ = false;
-            }
-        }
-    }
-
     void enterRaw() {
         if (!::isatty(STDIN_FILENO)) return;
         if (::tcgetattr(STDIN_FILENO, &old_)) return;
@@ -316,12 +217,6 @@ private:
     int ox_ = 0, oy_ = 0;
     int rot_ = 0;  // engine.display.rotate，由 app 在 init 后调 setRotation
     int fbW_ = 0, fbH_ = 0;
-    int touchFd_ = -1;
-    input_absinfo touchXInfo_{}, touchYInfo_{};
-    int touchX_ = 0, touchY_ = 0, touchRemainder_ = 0;
-    bool touchActive_ = false, touchEnding_ = false, touchHavePoint_ = false,
-         touchMoved_ = false;
-    disp::Point touchStart_{}, touchLast_{};
     disp::SoftCanvas canvas_;
     termios old_{};
     bool raw_ = false;

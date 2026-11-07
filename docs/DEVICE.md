@@ -39,6 +39,8 @@
   **不需要** `70-sit-input.rules`。
 - 设备筛选：`src/input/evdev_gamepad.cpp:184` 只要求 `(ABS_X && ABS_Y) || BTN_SOUTH`，
   `event8` 会被正确打开，不会误收 touchscreen / gpio-keys。
+- 触屏由 `input::EvdevTouch` 统一读（`/dev/input/event*` 里报 `ABS_MT_POSITION_X/Y` 的那台），
+  拖动翻页/轻点在 fbdev 和 X(SDL) 下是同一份实现；X 那边仍要忽略触摸屏设备，否则事件被 X 抢走。
 - 写虚拟键鼠仍要权限：`/dev/uinput` 是 `0600 root:root`，brejce 不在 input 组 →
   `src/app/app.cpp:176-180` 打不开就静默回落 pty（打一行警告）。
 
