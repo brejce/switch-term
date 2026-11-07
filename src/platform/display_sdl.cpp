@@ -82,8 +82,13 @@ public:
             std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
             return false;
         }
+        // 有窗口管理器时（Switch 上跑 openbox）要申请全屏，否则带标题栏的 1280x720 装不进屏幕；
+        // PC 上调试用 SIT_WINDOWED=1 保持普通窗口
+        const bool windowed = std::getenv("SIT_WINDOWED") != nullptr;
         win_ = SDL_CreateWindow("switch-ime-term", SDL_WINDOWPOS_CENTERED,
-                                SDL_WINDOWPOS_CENTERED, w, h, SDL_WINDOW_SHOWN);
+                                SDL_WINDOWPOS_CENTERED, w, h,
+                                SDL_WINDOW_SHOWN |
+                                    (windowed ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP));
         ren_ = SDL_CreateRenderer(win_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
         // 放大时不插值：双线性会把 13px 的字糊成一片，最近邻至少笔画是硬的
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
