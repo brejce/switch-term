@@ -1019,3 +1019,17 @@ WantedBy=multi-user.target
 - 切窗口：我们合成 `Alt+Up` / `Alt+Down`（`Alt` = DPAD_RIGHT），openbox 绑 `A-Up`=NextWindow、
   `A-Down`=PreviousWindow。为什么不是裸方向键：那样 openbox 会把方向键全吞掉，alacritty 里就用不了。
 - 一键启动：`tools/start-overlay.sh`。
+
+### 15.1 overlay 下按键进不去？四个坑按顺序排
+
+1. `ukbd` 只在 `eng.sink=="uinput"` 时打开 —— overlay 没有 PTY，必须强制 `sink=uinput`。
+2. 按键路由被 `if (!overlayMode)` 整段跳过 —— overlay 下也要跑，字节由 uinput 打给焦点窗口。
+3. **uinput 用老的 `uinput_user_dev` 写法创建 → X 认得设备但事件不生效**。
+   `xinput list` 能看到 `switch-ime-term virtual keyboard`，`/proc/bus/input/devices` 也有，
+   但发出的 Alt+Up 谁都不响应。换成 `UI_DEV_SETUP` + `uinput_setup` 立刻正常。
+   （同样发 Alt+Up：新写法能切窗口，老写法毫无反应，这台 4.9 内核如此。）
+4. 覆盖层每 500ms `XSetInputFocus` 抢焦点 → 跟 openbox 的 `Alt+Up` 切换互相打架，表现是"切了又弹回去"。
+   正确做法：`WM_HINTS.input=False`（不接受焦点），只在启动瞬间补一次焦点，之后绝不抢。
+
+X 写操作（`XSetInputFocus`/`XReparentWindow`/`XMapWindow`…）都要包 `ErrorGuard`：
+Xlib 默认错误处理是 `exit`，一个刚被销毁的窗口 id 就能带走整个覆盖层。
