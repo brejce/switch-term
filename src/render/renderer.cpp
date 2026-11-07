@@ -59,6 +59,11 @@ void Renderer::textBaseline(int x, int baselineY, const std::string& utf8, const
     }
 }
 
+int Renderer::glyphInkHeight(uint32_t codepoint, const FontFace* f) {
+    if (!f) return 0;
+    return atlas_.glyphResolved(f, codepoint).h;
+}
+
 void Renderer::textInBox(disp::Rect box, const std::string& utf8, const FontFace* f,
                          disp::Color c, Align align, int padLeft, int padRight,
                          int charSpacing, float scale) {

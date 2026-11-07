@@ -312,10 +312,26 @@ disp::Rect keyWindowRect(const Geometry& g, const cfg::Ui& uic, int panelX, int 
     return {panelX + (panelW - w) / 2, panelY + (panelH - h) / 2 + dy, w, h};
 }
 
-// 全角/CJK 的首字节：>= E3 起就是 CJK 区（U+3000 以上）。只用来给键帽挑字号系数，
-// 不需要精确解码——ASCII 和拉丁扩展都是 1~2 字节，不会误判
-static bool firstCodepointIsFullWidth(const std::string& s) {
-    return !s.empty() && static_cast<unsigned char>(s[0]) >= 0xE3;
+// 取首个码位（键帽上的字都是单字符，够用）：给"按墨迹缩字面"算比例用
+static uint32_t firstCodepoint(const std::string& s) {
+    if (s.empty()) return 0;
+    const auto c0 = static_cast<unsigned char>(s[0]);
+    if (c0 < 0x80) return c0;
+    if ((c0 & 0xE0) == 0xC0 && s.size() > 1) return ((c0 & 0x1Fu) << 6) | (s[1] & 0x3Fu);
+    if ((c0 & 0xF0) == 0xE0 && s.size() > 2)
+        return ((c0 & 0x0Fu) << 12) | ((s[1] & 0x3Fu) << 6) | (s[2] & 0x3Fu);
+    if (s.size() > 3)
+        return ((c0 & 0x07u) << 18) | ((s[1] & 0x3Fu) << 12) | ((s[2] & 0x3Fu) << 6) | (s[3] & 0x3Fu);
+    return 0;
+}
+
+// 键帽上的字按"墨迹等高"缩：[]{}|\ 墨高 38px、CJK 标点 35px，而字母只有 27~28px，
+// 同一个字号下会顶满键帽、比邻居大一圈。目标 = 拉丁 cap height（0.72em）
+static float inkFitScale(render::Renderer& r, uint32_t cp, const render::FontFace* f) {
+    if (f == nullptr || cp == 0) return 1.f;
+    const int ink = r.glyphInkHeight(cp, f);
+    const int want = int(std::lround(f->px * 0.72));
+    return (ink > want && ink > 0) ? float(want) / float(ink) : 1.f;
 }
 
 void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, const Geometry& g,
@@ -448,15 +464,15 @@ void drawKeyHand(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, con
         std::string mainCh = uic.layers[L][k];
         if (L == 0 && mainCh.size() == 1 && mainCh[0] >= 'a' && mainCh[0] <= 'z')
             mainCh[0] = char(mainCh[0] - 'a' + 'A');
-        // Maple Mono 的 CJK 字形按 em 框满铺（墨高 35px@36px），拉丁只到 cap height（27px）。
-        // 同一字号下汉字/全角标点会比字母高一截，NUM 层整片都是标点就显小/显大不齐；
-        // 按 27/35 缩一下把墨高对齐拉丁（只是字面缩放，不改字号缓存）
-        const float cjkK = firstCodepointIsFullWidth(mainCh) ? 0.78f : 1.f;
+        // 逐字形按墨迹缩（不是按"是不是 CJK"）：括住号类 38px、CJK 35px、字母 28px
+        const float mK = inkFitScale(r, firstCodepoint(mainCh), f.keyMain);
         r.textInBox({box.x, ty, box.w, mH}, mainCh, f.keyMain, mainCol, render::Align::Center, 0,
-                    0, 0, tsc * cjkK);
-        if (hasSub)
+                    0, 0, tsc * mK);
+        if (hasSub) {
+            const float sK = inkFitScale(r, firstCodepoint(subCh), f.keySub);
             r.textInBox({box.x, ty + mH + gH, box.w, sH}, subCh, f.keySub, subCol,
-                        render::Align::Center, 0, 0, 0, tsc);
+                        render::Align::Center, 0, 0, 0, tsc * sK);
+        }
     }
     // 径向遮罩：圆心 = 准心在屏幕上的位置；铺满整个面板（只铺窗口的话，
     // 窗口边界会留一道硬边——外面是面板色、里面是被压暗的）

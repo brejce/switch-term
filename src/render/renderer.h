@@ -29,6 +29,9 @@ public:
     void clearClip() { bd_->clearClip(); }
 
     int textWidth(const std::string& utf8, const FontFace* f, int charSpacing = 0);
+    // 该码位字形在当前字号下的实际墨迹高度（像素）。[]{}|\ 和 CJK 标点比字母高一大截，
+    // 画键帽时要按这个值缩，否则会顶满键帽、比邻居大一圈
+    int glyphInkHeight(uint32_t codepoint, const FontFace* f);
     // scale < 1 = 直接把字形位图缩着贴（最近邻）。用于"远一点的键整体变小"这类效果，
     // 比按字号重新栅格化省事，也不会因为字号缓存产生跳档。
     void textBaseline(int x, int baselineY, const std::string& utf8, const FontFace* f,
