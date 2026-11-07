@@ -584,8 +584,13 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         // 我们自己全屏置顶后常常成为"活动窗口"：这时别把它当前台（顶栏会全显示前两字），
         // 并且要把 X 焦点还给真正的那个窗口，否则 uinput 打的字全进我们覆盖层
         const bool actIsUs = act == 0 || act == hostWin;
-        if (!actIsUs) frontWin = act;
-        else if (frontWin) overlay.focus(frontWin);
+        if (!actIsUs) {
+            frontWin = act;
+        } else {
+            // 我们自己占着活动窗口：把焦点还给前台那个；从来没记到过就挑列表里第一个
+            if (!frontWin && !wins.empty()) frontWin = wins.front().id;
+            if (frontWin) overlay.focus(frontWin);
+        }
         bool diff = act != st.activeWin || wins.size() != st.windows.size();
         for (size_t i = 0; !diff && i < wins.size(); ++i)
             diff = wins[i].id != st.windows[i].id || wins[i].title != st.windows[i].title;
