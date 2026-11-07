@@ -50,6 +50,8 @@ enum InputKey {
     kL3,
     kStart,  // 右手柄 +：顺序必须和 input::PadButton 一致
     kR3,     // 右摇杆按下：已识别，暂未绑功能（keymap.lua 里加一行即可启用）
+    // 独立设备上的音量键/电源键（顺序必须和 input::PadButton 末尾一致），同样暂未绑功能
+    kVolDown, kVolUp, kPower,
     kKeyCount
 };
 

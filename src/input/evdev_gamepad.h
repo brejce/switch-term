@@ -21,6 +21,9 @@ enum PadButton {
     kPadUp, kPadDown, kPadLeft, kPadRight, kPadL3,
     kPadPlus,  // 右手柄 +（BTN_START）：兜底用，键位顺序必须与 cfg::InputKey 一致
     kPadR3,    // 右摇杆按下（BTN_THUMBR）：实测上报，暂未绑功能
+    // 下面三个来自独立设备（gpio-keys / max77620_onoff，见 input/evdev_keys.h），
+    // 顺序必须与 cfg::InputKey 末尾一致；只识别，暂未绑功能
+    kPadVolDown, kPadVolUp, kPadPower,
     kPadCount
 };
 

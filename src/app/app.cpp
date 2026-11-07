@@ -24,6 +24,7 @@
 #include "config/lua_config.h"
 #include "ime/builtin_ime.h"
 #include "input/evdev_gamepad.h"
+#include "input/evdev_keys.h"
 #include "input/rumble.h"
 #include "input/uinput_kbd.h"
 #include "input/uinput_mouse.h"
@@ -367,6 +368,11 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     int pads = gamepad.open();
     for (const auto& nm : gamepad.names()) std::fprintf(stderr, "gamepad: %s\n", nm.c_str());
     if (pads == 0) std::fprintf(stderr, "gamepad: 没有可读的手柄\n");
+
+    // 电源键/音量键不在手柄设备上，另开一份只读 fd（不开 EVIOCGRAB，logind 还要看它们）
+    input::EvdevSysKeys syskeys;
+    syskeys.open();
+    for (const auto& nm : syskeys.names()) std::fprintf(stderr, "syskeys: %s\n", nm.c_str());
 
     // 分侧震动：左右 Joy-Con 各自是一个 FF 设备，事件只打到对应那一边
     input::Rumble rumbleL, rumbleR;
@@ -812,11 +818,20 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         // ⑤ 读终端输出
         long n = readInto();
         // 手柄没打开就每 2s 重扫：Joy-Con 走串口握手，开机后几十秒才出设备，启动时扫不到这里补上
-        if ((gamepad.count() == 0 || gamepad.lost()) && msNow() - gpRescanAt >= 2000) {
+        // 电源键/音量键设备也复用这个时机（它们掉线同样要重开，但没必要多一个定时器）
+        if ((gamepad.count() == 0 || gamepad.lost() || syskeys.count() == 0 || syskeys.lost()) &&
+            msNow() - gpRescanAt >= 2000) {
             gpRescanAt = msNow();
-            if (gamepad.open() > 0)
-                for (const auto& nm : gamepad.names())
-                    std::fprintf(stderr, "gamepad: (重扫) %s\n", nm.c_str());
+            if (gamepad.count() == 0 || gamepad.lost()) {
+                if (gamepad.open() > 0)
+                    for (const auto& nm : gamepad.names())
+                        std::fprintf(stderr, "gamepad: (重扫) %s\n", nm.c_str());
+            }
+            if (syskeys.count() == 0 || syskeys.lost()) {
+                if (syskeys.open() > 0)
+                    for (const auto& nm : syskeys.names())
+                        std::fprintf(stderr, "syskeys: (重扫) %s\n", nm.c_str());
+            }
         }
         // Joy-Con 重连会重建 event6/event7，旧 fd 就废了：每 2s 试着补开
         // 共享模式只认 rumbleL 是否活着（rumbleR 是故意关掉的）
@@ -826,6 +841,20 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             openRumble(false);
         }
         gamepad.pollPad({onPadButton, [](int) {}, [](int) {}, onPadRelease});
+        // 系统键走同一条 keymap 路径：单击/双击/锁定/magic 都自动生效（默认没绑 = 按了不动）
+        syskeys.poll([&](int key, bool pressed) {
+            int btn;
+            switch (key) {
+                case input::kSysVolDown: btn = input::kPadVolDown; break;
+                case input::kSysVolUp: btn = input::kPadVolUp; break;
+                case input::kSysPower: btn = input::kPadPower; break;
+                default: return;
+            }
+            if (pressed)
+                onPadButton(btn);
+            else
+                onPadRelease(btn);
+        });
 
         // 摇杆向量 → 引力场。dt 写死在 physics.cpp（1/60），所以这里每帧步进一次就够。
         {

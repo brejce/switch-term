@@ -23,6 +23,7 @@
 #include "config/lua_config.h"
 #include "ui/screen.h"
 #include "input/evdev_gamepad.h"
+#include "input/evdev_keys.h"
 #include "input/uinput_kbd.h"
 #include "platform/damage.h"
 #include "platform/display_backend.h"
@@ -979,7 +980,8 @@ int main(int argc, char** argv) {
                                       static const char* nm[] = {"LB", "LT", "RB", "RT", "A",
                                                                  "B",  "X",  "Y",  "UP",
                                                                  "DOWN", "LEFT", "RIGHT", "L3",
-                                                                 "START", "R3"};
+                                                                 "START", "R3", "VOLDOWN",
+                                                                 "VOLUP", "POWER"};
                                       got = nm[b];
                                   },
                                   [&](int sec) { got = "Lstick" + std::to_string(sec); },
@@ -1013,6 +1015,21 @@ int main(int argc, char** argv) {
             ev(EV_ABS, ABS_Y, 127);
             ev(EV_SYN, SYN_REPORT, 0);
             ck("左摇杆推右→扇区0", got == "Lstick0", got, "Lstick0");
+
+            // 电源键/音量键在独立设备上，不开真机：只验纯映射
+            std::printf("系统键（gpio-keys / max77620_onoff）：\n");
+            auto skName = [](int code) {  // 返回 std::string：const char* 的 == 比的是指针地址
+                const int k = input::sysKeyFromCode(code);
+                return k == input::kSysPower    ? std::string("POWER")
+                       : k == input::kSysVolUp  ? std::string("VOLUP")
+                       : k == input::kSysVolDown ? std::string("VOLDOWN")
+                                                 : std::string("?");
+            };
+            ck("电源键(KEY_SLEEP=142)", skName(KEY_SLEEP) == "POWER", skName(KEY_SLEEP), "POWER");
+            ck("音量+(KEY_VOLUMEUP=115)", skName(KEY_VOLUMEUP) == "VOLUP", skName(KEY_VOLUMEUP),
+               "VOLUP");
+            ck("音量-(KEY_VOLUMEDOWN=114)", skName(KEY_VOLUMEDOWN) == "VOLDOWN",
+               skName(KEY_VOLUMEDOWN), "VOLDOWN");
 
             // keymap.lua 真装配上了：键名/动作名写错只会往 stderr 打一行，这里直接验落表结果
             cfg::KeyMap km;
@@ -1147,7 +1164,7 @@ int main(int argc, char** argv) {
                         ui.cellW, ui.cellH, ui.title.c_str());
             static const char* kn[] = {"LB", "LT", "RB", "RT", "A", "B", "X", "Y",
                                        "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT",
-                                       "L3", "START", "R3"};
+                                       "L3", "START", "R3", "VOLDOWN", "VOLUP", "POWER"};
             for (int k = 0; k < cfg::kKeyCount; ++k)
                 if (km.single[k] || km.dbl[k]) {
                     std::printf("  %-10s 单击=%s", kn[k], cfg::actionName(km.single[k]));

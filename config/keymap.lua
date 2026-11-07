@@ -1,6 +1,7 @@
 -- 按键装配：把物理输入绑到动作名，C++ 启动时转成原生表，运行期不查 Lua
--- 键名：LB LT RB RT A B X Y DPAD_UP DPAD_DOWN DPAD_LEFT DPAD_RIGHT L3 START R3
+-- 键名：LB LT RB RT A B X Y DPAD_UP DPAD_DOWN DPAD_LEFT DPAD_RIGHT L3 START R3 VOLDOWN VOLUP POWER
 -- R3 = 右摇杆按下：evdev 认得到，但故意没绑（想用就 keymap.bind("R3", "…")）
+-- VOLDOWN / VOLUP / POWER = 音量−/+/电源键（独立设备 gpio-keys / max77620_onoff）：同样已识别、故意没绑
 -- 动作名见 src/config/lua_config.cpp 的 kActionNames
 
 -- 左手：LB 上屏（物理场吸附的键），LT 空格，摇杆按下 = 层循环（ALPHA→NUM→SYM）

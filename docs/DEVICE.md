@@ -69,7 +69,8 @@
 | `−` | 314 | `BTN_SELECT` | **没映射**（switch 里没有这个 case，按了无反应） |
 | Home | 316 | `BTN_MODE` | **没映射** |
 | Capture（截图） | 309 | `BTN_Z` | **没映射** |
-| 音量 + / − | 115 / 114 | `KEY_VOLUMEUP/DOWN` | 在**独立设备 `gpio-keys`** 上；我们的输入层只开"像手柄"的设备（有 `ABS_X/ABS_Y` 或 `BTN_SOUTH`），所以永远收不到 |
+| 音量 + / − | 115 / 114 | `KEY_VOLUMEUP/DOWN` | 在**独立设备 `gpio-keys`** 上：已接入（`input::EvdevSysKeys` 另开只读 fd），`volup`/`voldown`，暂未绑功能 |
+| 电源 | 142 | `KEY_SLEEP` | 在**独立设备 `max77620_onoff`** 上（不是 `KEY_POWER`，logind 已 `HandleSuspendKey=ignore`）：已接入，`power`，暂未绑功能 |
 | SL / SR（滑轨） | — | 无独立键码 | 所有 Joy-Con 设备的能力位图里都没有 `BTN_TRIGGER_HAPPY`；`Left/Right Joy-Con` 把滑轨键揉进 `BTN_TL/BTN_TR`。实测按下**零事件**，别当额外按键用 |
 
 `−` / Home / Capture 要启用时各是 3 处改动：`input::PadButton` + `cfg::InputKey` + `kKeys[]`

@@ -35,7 +35,8 @@ const KeyDef kKeys[] = {
     {"LB", kLB}, {"LT", kLT}, {"RB", kRB}, {"RT", kRT},   {"A", kA}, {"B", kB},
     {"X", kX},   {"Y", kY},   {"DPAD_UP", kDpadUp},      {"DPAD_DOWN", kDpadDown},
     {"DPAD_LEFT", kDpadLeft}, {"DPAD_RIGHT", kDpadRight}, {"L3", kL3},
-    {"START", kStart},   {"R3", kR3},
+    {"START", kStart},   {"R3", kR3},   {"VOLDOWN", kVolDown}, {"VOLUP", kVolUp},
+    {"POWER", kPower},
 };
 
 // keymap.lua 调用的 C 函数把结果写进这里（单线程启动期，静态够用）
