@@ -449,6 +449,9 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     // 后台 tab 也得读：没人读的话 shell 写满 PTY 缓冲就卡死了
     // 每个 tab 读一块 → 应答 DA → 剥掉 term/quit/标题标记 → 喂各自的解析器；返回总字节数
     auto readInto = [&]() -> long {
+        // overlay 没有终端：这里必须直接返回 0，否则 terms 空 → alive=false →
+        // 返回 -1 → 主循环当成"退出信号"，覆盖层启动几秒后自己消失
+        if (overlayMode) return 0;
         char b[8192];
         long total = 0;
         bool alive = false;
@@ -1301,7 +1304,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             if (!terms.empty()) terms[active].tp->clearDirty();
         }
 
-        if (n < 0) running = false;
+        if (n < 0 && !overlayMode) running = false;
     }
 
     if (ukbd.dropped())
