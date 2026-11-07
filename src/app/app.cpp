@@ -377,7 +377,11 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     // 触屏也归输入层：fbdev 与 SDL(X) 共用这一份（拖动翻页 / 轻点），后端不再管
     input::EvdevTouch evTouch;
-    evTouch.setRotation(bd->displayRotation());
+    // 触摸**不要**跟着画布→fb 的旋转走：触摸屏的 abs 轴本来就是"画布方向"
+    // （X 下 rot=0 实测 abs→画布 1:1；fbdev 只是我们自己把画布转进 720x1280 的 fb，
+    //  面板原生的触摸坐标没变）。以前这里传 270，纵向拖动被映射成横向 → wheel 不动，
+    //  表现就是"触摸滑不动"。
+    evTouch.setRotation(0);
     evTouch.open();
     if (evTouch.count() > 0) std::fprintf(stderr, "touch: %s\n", evTouch.name().c_str());
 
@@ -785,7 +789,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 g.fromConfig(uic, ui::layout::kScale);
                 bd->setCanvasSize(g.screenW, g.screenH);
                 bd->setRotation(eng.rotate);
-                evTouch.setRotation(bd->displayRotation());
+                evTouch.setRotation(0);
                 fonts.init(fm);
                 fullNext = true;  // 布局可能变了：整屏重画一次，别拿旧脏区套新几何
                 for (Term& t : terms) {
