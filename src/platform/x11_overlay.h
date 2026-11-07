@@ -22,6 +22,9 @@ public:
     // 覆盖层必须永远在最上层（否则普通窗口会盖住顶栏和键区）；
     // 没有 WM 时这一句会被忽略，不影响
     void setAlwaysOnTop();
+    // 把 X 焦点交给某个窗口：我们的覆盖层自己不需要焦点（手柄走 evdev），
+    // 但它全屏置顶后会变成"活动窗口"，uinput 打的字就会进我们自己这里
+    void focus(unsigned long w);
     void applyShape(const std::vector<Rect>& visible, int screenW, int screenH);
 
     struct Win {

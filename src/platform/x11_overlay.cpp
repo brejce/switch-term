@@ -85,6 +85,12 @@ void X11Overlay::setAlwaysOnTop() {
     XFlush(dpy_);
 }
 
+void X11Overlay::focus(unsigned long w) {
+    if (!dpy_ || !w || w == host_) return;
+    XSetInputFocus(dpy_, w, RevertToParent, CurrentTime);
+    XFlush(dpy_);
+}
+
 void X11Overlay::applyShape(const std::vector<Rect>& visible, int screenW, int screenH) {
     if (!dpy_ || !host_ || !shapeOk_) return;
     std::vector<XRectangle> rects;

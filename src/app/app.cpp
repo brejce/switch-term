@@ -575,10 +575,17 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     // overlay：顶栏的窗口列表（_NET_CLIENT_LIST 的顺序 = 任务栏顺序）。每 500ms 重读一次：
     // 新开/关的窗口、标题、谁拿到焦点都会变；返回 true = 内容变了，要重画顶栏
+    const unsigned long hostWin = static_cast<unsigned long>(bd->nativeWindow());
+    unsigned long frontWin = 0;  // 上一次真正的活动窗口（不是我们自己的时候记下来）
     auto refreshWindows = [&]() -> bool {
         std::vector<ui::SysWin> wins;
         for (const disp::X11Overlay::Win& w : overlay.listWindows()) wins.push_back({w.id, w.title});
         const unsigned long act = overlay.activeWindow();
+        // 我们自己全屏置顶后常常成为"活动窗口"：这时别把它当前台（顶栏会全显示前两字），
+        // 并且要把 X 焦点还给真正的那个窗口，否则 uinput 打的字全进我们覆盖层
+        const bool actIsUs = act == 0 || act == hostWin;
+        if (!actIsUs) frontWin = act;
+        else if (frontWin) overlay.focus(frontWin);
         bool diff = act != st.activeWin || wins.size() != st.windows.size();
         for (size_t i = 0; !diff && i < wins.size(); ++i)
             diff = wins[i].id != st.windows[i].id || wins[i].title != st.windows[i].title;
