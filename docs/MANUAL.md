@@ -26,6 +26,10 @@ Switch 2017 上跑的**纯字符终端 + 手柄键盘**，不开 Xorg，直接�
   两半装在滑轨上时内核只给一个 `Combined Joy-Cons` 节点，此时走 `strong=左 / weak=右` 的双通道：
   仍然分侧，只是共用一条 FF 设备。
 
+- **电源档 / 风扇 / 充电限制**：`sudo nvpmodel -m N`（7 档，见 `docs/DEVICE.md` §14）、
+  `sudo nvpmodel -d Console|Handheld|Cool`、`nvpmodel_helper.sh 7 55`（充电上限）。
+  插拔底座会自动改档（`auto_profiles=1`）；充电上限在裸机跑时会因重启丢失。
+
 ## 2. 操作表（手柄）
 
 | 键 | 动作 |

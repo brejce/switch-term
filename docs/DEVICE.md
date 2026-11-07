@@ -873,3 +873,78 @@ GL_VERSION  = OpenGL ES 3.2 NVIDIA 32.3.1
 | D 标准 KMS / Wayland 合成器 / `--vo=gpu` 类 | **不可行** | 没有 `CONFIG_DRM_TEGRA`；Xorg 是 nvdc 专有路径 |
 
 顺序建议不变：先 B（去撕裂），再考虑 C（把 SoftCanvas 换成 GLES，或只把贴图/缩放交给 GPU）。
+
+## 14. 电源档 / 风扇 / 充电限制（2026-11-07 实测）
+
+三样东西在 KDE 托盘里都能点，但**都来自同一个程序**：`/usr/share/nvpmodel_indicator/nvpmodel_indicator.py`
+（`/etc/xdg/autostart/nvpmodel_indicator.desktop` 自启），底层是 L4T 的 `/usr/sbin/nvpmodel`。
+托盘菜单里那个「Joy-Con Mapping」只是它弹的一张图 `jc_map.png`（就是 `50-joystick.conf` 映射的可视化，无行为）。
+
+### 14.1 电源档：**7 档**，不是 3 档
+
+定义在 `/etc/nvpmodel.conf`，当前档在 `/var/lib/nvpmodel/status`（形如 `pmode:0000 fmode:Console`）。
+
+| ID | 名字 | CPU min | CPU max | 超频 | GPU max |
+|---|---|---|---|---|---|
+| 0 | Console（出厂默认） | 0 | 1.785 GHz | 0 | 768 MHz |
+| 1 | Handheld | 0 | 1.428 GHz | 0 | 460.8 MHz |
+| 2 | OC_CPU | 0 | 3.0 GHz | 1 | 768 MHz |
+| 3 | OC_GPU | 0 | 1.785 GHz | 0 | 2 GHz（实际封顶 921.6 MHz） |
+| 4 | OC_All | 0 | 3.0 GHz | 1 | 2 GHz（同上） |
+| 5 | Perf_All | **1.02 GHz** | 1.785 GHz | 0 | 768 MHz |
+| 6 | Perf_OC_All | **1.02 GHz** | 3.0 GHz | 1 | 2 GHz（同上） |
+
+- 切档：`sudo nvpmodel -m N`，立刻生效（写 `scaling_max_freq` / `overclock` / GPU `max_freq`），
+  回来 `cat /var/lib/nvpmodel/status` 应看到 `pmode:000N`
+- **开机是持久的**：`nvpmodel.service`（`ExecStart=/usr/sbin/nvpmodel -f /etc/nvpmodel.conf`）按 status 文件恢复
+- 不超频时硬件真实上限：CPU 最高 `2091000`、GPU 最高 `921600000`；mode 0 只用得到 1.785 GHz
+- 超频档能到 3.0 GHz 的原因：`CPU_OVERCLOCK 1` 会写 `/sys/kernel/tegra_cpufreq/overclock`，
+  内核才把超频频率表暴露出来（关掉就只有上表那串）
+- 实测差异：`-m 5` → `scaling_min_freq` 变 1,020,000（Perf 档锁下限）；`-m 0` → 回到 102,000
+
+**和本项目的关系**：整屏旋转 blit 是单线程纯主频活（§4.4 里那条 14.2ms / 247MB/s 是在 mode 0 下量的）。
+出厂默认就是 mode 0；要"打字不偶尔卡一下"用 mode 5（不超频，只是锁住降频下限）；OC 档发热/掉电自负。
+
+### 14.2 风扇
+
+`sudo nvpmodel -d Console|Handheld|Cool`（写 thermal-fan-est / pwm-fan 曲线，官方 help 里写的是
+`nvpmodel -d mode_name: set mode_name to fan`）。当前值同样在 status 里（`fmode:`）。
+
+### 14.3 插拔底座会自动改档
+
+`/var/lib/nvpmodel/auto_profiles` = 1（默认）时，`/usr/bin/dock-hotplug`
+（由 `nintendo-switch-display.desktop` 以 `pkexec` 启动）在插拔时执行：
+
+- 插底座 → `nvpmodel -m 0 -d Console`
+- 拔掉 → `nvpmodel -m 1 -d Handheld`
+
+所以**手设的档位会被插拔事件覆盖**。要固定：`sudo sh -c 'echo 0 > /var/lib/nvpmodel/auto_profiles'`。
+
+### 14.4 充电限制
+
+- 内核节点：`/sys/class/power_supply/usb/charge_control_limit`，`0` = 无限制（当前就是 0）
+- 档位定义 `/etc/nvpmodel/nvpmodel_charging.conf`：`LIMIT=55 Always_Docked`、`LIMIT=85 High_Charge`
+  （名字看着是「电量百分比上限」，**单位没在源码里核实**，只知道是直接写进那个节点）
+- 设置 / 读取走 helper（设置会同时写 `/var/lib/nvpmodel/charging_status` 做持久化）：
+
+```bash
+sudo /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 7 55   # 设成 55
+sudo /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 6      # 读当前值（退出码就是值）
+sudo /usr/share/nvpmodel_indicator/nvpmodel_helper.sh 9      # 读保存的值
+```
+
+- **坑：裸机跑本项目时重启会丢。** 只有托盘程序（`nvpmodel_indicator.py`，KDE 登录时启动）会把
+  `charging_status` 读回来写进节点；我们的终端裸机跑，没有托盘 → 重启后又是 0。要持久就加一个 oneshot unit：
+
+```ini
+[Unit]
+Description=Switch charging limit (Always docked)
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 55 > /sys/class/power_supply/usb/charge_control_limit'
+
+[Install]
+WantedBy=multi-user.target
+```
+
+长期插底座当终端用，建议 55~85，别常年顶在 100%。
