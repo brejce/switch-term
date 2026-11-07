@@ -9,6 +9,24 @@
 namespace disp {
 namespace {
 
+// Xlib 的默认错误处理是 exit：对已经销毁的窗口 reparent/map/setfocus 都会报
+// BadWindow/BadMatch，不能让"某个窗口刚被关掉"顺手带走我们的覆盖层
+int ignoreXError(Display*, XErrorEvent*) { return 0; }
+
+struct ErrorGuard {
+    Display* dpy;
+    XErrorHandler prev;
+    explicit ErrorGuard(Display* d) : dpy(d), prev(XSetErrorHandler(ignoreXError)) {}
+    ~ErrorGuard() {
+        XSync(dpy, False);
+        XSetErrorHandler(prev);
+    }
+};
+
+}  // namespace
+
+namespace {
+
 // Xlib 的默认错误处理器直接 exit：_NET_CLIENT_LIST 里可能残留已经退出的窗口 id，
 // 读它的属性就是 BadWindow —— 一个程序退出不该带走我们的 UI
 int ignoreXError(Display*, XErrorEvent*) { return 0; }
@@ -70,6 +88,7 @@ bool X11Overlay::init(Display* dpy, Window host) {
 
 void X11Overlay::setAlwaysOnTop() {
     if (!dpy_ || !host_) return;
+    ErrorGuard guard(dpy_);
     // 用 EWMH 的 _NET_WM_STATE 加 ABOVE：openbox 会把它放到 above 层，普通窗口就在下面了
     XEvent ev{};
     ev.xclient.type = ClientMessage;
@@ -87,6 +106,7 @@ void X11Overlay::setAlwaysOnTop() {
 
 void X11Overlay::focus(unsigned long w) {
     if (!dpy_ || !w || w == host_) return;
+    ErrorGuard guard(dpy_);  // frontWin 可能刚好已经被关掉
     XSetInputFocus(dpy_, w, RevertToParent, CurrentTime);
     XFlush(dpy_);
 }
