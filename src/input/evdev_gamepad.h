@@ -20,6 +20,7 @@ enum PadButton {
     kPadLB = 0, kPadLT, kPadRB, kPadRT, kPadA, kPadB, kPadX, kPadY,
     kPadUp, kPadDown, kPadLeft, kPadRight, kPadL3,
     kPadPlus,  // 右手柄 +（BTN_START）：兜底用，键位顺序必须与 cfg::InputKey 一致
+    kPadR3,    // 右摇杆按下（BTN_THUMBR）：实测上报，暂未绑功能
     kPadCount
 };
 

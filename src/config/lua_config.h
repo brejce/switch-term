@@ -49,6 +49,7 @@ enum InputKey {
     kDpadUp, kDpadDown, kDpadLeft, kDpadRight,
     kL3,
     kStart,  // 右手柄 +：顺序必须和 input::PadButton 一致
+    kR3,     // 右摇杆按下：已识别，暂未绑功能（keymap.lua 里加一行即可启用）
     kKeyCount
 };
 

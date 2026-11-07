@@ -90,7 +90,8 @@ void PadState::onEvent(const input_event& ev, const PadHandlers& h) {
             case BTN_DPAD_DOWN: btn = kPadDown; break;
             case BTN_DPAD_LEFT: btn = kPadLeft; break;
             case BTN_DPAD_RIGHT: btn = kPadRight; break;
-            case BTN_THUMBL: btn = kPadL3; break;  // 摇杆按下（BTN_THUMBR 设备上不存在）
+            case BTN_THUMBL: btn = kPadL3; break;  // 摇杆按下（左右两颗都上报，别按老注释以为是同一个）
+            case BTN_THUMBR: btn = kPadR3; break;  // 右摇杆按下：只识别，暂不绑功能
             case BTN_START: btn = kPadPlus; break;  // 右手柄 +：呼出 onboard（KDE 抢手柄时的兜底）
             default: break;
         }

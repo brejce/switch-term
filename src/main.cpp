@@ -604,7 +604,7 @@ static int gamepadEvdevSelfTest() {
         {BTN_DPAD_UP, input::kPadUp, "DPAD_UP"},    {BTN_DPAD_DOWN, input::kPadDown, "DPAD_DOWN"},
         {BTN_DPAD_LEFT, input::kPadLeft, "DPAD_LEFT"},
         {BTN_DPAD_RIGHT, input::kPadRight, "DPAD_RIGHT"}, {BTN_START, input::kPadPlus, "+"},
-        {BTN_THUMBL, input::kPadL3, "L3"},
+        {BTN_THUMBL, input::kPadL3, "L3"},            {BTN_THUMBR, input::kPadR3, "R3"},
     };
     bool ok = true;
     for (const Case& c : cases) {
@@ -979,7 +979,7 @@ int main(int argc, char** argv) {
                                       static const char* nm[] = {"LB", "LT", "RB", "RT", "A",
                                                                  "B",  "X",  "Y",  "UP",
                                                                  "DOWN", "LEFT", "RIGHT", "L3",
-                                                                 "START"};
+                                                                 "START", "R3"};
                                       got = nm[b];
                                   },
                                   [&](int sec) { got = "Lstick" + std::to_string(sec); },
@@ -1002,6 +1002,9 @@ int main(int argc, char** argv) {
             got.clear();
             ev(EV_KEY, BTN_THUMBL, 1);  // 摇杆按下 → L3（v2 层循环）
             ck("摇杆按下(BTN_THUMBL)=L3", got == "L3", got, "L3");
+            got.clear();
+            ev(EV_KEY, BTN_THUMBR, 1);  // 右摇杆按下 → R3（识别，暂不绑功能）
+            ck("右摇杆按下(BTN_THUMBR)=R3", got == "R3", got, "R3");
             got.clear();
             ev(EV_KEY, BTN_START, 1);  // 右手柄 + → onboard（兜底）
             ck("右手柄 +(BTN_START)=START", got == "START", got, "START");
@@ -1144,7 +1147,7 @@ int main(int argc, char** argv) {
                         ui.cellW, ui.cellH, ui.title.c_str());
             static const char* kn[] = {"LB", "LT", "RB", "RT", "A", "B", "X", "Y",
                                        "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT",
-                                       "L3", "START"};
+                                       "L3", "START", "R3"};
             for (int k = 0; k < cfg::kKeyCount; ++k)
                 if (km.single[k] || km.dbl[k]) {
                     std::printf("  %-10s 单击=%s", kn[k], cfg::actionName(km.single[k]));

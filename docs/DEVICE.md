@@ -54,6 +54,27 @@
   HAT 分支保留以兼容原生 hid-nintendo。
 - 现状：legacy 路径 `:73-83`、新路径 `:148-151` 都已认 `BTN_DPAD_*`；**真机复验尚未做**。
 
+### 1.2b 全部按键的实测清单（2026-11-07，`evdump` 逐键取证）
+
+`/dev/input/event*` 能力位图 + 实际按键，逐个确认（`Combined Joy-Cons` 是并集）：
+
+| 物理键 | evdev 码 | 名 | 我们的映射 |
+|---|---|---|---|
+| A / B / X / Y | 305 / 304 / 307 / 308 | `BTN_EAST/SOUTH/NORTH/WEST` | kPadA/B/X/Y ✓ |
+| L / ZL / R / ZR | 310 / 312 / 311 / 313 | `BTN_TL/TL2/TR/TR2` | kPadLB/LT/RB/RT ✓ |
+| DPAD 四向 | 544–547 | `BTN_DPAD_UP/DOWN/LEFT/RIGHT` | kPadUp/Down/Left/Right ✓ |
+| 左摇杆按下 | 317 | `BTN_THUMBL` | kPadL3（切层）✓ |
+| 右摇杆按下 | **318** | `BTN_THUMBR` | **kPadR3 已接上、暂未绑功能**（旧注释说"设备上不存在"是错的） |
+| `+` | 315 | `BTN_START` | kPadPlus → `onboard` ✓ |
+| `−` | 314 | `BTN_SELECT` | **没映射**（switch 里没有这个 case，按了无反应） |
+| Home | 316 | `BTN_MODE` | **没映射** |
+| Capture（截图） | 309 | `BTN_Z` | **没映射** |
+| 音量 + / − | 115 / 114 | `KEY_VOLUMEUP/DOWN` | 在**独立设备 `gpio-keys`** 上；我们的输入层只开"像手柄"的设备（有 `ABS_X/ABS_Y` 或 `BTN_SOUTH`），所以永远收不到 |
+| SL / SR（滑轨） | — | 无独立键码 | 所有 Joy-Con 设备的能力位图里都没有 `BTN_TRIGGER_HAPPY`；`Left/Right Joy-Con` 把滑轨键揉进 `BTN_TL/BTN_TR`。实测按下**零事件**，别当额外按键用 |
+
+`−` / Home / Capture 要启用时各是 3 处改动：`input::PadButton` + `cfg::InputKey` + `kKeys[]`
+（顺序必须两边一致，都追加在末尾，否则会顶掉现有索引），然后 `config/keymap.lua` 里 `bind` 一行。
+
 ### 1.3 开机「手柄不可用」的真相（两次 boot 对比）
 
 **15:47 那次 —— 全好**：两只 Joy-Con 开机 10 秒内握手成功：
