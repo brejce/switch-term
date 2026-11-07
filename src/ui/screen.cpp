@@ -83,6 +83,56 @@ void ptitle(render::Renderer& r, const FontBook& f, int x, int y, const std::str
                 S(1, s));
 }
 
+// 顶栏右侧（时钟 + 电量）的排布。drawTopBar 和窗口条都要它：右边占多少，左边才知道能用多宽
+struct TopRight {
+    std::string bat;
+    int batX = 0, dotX = 0, clockX = 0;
+};
+
+TopRight topRightLayout(render::Renderer& r, const FontBook& f, const Geometry& g,
+                        const AppState& st) {
+    const float s = g.scale;
+    TopRight t;
+    char buf[64];
+    if (st.battery < 0) std::snprintf(buf, sizeof buf, "BAT --%%");
+    else std::snprintf(buf, sizeof buf, "BAT %d%%%s", st.battery, st.charging ? "+" : "");
+    t.bat = buf;
+    t.batX = g.screenW - S(16, s) - r.textWidth(t.bat, f.bar);
+    t.dotX = t.batX - S(10, s) - r.textWidth("·", f.bar);
+    t.clockX = t.dotX - r.textWidth(st.clock, f.bar) - S(10, s);
+    return t;
+}
+
+// 顶栏窗口条的条目：排布和绘制分成两步算，省得 drawTopBar 里套两层循环
+struct WinItem {
+    int x = 0;
+    std::string label;
+    bool active = false;
+};
+
+std::vector<WinItem> winItems(render::Renderer& r, const FontBook& f, const Geometry& g,
+                              const AppState& st) {
+    std::vector<WinItem> items;
+    if (st.windows.empty()) return items;
+    const float s = g.scale;
+    // 放不下就截断：顶栏只有一条，溢出会压到右边的时钟上
+    const int limit = topRightLayout(r, f, g, st).clockX - S(12, s);
+    const int sepW = r.textWidth("·", f.bar) + S(8, s) * 2;
+    int x = S(16, s);
+    for (const SysWin& win : st.windows) {
+        const bool on = win.id == st.activeWin;
+        // 前台那颗给全名（这是唯一能看清「现在在哪个程序」的地方），其余只留前两字
+        const std::string label = on ? win.title : headCodepoints(win.title, 2);
+        if (label.empty()) continue;  // 还没起完标题的窗口不占位
+        const int w = r.textWidth(label, f.bar);
+        if (x + (items.empty() ? 0 : sepW) + w > limit) break;
+        if (!items.empty()) x += sepW;
+        items.push_back({x, label, on});
+        x += w;
+    }
+    return items;
+}
+
 struct HintRow {
     const char* key;
     const char* what;
@@ -113,6 +163,15 @@ void drawHints(render::Renderer& r, const FontBook& f, int panelX, int panelY, i
 }
 
 }  // namespace
+
+std::string headCodepoints(const std::string& s, int n) {
+    size_t i = 0;
+    for (int k = 0; k < n && i < s.size(); ++k) {
+        const unsigned char b = static_cast<unsigned char>(s[i]);
+        i += b < 0x80 ? 1 : (b & 0xE0) == 0xC0 ? 2 : (b & 0xF0) == 0xE0 ? 3 : 4;
+    }
+    return s.substr(0, std::min(i, s.size()));
+}
 
 void drawDpad(render::Renderer& r, const FontBook& f, int x0, int y0, int cell,
               const AppState& st, float s) {
@@ -244,19 +303,29 @@ void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, cons
     const float s = g.scale;
     r.fill({0, 0, g.screenW, g.topBarH}, c(col::kBg));
     r.fill({0, g.topBarH - 1, g.screenW, 1}, c(col::kLine));
-    r.textInBox({S(16, s), 0, 0, g.topBarH}, uic.title, f.bar, c(col::kCyan), render::Align::Left, 0,
-                0, S(1, s));
 
-    char right[64];
-    if (st.battery < 0) std::snprintf(right, sizeof right, "BAT --%%");
-    else std::snprintf(right, sizeof right, "BAT %d%%%s", st.battery, st.charging ? "+" : "");
-    int w = r.textWidth(right, f.bar);
-    int x = g.screenW - S(16, s) - w;
-    r.textInBox({x, 0, 0, g.topBarH}, right, f.bar, c(col::kGreen), render::Align::Left);
-    x -= S(10, s) + r.textWidth("·", f.bar);
-    r.textInBox({x, 0, 0, g.topBarH}, "·", f.bar, c(col::kFaint), render::Align::Left);
-    x -= r.textWidth(st.clock, f.bar) + S(10, s);
-    r.textInBox({x, 0, 0, g.topBarH}, st.clock, f.bar, c(col::kText), render::Align::Left);
+    const TopRight tr = topRightLayout(r, f, g, st);
+    r.textInBox({tr.batX, 0, 0, g.topBarH}, tr.bat, f.bar, c(col::kGreen), render::Align::Left);
+    r.textInBox({tr.dotX, 0, 0, g.topBarH}, "·", f.bar, c(col::kFaint), render::Align::Left);
+    r.textInBox({tr.clockX, 0, 0, g.topBarH}, st.clock, f.bar, c(col::kText),
+                render::Align::Left);
+
+    if (st.windows.empty()) {  // 没有别的窗口（或不是 overlay）：还是原来的标题
+        r.textInBox({S(16, s), 0, 0, g.topBarH}, uic.title, f.bar, c(col::kCyan),
+                    render::Align::Left, 0, 0, S(1, s));
+        return;
+    }
+    // overlay：标题换成系统窗口列表（前台全名 + 其它前两字，放不下就截断）
+    const std::vector<WinItem> items = winItems(r, f, g, st);
+    const int sepW = r.textWidth("·", f.bar) + S(8, s) * 2;
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (i > 0)
+            r.textInBox({items[i].x - sepW + S(8, s), 0, 0, g.topBarH}, "·", f.bar,
+                        c(col::kFaint), render::Align::Left);
+        r.textInBox({items[i].x, 0, 0, g.topBarH}, items[i].label, f.bar,
+                    c(items[i].active ? col::kText : col::kDim), render::Align::Left, 0, 0,
+                    S(1, s));
+    }
 }
 
 // 顶栏 + 底栏 + tab 条 的内容签名：脏矩形只在这串变了时才重画这两条。
@@ -264,10 +333,17 @@ void drawTopBar(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, cons
 std::string barSignature(const AppState& st, const std::vector<std::string>& titles, int active) {
     std::string sig = st.clock + '|' + std::to_string(st.battery) + (st.charging ? "+" : "") +
                       '|' + st.layerName + '|' + std::to_string(st.layer) + '|' + st.imeName +
-                      '|' + st.modsText + '|' + std::to_string(active);
+                      '|' + st.modsText + '|' + std::to_string(active) + '|' +
+                      std::to_string(st.activeWin);
     for (const auto& t : titles) {
         sig += '|';
         sig += t;
+    }
+    for (const SysWin& w : st.windows) {  // overlay 的窗口列表（标题会变：alacritty 标题跟着命令走）
+        sig += '|';
+        sig += std::to_string(w.id);
+        sig += ':';
+        sig += w.title;
     }
     return sig;
 }
@@ -519,8 +595,12 @@ void drawKeyPanels(render::Renderer& r, const FontBook& f, const cfg::Ui& uic, c
         const char* rDn = st.modShift ? "下" : "右";
         hint(S(10, s), "L", "魔法键");
         hint(S(96, s), "ZL", "空格");
-        hint(rightX + S(10, s), "R", rUp);
-        hint(rightX + S(96, s), "ZR", rDn);
+        if (st.overlay) {  // overlay：按住 Alt 时 R/ZR 交给 openbox 切窗口，占两格写一条
+            hint(rightX + S(10, s), "Alt+R/ZR", "切窗");
+        } else {
+            hint(rightX + S(10, s), "R", rUp);
+            hint(rightX + S(96, s), "ZR", rDn);
+        }
     }
 
     // 按键簇摆在键窗下面：窗口在面板里竖向居中，所以从窗口底边往下排

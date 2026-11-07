@@ -31,6 +31,7 @@
 #include "input/uinput_mouse.h"
 #include "modules/terminal/terminal_parser.h"
 #include "platform/damage.h"
+#include "platform/x11_overlay.h"
 #include "render/font_manager.h"
 #include "render/renderer.h"
 #include "term/osc_filter.h"
@@ -168,6 +169,14 @@ void drawGrid(render::Renderer& r, const ui::FontBook& f, const ui::Geometry& g,
     }
 }
 
+// overlay 模式要保留（= 看得见、点得到）的三块：顶栏 + 左右面板。XShape 挖洞和局部刷新
+// 用的都是这一份几何，画在哪和能看见哪永远是同一块
+std::vector<disp::Rect> overlayRects(const ui::Geometry& g) {
+    return {{0, 0, g.screenW, g.topBarH},
+            {0, g.contentY, g.panelW, g.contentH},
+            {g.screenW - g.panelW, g.contentY, g.panelW, g.contentH}};
+}
+
 // 终端里敲 term/quit 就能建/关 tab：往 PATH 最前面塞两个脚本，子进程 execvp 直接敲到
 void installPathShims() {
     const std::string dir = "/tmp/sit-bin-" + std::to_string(::getpid());
@@ -262,6 +271,21 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     bd->setCanvasSize(g.screenW, g.screenH);
     bd->setRotation(eng.rotate);  // engine.display.rotate（仅 fbdev 生效）
 
+    // overlay：只当压在 openbox 上面的覆盖层，中间挖洞让给下面的 alacritty / chromium。
+    // 形态只在启动时定：运行中换要重建窗口和 PTY，热重载那里只提示不切
+    // SIT_OVERLAY=1 强制 overlay：试跑用，免得为了试一次去改 config（设备上的 git 工作区要保持干净才能 push）
+    const bool overlayMode = uic.mode == "overlay" || std::getenv("SIT_OVERLAY") != nullptr;
+    disp::X11Overlay overlay;
+    if (overlayMode &&
+        !overlay.init(static_cast<Display*>(bd->nativeDisplay()),
+                      static_cast<Window>(bd->nativeWindow())))
+        std::fprintf(stderr, "ui: mode=overlay 但拿不到 X 窗口（不是 X11 会话？），中间不会挖洞\n");
+    // 窗口尺寸变了就得重算洞的位置：几何一变（启动/缩放/热重载）都走这里
+    auto applyOverlayShape = [&] {
+        if (overlayMode) overlay.applyShape(overlayRects(g), g.screenW, g.screenH);
+    };
+    applyOverlayShape();
+
     render::FontManager fm;
     if (!fm.init()) return 1;
     ui::FontBook fonts;
@@ -297,6 +321,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
     installPathShims();  // term/quit 命令：必须在第一个 fork 之前
 
     auto spawnTerm = [&]() -> bool {
+        if (overlayMode) return false;  // overlay 模式没有终端：PTY 一律不 spawn
         // 防递归：--run 的脚本自己吐 newtab 也不会无限生 tab
         if (terms.size() >= 16) {
             std::fprintf(stderr, "tab: 已有 16 个，拒绝新建\n");
@@ -333,7 +358,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         terms[0].title = title;  // 同一个 title 重新 spawn
         active = 0;
     };
-    if (!spawnTerm()) return 1;  // 第一个 tab 起不来就没得玩
+    if (!overlayMode && !spawnTerm()) return 1;  // 第一个 tab 起不来就没得玩
     for (int i = 1; i < tabs; ++i)  // --tabs：无输入的环境下一帧就能看到多个 tab
         if (!spawnTerm()) break;
 
@@ -464,7 +489,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         return (!runCmd.empty() && !alive) ? -1 : total;
     };
 
-    if (!runCmd.empty()) {  // 抽干输出（等到静默）
+    if (!overlayMode && !runCmd.empty()) {  // 抽干输出（等到静默）
         int quiet = 0;
         for (int i = 0; i < 200 && quiet < 8; ++i) {
             struct pollfd pfd{terms[0].pty->masterFd(), POLLIN, 0};
@@ -473,7 +498,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         }
     }
 
-    if (std::getenv("SIT_DEBUG")) {  // 命令跑完后再看一次网格
+    if (!overlayMode && std::getenv("SIT_DEBUG")) {  // 命令跑完后再看一次网格
         for (int row = 0; row < 5 && row < terms[0].tp->rows(); ++row) {
             std::string line;
             for (int col = 0; col < 50 && col < terms[0].tp->cols(); ++col) {
@@ -542,6 +567,24 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
 
     ui::AppState st;
     st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "英文";
+    st.overlay = overlayMode;
+    bool uiDirty = false;  // 这一帧有没有动过屏幕：静止就不重画靠它
+
+    // overlay：顶栏的窗口列表（_NET_CLIENT_LIST 的顺序 = 任务栏顺序）。每 500ms 重读一次：
+    // 新开/关的窗口、标题、谁拿到焦点都会变；返回 true = 内容变了，要重画顶栏
+    auto refreshWindows = [&]() -> bool {
+        std::vector<ui::SysWin> wins;
+        for (const disp::X11Overlay::Win& w : overlay.listWindows()) wins.push_back({w.id, w.title});
+        const unsigned long act = overlay.activeWindow();
+        bool diff = act != st.activeWin || wins.size() != st.windows.size();
+        for (size_t i = 0; !diff && i < wins.size(); ++i)
+            diff = wins[i].id != st.windows[i].id || wins[i].title != st.windows[i].title;
+        st.windows = std::move(wins);
+        st.activeWin = act;
+        return diff;
+    };
+    long long winListAt = 0;  // 上次重读窗口列表的时刻（ms）
+    if (overlayMode) refreshWindows();
 
 
     // 动作分发：手柄/面板都走这里（映射来自 keymap.lua）
@@ -683,7 +726,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             case cfg::kLayer:
             case cfg::kNone: break;
         }
-        terms[active].tp->markDirty();
+        if (!terms.empty()) terms[active].tp->markDirty();
     };
 
     // 一次性修饰（sticky）：用掉一颗真按键就清，不然 Ctrl 会永久粘着（空格全变成切中英）
@@ -717,13 +760,22 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         bd->heldUsed &= ~bit;
     };
 
-    bool uiDirty = false;  // 这一帧有没有动过屏幕：静止就不重画靠它
     auto onPadButton = [&](int btn) {
         if (btn < 0 || btn >= cfg::kKeyCount) return;
         uiDirty = true;
         long long now = msNow();
         st.pressedKey = btn;  // 提示条闪一下（150ms）
         st.pressedKeyMs = now;
+        // overlay：Alt（按住或锁定）时 R/ZR 合成 Alt+↑ / Alt+↓ 打给系统，openbox 的 A-Up / A-Down
+        // 就这么切窗口。为什么不是 Tab+↑：X 里 Tab 不是修饰键，openbox 绑不出那个组合，Alt 才是。
+        // 这里现算修饰态（和 st.modAlt 同一套 locks|holding|sticky，但不晚一帧），Alt 优先于 Shift；
+        // 没按 Alt 时 R/ZR 原样走 keymap（光标左/右，带 Shift 时上/下）
+        const int modsLive = bd->locks | bd->holding | bd->sticky;
+        if (overlayMode && (modsLive & 4) && (btn == cfg::kRB || btn == cfg::kRT)) {
+            if (btn == cfg::kRB) ukbd.tapAltUp();
+            else ukbd.tapAltDown();
+            return;
+        }
         cfg::Action act = km.single[btn];
         // 同一键窗口内按第二下 = 双击动作（DPAD 锁定修饰用）
         if (km.dbl[btn] && btn == lastBtn && now - lastPress[btn] < eng.doubleTapMs)
@@ -761,6 +813,7 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 g.fromConfig(uic, ui::layout::kScale);
                 bd->setCanvasSize(g.screenW, g.screenH);
                 bd->setRotation(eng.rotate);
+                applyOverlayShape();  // 窗口尺寸变了：洞跟着重算
                 fonts.init(fm);
                 fullNext = true;
                 for (Term& t : terms) {  // 每个 tab 的网格和 PTY 都得改尺寸
@@ -782,9 +835,12 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 eng = p.engine;
                 eng.physics.deadzone = eng.deadzone;  // 同上：曲线起点 = 死区边缘
                 eng.sink = useUinput ? "uinput" : "pty";  // 输出口开机时定下，热重载不换设备
+                if ((p.ui.mode == "overlay") != overlayMode)  // 形态只在启动时定
+                    std::fprintf(stderr, "ui: ui.mode 只在启动时生效，重启后换形态\n");
                 g.fromConfig(uic, ui::layout::kScale);
                 bd->setCanvasSize(g.screenW, g.screenH);
                 bd->setRotation(eng.rotate);
+                applyOverlayShape();
                 evTouch.setRotation(bd->displayRotation());
                 fonts.init(fm);
                 fullNext = true;  // 布局可能变了：整屏重画一次，别拿旧脏区套新几何
@@ -812,21 +868,24 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         }
 
         // ④ 输入路由：行为都在 app::routeKey / routeRaw 里（可单测）
-        for (char ch : keys) {
-            RouteResult rr = route(ch, modMask());
-            pending += rr.bytes;
-            if (bd->sticky) bd->sticky = 0;  // 一次性修饰：这颗键用过就清
+        // overlay 模式没有终端：键盘字节没人收，这层路由整段跳过
+        if (!overlayMode) {
+            for (char ch : keys) {
+                RouteResult rr = route(ch, modMask());
+                pending += rr.bytes;
+                if (bd->sticky) bd->sticky = 0;  // 一次性修饰：这颗键用过就清
+            }
         }
         if (!pending.empty()) {
             if (useUinput)
                 ukbd.typeBytes(pending);  // 打给系统；PTY 只收 shell 输出，不再收这些键
-            else
+            else if (!terms.empty())
                 terms[active].pty->writeMaster(pending.data(), pending.size());
-            pending.clear();
+            pending.clear();  // overlay 模式没有输出口：键区产出的字节直接丢
         }
 
-        // ⑤ 读终端输出
-        long n = readInto();
+        // ⑤ 读终端输出（overlay 模式没起 PTY）
+        long n = overlayMode ? 0 : readInto();
         // 手柄没打开就每 2s 重扫：Joy-Con 走串口握手，开机后几十秒才出设备，启动时扫不到这里补上
         // 电源键/音量键设备也复用这个时机（它们掉线同样要重开，但没必要多一个定时器）
         if ((gamepad.count() == 0 || gamepad.lost() || syskeys.count() == 0 || syskeys.lost() ||
@@ -931,30 +990,35 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         // 滚轮、Shift+PgUp/PgDn 与触摸滑动都按“行”累计：正数向上回看。
         if (bd->wheel != 0) {
             if (std::getenv("SIT_DEBUG")) std::fprintf(stderr, "[touch] wheel=%d\n", bd->wheel);
-            Term& t = terms[active];
-            const int w = bd->wheel;
-            bd->wheel = 0;
-            if (t.tp->altScreen()) {
-                // 备用屏（vim / less / pi 这类全屏 TUI）没有 scrollback，本地滚就是滚空气：
-                // 得把滚轮转发给里面的程序。开了鼠标上报就发 SGR 滚轮（xterm 同款），
-                // 没开就退成方向键——这是各终端模拟器的通用兜底
-                const int n = std::min(std::abs(w), 10);  // 一帧最多 10 下，别糊屏
-                std::string seq;
-                char buf[40];
-                for (int i = 0; i < n; ++i) {
-                    if (t.tp->mouseReports() && t.tp->mouseSgr()) {
-                        // 指针位置我们用终端中心（没有真实指针坐标，程序只关心方向）
-                        std::snprintf(buf, sizeof buf, "\x1b[<%d;%d;%dM", w > 0 ? 64 : 65,
-                                      t.tp->cols() / 2 + 1, t.tp->rows() / 2 + 1);
-                        seq += buf;
-                    } else {
-                        seq += w > 0 ? "\x1b[A" : "\x1b[B";
+            // overlay 模式没有终端：洞里的滚动直接进下面的窗口，这里只清累计量
+            if (!terms.empty()) {
+                Term& t = terms[active];
+                const int w = bd->wheel;
+                bd->wheel = 0;
+                if (t.tp->altScreen()) {
+                    // 备用屏（vim / less / pi 这类全屏 TUI）没有 scrollback，本地滚就是滚空气：
+                    // 得把滚轮转发给里面的程序。开了鼠标上报就发 SGR 滚轮（xterm 同款），
+                    // 没开就退成方向键——这是各终端模拟器的通用兜底
+                    const int n = std::min(std::abs(w), 10);  // 一帧最多 10 下，别糊屏
+                    std::string seq;
+                    char buf[40];
+                    for (int i = 0; i < n; ++i) {
+                        if (t.tp->mouseReports() && t.tp->mouseSgr()) {
+                            // 指针位置我们用终端中心（没有真实指针坐标，程序只关心方向）
+                            std::snprintf(buf, sizeof buf, "\x1b[<%d;%d;%dM", w > 0 ? 64 : 65,
+                                          t.tp->cols() / 2 + 1, t.tp->rows() / 2 + 1);
+                            seq += buf;
+                        } else {
+                            seq += w > 0 ? "\x1b[A" : "\x1b[B";
+                        }
                     }
+                    if (!seq.empty()) t.pty->writeMaster(seq.data(), seq.size());
+                } else {
+                    t.scroll = std::clamp(t.scroll + w, 0, t.tp->historySize());
+                    t.tp->markDirty();
                 }
-                if (!seq.empty()) t.pty->writeMaster(seq.data(), seq.size());
             } else {
-                t.scroll = std::clamp(t.scroll + w, 0, t.tp->historySize());
-                t.tp->markDirty();
+                bd->wheel = 0;  // 没有终端：滚轮事件没人接手，清掉就行
             }
         }
 
@@ -974,21 +1038,27 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
         // ⑥ 画
         int cr = 0, cc = 0;
         bool cv = true;
-        terms[active].tp->cursor(cr, cc, cv);
+        if (!terms.empty()) terms[active].tp->cursor(cr, cc, cv);
         if (long long now = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::steady_clock::now().time_since_epoch())
                                 .count();
             now - lastBlink > 500) {
             lastBlink = now;
             cursorOn = !cursorOn;
-            if (cv)  // 程序自己把光标藏了（pi 这类全屏 TUI）就不用闪，也别为此重画
-                terms[active].tp->markRowDirty(cr);  // 光标只动一行：别把整屏标脏
+            // 程序自己把光标藏了（pi 这类全屏 TUI）就不用闪，也别为此重画；
+            // 光标只动一行，别把整屏标脏
+            if (cv && !terms.empty()) terms[active].tp->markRowDirty(cr);
         }
 
         const std::string clockBefore = st.clock;
         const int batteryBefore = st.battery;
         refreshTopBar();
         if (st.clock != clockBefore || st.battery != batteryBefore) uiDirty = true;
+        // overlay：系统窗口列表每 500ms 重读一次（新开/关的窗口、标题、谁拿到焦点都会变）
+        if (overlayMode && nowMs - winListAt >= 500) {
+            winListAt = nowMs;
+            uiDirty = refreshWindows() || uiDirty;
+        }
         // 底栏语言/输入法每帧从 ime 现算：按键路径（键盘 keys 循环、手柄 doAction）都会改
         // ime.chinese，但只有前者的 RouteResult 带了 langChanged，手柄那条路以前永远不更新底栏
         st.imeName = eng.imeEnabled && ime.chinese ? "拼音" : "英文";
@@ -1120,8 +1190,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             std::fabs(ptrL.vx) + std::fabs(ptrL.vy) + std::fabs(ptrR.vx) + std::fabs(ptrR.vy) >
                 0.5f ||
             std::fabs(camVx) + std::fabs(camVy) + std::fabs(camRVx) + std::fabs(camRVy) > 0.5f;
-        const bool changed =
-            uiDirty || n > 0 || terms[active].tp->dirty() || active != lastActiveSeen;
+        const bool changed = uiDirty || n > 0 || (!terms.empty() && terms[active].tp->dirty()) ||
+                             active != lastActiveSeen;
         const bool forced = prevAnimating && !animating;  // 动画收尾补画一帧，别停在半路
         prevAnimating = animating;
         if (animating || changed || forced) {
@@ -1143,7 +1213,10 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
             lastBarSig = barSig;
 
             disp::DamageList dmg;
-            if (full) {
+            if (overlayMode) {
+                // overlay：屏幕中间是洞（那一块归下面的窗口画），要刷的只有我们自己那三块
+                for (const disp::Rect& box : overlayRects(g)) dmg.push(box);
+            } else if (full) {
                 dmg.push({0, 0, g.screenW, g.screenH});
             } else {
                 // 摇杆/吸附动画只动两块键面板：键只画在窗口里，但径向遮罩铺满整个面板、
@@ -1174,14 +1247,20 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                     }
                 }
             }
-            lastComposing = composing;
-            lastScrollSeen = terms[active].scroll;
+            if (!terms.empty()) {
+                lastComposing = composing;
+                lastScrollSeen = terms[active].scroll;
+            }
             dmg.clip(g.screenW, g.screenH);
 
             // 同一份绘制代码按脏区跑：base clip 外的像素一个都不写，只拷脏区到 fb
             auto drawFrame = [&]() {
                 r.fill({0, 0, g.screenW, g.screenH}, ui::c(ui::col::kBg));
                 ui::drawTopBar(r, fonts, uic, g, st);
+                if (overlayMode) {  // 中间那块是洞：终端网格、tab 条、底栏都不存在
+                    ui::drawKeyPanels(r, fonts, uic, g, st);
+                    return;
+                }
                 ui::drawTabBar(r, fonts, g, uic, titles, active);
                 ui::drawKeyPanels(r, fonts, uic, g, st);
                 ui::drawTermBackground(r, fonts, g);
@@ -1203,7 +1282,8 @@ int run(disp::DisplayBackend* bd, const std::string& resDir, const std::string& 
                 std::fprintf(stderr, "[damage] %d 块 %ld 像素 = %ld B\n", dmg.size(), px,
                              px * 4);
             }
-            terms[active].tp->clearDirty();  // 画过了：下一次变化由 vterm 的 damage 重新置位
+            // 画过了：下一次变化由 vterm 的 damage 重新置位
+            if (!terms.empty()) terms[active].tp->clearDirty();
         }
 
         if (n < 0) running = false;

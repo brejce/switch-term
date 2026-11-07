@@ -16,6 +16,13 @@ struct CandView {
     std::string annot;
 };
 
+// overlay 模式的系统窗口（app.cpp 每 500ms 从 _NET_CLIENT_LIST 读一次）。
+// 顶栏画它们：前台给全名，其余只留前两字
+struct SysWin {
+    unsigned long id = 0;
+    std::string title;
+};
+
 struct AppState {
     std::string layerName = "ALPHA";  // 展示用名字：ALPHA | NUM | SYM
     int layer = 0;                 // 层下标 0=ALPHA 1=NUM 2=SYM（L3 循环，LAYOUT-v2 §2）
@@ -42,6 +49,10 @@ struct AppState {
     int battery = -1;              // -1 = 读不到电池（顶栏显示 BAT --%%）
     bool charging = false;
     std::string modsText = "";    // "CTRL+SHIFT" 之类，空 = 无
+    bool overlay = false;         // ui.mode = overlay：顶栏画系统窗口列表、底部提示多一行
+    // overlay 模式：顶栏改成系统窗口列表（空 = 没有别的窗口，退回旧样式：标题/时钟/电量）
+    std::vector<SysWin> windows;
+    unsigned long activeWin = 0;
 };
 
 // 缩放后的几何（由 cfg::Ui 算出，跟布局缩放一起变）
@@ -57,6 +68,10 @@ struct Geometry {
     int termCols = 101, termRows = 28;
     void fromConfig(const cfg::Ui& uic, float scale);
 };
+
+// 取前 n 个 UTF-8 码位（不是字节）：overlay 顶栏要把非前台窗口的标题压成前两字，
+// 按字节切会把汉字切成半个（顶栏上就是乱码方块）
+std::string headCodepoints(const std::string& s, int n);
 
 // 顶栏里的 tab 条。格宽固定、起点是常量（不量标题宽度），所以命中测试不用带 renderer；
 // drawTabBar 和 tabAt 共用 tabRect，绘制和命中只算一份几何。

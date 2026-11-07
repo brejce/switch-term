@@ -119,7 +119,7 @@ void UinputKeyboard::sync() {
     ::write(fd_, &ev, sizeof ev);
 }
 
-void UinputKeyboard::tap(int keycode, bool shift) {
+void UinputKeyboard::tap(int keycode, int mod) {
     if (fd_ < 0 || !keycode) return;
     auto send = [&](int code, int value) {
         input_event ev;
@@ -129,13 +129,16 @@ void UinputKeyboard::tap(int keycode, bool shift) {
         ev.value = value;
         ::write(fd_, &ev, sizeof ev);
     };
-    if (shift) send(KEY_LEFTSHIFT, 1);
+    if (mod) send(mod, 1);
     send(keycode, 1);
     sync();
     send(keycode, 0);
-    if (shift) send(KEY_LEFTSHIFT, 0);
+    if (mod) send(mod, 0);
     sync();
 }
+
+void UinputKeyboard::tapAltUp() { tap(KEY_UP, KEY_LEFTALT); }
+void UinputKeyboard::tapAltDown() { tap(KEY_DOWN, KEY_LEFTALT); }
 
 void UinputKeyboard::typeBytes(const std::string& bytes, int gapMs) {
     for (size_t i = 0; i < bytes.size(); ++i) {
@@ -172,7 +175,7 @@ void UinputKeyboard::typeBytes(const std::string& bytes, int gapMs) {
             } else {
                 key = KEY_ESC;  // 单独一个 ESC
             }
-            tap(key, false);
+            tap(key, 0);
         } else if (ch >= 0x80) {
             // uinput 不送 Unicode，UTF-8 多字节没法用键码表达（中文要靠系统输入法）
             ++dropped_;
@@ -180,7 +183,7 @@ void UinputKeyboard::typeBytes(const std::string& bytes, int gapMs) {
                 ++i;  // 跳完这个 UTF-8 字符的延续字节，一个字符只算一次
         } else {
             KeyStroke ks = asciiToKey(char(ch));
-            tap(ks.key, ks.shift);
+            tap(ks.key, ks.shift ? KEY_LEFTSHIFT : 0);
         }
         if (gapMs > 0) ::usleep(useconds_t(gapMs) * 1000);
     }

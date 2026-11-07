@@ -291,6 +291,7 @@ bool loadUi(const char* path, Ui& out) {
         lua_close(L);
         return false;
     }
+    out.mode = istr(L, "mode", out.mode.c_str());
     out.panelW = inum(L, "panel_w", out.panelW);
     out.topBarH = inum(L, "top_bar_h", out.topBarH);
     out.botBarH = inum(L, "bot_bar_h", out.botBarH);

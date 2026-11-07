@@ -393,6 +393,17 @@ static int tabsSelfTest() {
     return ok ? 0 : 1;
 }
 
+// overlay 顶栏的标题压缩：按 UTF-8 码位取前两字，不能把汉字切成半个
+static int topBarSelfTest() {
+    bool ok = ui::headCodepoints("alacritty", 2) == "al" &&
+              ui::headCodepoints("你好世界", 2) == "你好" &&
+              ui::headCodepoints("a你b", 2) == "a你" && ui::headCodepoints("你", 2) == "你" &&
+              ui::headCodepoints("", 2).empty() && ui::headCodepoints("x", 0).empty();
+    std::printf("[selftest] topbar %s  前两字按码位切：alacritty→al 你好世界→你好 a你b→a你\n",
+                ok ? "OK" : "FAIL");
+    return ok ? 0 : 1;
+}
+
 // OSC 过滤器自检：term/quit/标题三类标记必须剥掉，其他字节一个不漏、不跨边界丢
 static int oscSelfTest() {
     std::vector<term::OscEvent> ev;
@@ -909,7 +920,8 @@ int main(int argc, char** argv) {
         if (a == "--help" || a == "-h") { usage(); return 0; }
         if (a == "--selftest") return selfTest() + gamepadSelfTest() + imeSelfTest() + fbdevSelfTest() + damageSelfTest() + fbdevDamageSelfTest() + themeSelfTest() +
                scrollSelfTest() + switchSelfTest() + selectSelfTest() + gamepadEvdevSelfTest() +
-               configSelfTest() + uinputSelfTest() + tabsSelfTest() + oscSelfTest();
+               configSelfTest() + uinputSelfTest() + tabsSelfTest() + oscSelfTest() +
+               topBarSelfTest();
         if (a == "--list-backends") {
             for (auto& n : disp::DisplayRegistry::instance().names()) std::printf("%s\n", n.c_str());
             return 0;
@@ -1160,8 +1172,8 @@ int main(int argc, char** argv) {
             const cfg::KeyMap& km = prof.keymap;
             const cfg::Engine& eng = prof.engine;
             std::printf("装配 %s\n", ok ? "OK" : "FAIL");
-            std::printf("panel_w=%d stick_box=%d cell=%dx%d title=%s\n", ui.panelW, ui.stickBox,
-                        ui.cellW, ui.cellH, ui.title.c_str());
+            std::printf("mode=%s panel_w=%d stick_box=%d cell=%dx%d title=%s\n", ui.mode.c_str(),
+                        ui.panelW, ui.stickBox, ui.cellW, ui.cellH, ui.title.c_str());
             static const char* kn[] = {"LB", "LT", "RB", "RT", "A", "B", "X", "Y",
                                        "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT",
                                        "L3", "START", "R3", "VOLDOWN", "VOLUP", "POWER"};

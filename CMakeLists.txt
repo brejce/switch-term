@@ -12,6 +12,8 @@ pkg_check_modules(PNG REQUIRED libpng)
 pkg_check_modules(SDL2 sdl2)
 pkg_check_modules(VTERM REQUIRED vterm)
 pkg_check_modules(LUA REQUIRED lua5.4)
+# overlay 模式要用 XShape 在窗口上挖洞 + 读 EWMH 窗口列表（x11 与 xext 两个模块）
+pkg_check_modules(X11 REQUIRED x11 xext)
 
 add_executable(switch-ime-term
     src/main.cpp
@@ -22,6 +24,7 @@ add_executable(switch-ime-term
     src/modules/terminal/vterm_parser.cpp
     src/platform/display_fbdev.cpp
     src/platform/display_headless.cpp
+    src/platform/x11_overlay.cpp
     src/render/font_manager.cpp
     src/render/glyph_atlas.cpp
     src/render/renderer.cpp
@@ -48,7 +51,7 @@ add_executable(switch-ime-term
     src/ui/terminal_view.cpp
 )
 
-target_include_directories(switch-ime-term PRIVATE src ${LUA_INCLUDE_DIRS} ${FT_INCLUDE_DIRS} ${FC_INCLUDE_DIRS} ${VTERM_INCLUDE_DIRS})
+target_include_directories(switch-ime-term PRIVATE src ${LUA_INCLUDE_DIRS} ${FT_INCLUDE_DIRS} ${FC_INCLUDE_DIRS} ${VTERM_INCLUDE_DIRS} ${X11_INCLUDE_DIRS})
 if(SDL2_FOUND)
     target_sources(switch-ime-term PRIVATE src/platform/display_sdl.cpp)
     target_compile_definitions(switch-ime-term PRIVATE HAVE_SDL2)
@@ -56,6 +59,6 @@ if(SDL2_FOUND)
     target_link_libraries(switch-ime-term PRIVATE ${SDL2_LIBRARIES})
     target_link_directories(switch-ime-term PRIVATE ${SDL2_LIBRARY_DIRS})
 endif()
-target_link_libraries(switch-ime-term PRIVATE ${FT_LIBRARIES} ${FC_LIBRARIES} ${PNG_LIBRARIES} ${VTERM_LIBRARIES} ${LUA_LIBRARIES})
-target_link_directories(switch-ime-term PRIVATE ${FT_LIBRARY_DIRS} ${FC_LIBRARY_DIRS} ${PNG_LIBRARY_DIRS} ${VTERM_LIBRARY_DIRS})
+target_link_libraries(switch-ime-term PRIVATE ${FT_LIBRARIES} ${FC_LIBRARIES} ${PNG_LIBRARIES} ${VTERM_LIBRARIES} ${LUA_LIBRARIES} ${X11_LIBRARIES})
+target_link_directories(switch-ime-term PRIVATE ${FT_LIBRARY_DIRS} ${FC_LIBRARY_DIRS} ${PNG_LIBRARY_DIRS} ${VTERM_LIBRARY_DIRS} ${X11_LIBRARY_DIRS})
 target_compile_options(switch-ime-term PRIVATE -Wall -Wextra -O2)

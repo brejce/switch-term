@@ -1,5 +1,6 @@
 // SDL2 窗口后端：Wayland/X11 都能开窗，键盘/鼠标/触摸三源都收
 #include <SDL.h>
+#include <SDL_syswm.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -307,6 +308,16 @@ public:
     bool captureFrame(const std::string&) override { return false; }
     const char* name() const override { return "sdl"; }
 
+    // X11 下才有原生窗口可挖洞；Wayland 会话里没有 X 窗口，返回空（overlay 模式会退回不挖洞）
+    void* nativeDisplay() const override {
+        SDL_SysWMinfo i;
+        return wmInfo(i) ? i.info.x11.display : nullptr;
+    }
+    unsigned long nativeWindow() const override {
+        SDL_SysWMinfo i;
+        return wmInfo(i) ? i.info.x11.window : 0;
+    }
+
     std::string preedit() const override { return preedit_; }
 
     void setTextInputRect(const disp::Rect& r) override {
@@ -320,6 +331,13 @@ public:
     }
 
 private:
+    // subsystem 不是 X11 时 info 里的联合体内容是垃圾，必须先确认再看
+    bool wmInfo(SDL_SysWMinfo& i) const {
+        SDL_VERSION(&i.version);
+        if (!win_ || !SDL_GetWindowWMInfo(win_, &i)) return false;
+        return i.subsystem == SDL_SYSWM_X11;
+    }
+
     // 窗口可能被合成器缩放（niri 把 1280×720 放成 1024×576），点击坐标要换算回帧缓冲
     // 画面在窗口里的位置（输出像素坐标）：等比缩放 + 居中
     disp::Rect viewport() const {
