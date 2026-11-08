@@ -1,2 +1,14 @@
 /build/
 frame.png
+
+# 第三方 lib 检出（.venv / pip cache / playwright 浏览器，体积巨大）
+/vendor/
+__pycache__/
+
+# 宣传片素材/产物（二进制，不入库）
+/video/raw/
+/video/work/
+/video/out/
+/video/film/out/
+/video/film/build/
+/video/film/audio/

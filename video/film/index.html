@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>案件档案 SIT-001</title>
+<style>
+@font-face{font-family:"M";src:url(assets/maple.ttf) format("truetype");font-weight:400;font-display:block}
+@font-face{font-family:"M";src:url(assets/maple-bold.ttf) format("truetype");font-weight:700;font-display:block}
+@font-face{font-family:"S";src:url(assets/serif900.ttf) format("truetype");font-weight:900;font-display:block}
+:root{--paper:#EEE4CE;--ink:#141C28;--over:#C6422D;--hi:#C6D84E}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#EEE4CE}
+#stage{position:absolute;inset:0;overflow:hidden}
+canvas{position:absolute;inset:0}
+.scene{position:absolute;inset:0;visibility:hidden}
+.hud{position:absolute;font-family:"M",monospace;font-weight:700;font-size:19px;letter-spacing:1.5px;color:var(--ink)}
+.hud.tl{left:70px;top:56px}
+.hud.tr{right:70px;top:56px;text-align:right}
+.hud .sub{font-weight:400;font-size:15px;opacity:.6;letter-spacing:1px;margin-top:4px}
+.head{position:absolute;font-family:"S";font-weight:900;color:var(--ink);line-height:1.05;letter-spacing:2px;filter:drop-shadow(8px 8px 0 var(--over))}
+.head .ch{display:inline-block}
+.head.small{font-size:104px}
+.head.big{font-size:172px}
+.fig{position:absolute;font-family:"M",monospace;font-weight:700;font-size:16px;letter-spacing:2px;
+      color:var(--ink);border:2px solid var(--ink);padding:5px 9px;opacity:.8;white-space:nowrap}
+.x{font-family:"M",monospace;font-weight:700;font-size:16px;letter-spacing:2px;color:var(--ink);
+      border:2px solid var(--ink);padding:5px 9px;opacity:.8;white-space:nowrap}
+.pl{position:absolute;display:block}
+.cap{position:absolute;left:50%;transform:translateX(-50%);bottom:64px;background:var(--ink);color:var(--paper);
+     font-family:"S";font-weight:900;font-size:42px;padding:22px 48px 26px;border-radius:16px;
+     box-shadow:10px 10px 0 var(--over);white-space:nowrap}
+.cap b{color:var(--hi)}
+.cap.inv{background:var(--paper);color:var(--ink);box-shadow:10px 10px 0 var(--over)}
+.cap.inv b{color:var(--over)}
+.plate{position:absolute;mix-blend-mode:multiply;filter:contrast(1.03)}
+.card{position:absolute;background:rgba(238,228,206,.92);border:3px solid var(--ink);
+      box-shadow:9px 9px 0 rgba(20,28,40,.16);padding:22px 26px 20px}
+.cardttl{font-family:"M",monospace;font-weight:700;font-size:17px;letter-spacing:2px;color:var(--ink);opacity:.72;margin-bottom:16px}
+.grid{display:flex;gap:10px}
+.cell{width:72px;height:76px;border:3px solid var(--ink);display:flex;align-items:center;justify-content:center;
+      font-family:"M",monospace;font-weight:700;font-size:34px;color:var(--ink);background:rgba(255,252,243,.35)}
+.iblock{position:absolute;left:26px;top:70px;width:72px;height:76px;background:var(--ink);
+        display:flex;align-items:center;justify-content:center;box-shadow:6px 6px 0 var(--over)}
+.iblock span{font-family:"M",monospace;font-weight:700;font-size:34px;color:var(--paper)}
+.cardfn{margin-top:16px;font-family:"M",monospace;font-size:15px;color:var(--ink);opacity:.66}
+.stickcap{position:absolute;font-family:"M",monospace;font-weight:700;font-size:19px;color:var(--paper);
+      background:var(--ink);padding:7px 12px;letter-spacing:1px}
+.lbl{position:absolute;font-family:"M",monospace;font-weight:700;font-size:22px;color:var(--paper);
+     background:var(--over);padding:8px 14px;border-radius:4px;white-space:nowrap}
+.bignum{position:absolute;font-family:"M",monospace;font-weight:700;color:var(--ink);letter-spacing:-10px;filter:drop-shadow(11px 11px 0 var(--over))}
+.bignum .ch{display:inline-block}
+.stats{position:absolute;left:1150px;top:392px;font-family:"M",monospace;font-weight:700;font-size:27px;
+       color:var(--ink);line-height:2.1;border-left:4px solid var(--ink);padding-left:26px}
+.stats b{font-size:36px;letter-spacing:-.5px}
+.unit{position:absolute;font-family:"M",monospace;font-weight:700;color:var(--ink)}
+#verdict{background:var(--ink)}
+.stamp{position:absolute;left:50%;top:58%;font-family:"M",monospace;font-weight:700;color:var(--over);
+       border:11px solid var(--over);border-radius:16px;padding:28px 58px;font-size:112px;letter-spacing:12px;
+       transform:translate(-50%,-50%)}
+.stamp .sub{display:block;font-size:24px;letter-spacing:6px;margin-top:8px;text-align:center}
+.end1{position:absolute;left:50%;transform:translateX(-50%);font-family:"M",monospace;font-weight:700;font-size:118px;color:var(--ink);
+      filter:drop-shadow(9px 9px 0 var(--over))}
+.endstamp{left:auto;right:150px;top:auto;bottom:150px;font-size:62px;border-width:8px;
+       padding:16px 32px;transform:rotate(-9deg);opacity:.9}
+.end2{position:absolute;left:50%;transform:translateX(-50%);font-family:"M",monospace;font-size:26px;color:var(--ink);opacity:.68;letter-spacing:3px}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="paper" width="1920" height="1080"></canvas>
+
+  <div class="scene" id="s1">
+    <div class="hud tl">CASE No. <b>SIT-001</b><div class="sub">INCIDENT REPORT · 立案</div></div>
+    <div class="hud tr">2026-11-07<div class="sub">ENCLOSURE 0 / 4</div></div>
+    <div class="head big" id="h1a" style="left:112px;top:296px"></div>
+    <div class="head big" id="h1b" style="left:112px;top:500px"></div>
+    <div style="position:absolute;left:118px;top:708px;font-family:'M';font-size:30px;color:var(--ink);opacity:.75">
+      sit — 用手柄打字的 Linux 终端</div>
+  </div>
+
+  <div class="scene" id="s2">
+    <div class="hud tl">EXHIBIT <b>01</b><div class="sub">/ 机器本体</div></div>
+    <div class="hud tr">SIT-001<div class="sub">PHOTO PLATE</div></div>
+    <div class="head small" id="h2" style="left:112px;top:248px"></div>
+    <img class="plate" id="p2" src="assets/plates/photo.png">
+    <div class="fig" id="f1" style="left:112px;top:392px">FIG. 1 — 屏幕 2×</div>
+    <img class="pl" id="p1" src="assets/plates/prompt.png" style="left:112px;top:430px;width:880px">
+    <div class="cap" id="c2">开机 <b>13 秒</b>，直接进终端</div>
+  </div>
+
+  <div class="scene" id="s3">
+    <div class="hud tl">EXHIBIT <b>02</b><div class="sub">/ 输入装置</div></div>
+    <div class="hud tr">SIT-001<div class="sub">PHOTO PLATE</div></div>
+    <div class="head small" id="h3" style="left:112px;top:190px;font-size:92px"></div>
+    <img class="plate" id="p3" src="assets/plates/stick.png" style="-webkit-mask-image:linear-gradient(90deg,#000 82%,transparent 100%)">
+    <div class="stickcap">左摇杆 → 光标</div>
+    <div class="card" id="ins3">
+      <div class="cardttl">FIG. 3 — SNAP</div>
+      <div class="grid" id="ig3"></div>
+      <div class="iblock" id="ib3"><span>D</span></div>
+      <div class="cardfn">摇杆偏转 → 白块被吸附到最近键</div>
+    </div>
+
+    <div class="cap" id="c3">摇杆一推，白块被<b>「吸」</b>到下一个键</div>
+  </div>
+
+  <div class="scene" id="s4">
+    <div class="hud tl">EXHIBIT <b>03</b><div class="sub">/ 打印记录</div></div>
+    <div class="hud tr">SIT-001<div class="sub">PRINTED COPY</div></div>
+    <div class="head small" id="h4" style="left:112px;top:186px;font-size:92px"></div>
+    <div class="fig" id="fA" style="left:112px;top:334px">FIG. A / 回车之后</div>
+    <img class="pl" id="pa" src="assets/plates/out_zh.png" style="left:112px;top:374px;width:1560px">
+    <div class="fig" id="fB" style="left:112px;top:596px">FIG. B / 候选条</div>
+    <img class="pl" id="pb" src="assets/plates/cand.png" style="left:112px;top:636px;width:1560px">
+    <div class="cap" id="c4">输入 <b>nihao</b> → 候选条 → ZL 空格确认</div>
+  </div>
+  <div class="scene" id="s5">
+    <div class="hud tl">EXHIBIT <b>04</b><div class="sub">/ 资源占用</div></div>
+    <div class="hud tr">SIT-001<div class="sub">MEASURED</div></div>
+    <div class="head small" id="h5" style="left:112px;top:190px"></div>
+    <div class="bignum" id="n5" style="left:104px;top:352px;font-size:430px"></div>
+    <div class="unit" id="u5" style="left:130px;top:824px;font-size:62px">MB · 常驻内存</div>
+    <div class="stats" id="st5">
+      <div><b>13.1</b> 秒 · 开机</div>
+      <div><b>0</b> 个桌面组件</div>
+      <div><b>4.9.140</b> 内核</div>
+      <div><b>1</b> 个可执行文件</div>
+    </div>
+    <div class="cap" id="c5">没有桌面组件，也没有内核补丁</div>
+  </div>
+
+  <div class="scene" id="verdict">
+    <div class="hud tl" style="color:var(--paper)">JUDGEMENT<div class="sub" style="opacity:.55">SIT-001</div></div>
+    <div class="head big" id="h6" style="left:112px;top:186px;font-size:126px;color:var(--paper)"></div>
+    <div class="cap inv" id="c6" style="bottom:96px">一条命令，<b>真的跑起来了</b></div>
+    <div class="stamp" id="st6">VERIFIED<span class="sub">SIT-001 · 2026-11-07</span></div>
+  </div>
+
+  <div class="scene" id="s7">
+    <div class="hud tl">ARCHIVE<div class="sub">/ 归档</div></div>
+    <div class="hud tr">SIT-001<div class="sub">CLOSED</div></div>
+    <div class="end1" id="e7" style="top:430px">sit/0.1</div>
+    <div class="end2" id="e7b" style="top:600px">Made on a Nintendo Switch</div>
+    <div class="stamp endstamp" id="st7">ARCHIVED<span class="sub">SIT-001</span></div>
+  </div>
+
+  <canvas id="fx" width="1920" height="1080"></canvas>
+</div>
+<script>
+const W=1920,H=1080;
+const INK='#141C28',PAPER='#EEE4CE',OVER='#C6422D';
+const pctx=document.getElementById('paper').getContext('2d');
+const fctx=document.getElementById('fx').getContext('2d');
+const el=id=>document.getElementById(id);
+function rngJs(seed){let a=(seed*2654435761)>>>0;return()=>{a=(a*1664525+1013904223)>>>0;return a/4294967296;};}
+
+/* deterministic rng */
+function rng(seed){let a=seed>>>0;return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+/* paper, built once */
+(function buildPaper(){
+  pctx.fillStyle='#F2E8D2';pctx.fillRect(0,0,W,H);
+  const r=rng(7);
+  for(let i=0;i<130;i++){
+    const x=r()*W,y=r()*H,rad=60+r()*200;
+    const g=pctx.createRadialGradient(x,y,0,x,y,rad);
+    g.addColorStop(0, r()<.5?'rgba(198,180,148,.05)':'rgba(254,250,240,.10)');
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    pctx.fillStyle=g;pctx.beginPath();pctx.arc(x,y,rad,0,7);pctx.fill();
+  }
+  for(let i=0;i<2800;i++){
+    const x=r()*W,y=r()*H;
+    pctx.fillStyle=r()<.72?'rgba(150,134,106,.20)':'rgba(255,251,240,.55)';
+    pctx.fillRect(x,y,1+r()*1.5,1+r()*1.5);
+  }
+  const v=pctx.createRadialGradient(W/2,H*.46,430,W/2,H*.46,1200);
+  v.addColorStop(0,'rgba(0,0,0,0)');v.addColorStop(1,'rgba(126,102,64,.17)');
+  pctx.fillStyle=v;pctx.fillRect(0,0,W,H);
+  pctx.fillStyle='rgba(138,116,84,.07)';pctx.fillRect(W/2-2,0,4,H);
+  pctx.fillStyle='rgba(255,252,244,.15)';pctx.fillRect(W/2+2,0,2,H);
+})();
+
+const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const seg=(t,a,b)=>clamp((t-a)/(b-a));
+const back=t=>{const s=1.9,u=t-1;return 1+u*u*((s+1)*u+s);};
+
+function chars(id,str){
+  const host=el(id);host.innerHTML='';
+  [...str].forEach(c=>{
+    const s=document.createElement('span');
+    s.className='ch';s.textContent=c===' '?'\u00a0':c;
+    host.appendChild(s);
+  });
+  return [...host.children];
+}
+function pop(spans,t,t0,from=70,stag=.06){
+  spans.forEach((s,i)=>{
+    const k=seg(t,t0+i*stag,t0+i*stag+.34);
+    s.style.transform=`translateY(${(1-back(k))*from}px) scaleY(${.9+.1*back(k)})`;
+    s.style.opacity=k>0?1:0;
+  });
+}
+const S1=chars('h1a','一台游戏机'),S1b=chars('h1b','被立案调查');
+const S2=chars('h2','没有桌面'),S3=chars('h3','手柄就是键盘');
+const S4=chars('h4','中文也能打'),S5=chars('h5','常驻内存');
+const S5n=chars('n5','330'),S6=chars('h6','一条命令');
+
+const CUTS=[3.20,6.40,11.00,18.20,21.60,26.00];
+function drawSlip(p){
+  /* paper sheet slips across the page: covers the old scene, uncovers the new */
+  const edge=-260+p*(W+520), skew=-.10*H;
+  fctx.fillStyle='#F2E8D2';
+  fctx.beginPath();
+  fctx.moveTo(-20,-20);fctx.lineTo(edge+skew,-20);fctx.lineTo(edge,H+20);fctx.lineTo(-20,H+20);
+  fctx.closePath();fctx.fill();
+  fctx.strokeStyle='rgba(48,40,28,.30)';fctx.lineWidth=4;
+  fctx.beginPath();fctx.moveTo(edge+skew,-20);fctx.lineTo(edge,H+20);fctx.stroke();
+  fctx.strokeStyle='rgba(48,40,28,.10)';fctx.lineWidth=18;
+  fctx.beginPath();fctx.moveTo(edge+skew-10,-20);fctx.lineTo(edge-10,H+20);fctx.stroke();
+}
+
+window.DUR=30;
+window.READY=true;
+window.render=function(t){
+  const show=(id,on)=>{el(id).style.visibility=on?'visible':'hidden';};
+  show('s1',t<3.2);show('s2',t>=3.2&&t<6.4);show('s3',t>=6.4&&t<11);
+  show('s4',t>=11&&t<18.2);show('s5',t>=18.2&&t<21.6);
+  show('verdict',t>=21.6&&t<26);show('s7',t>=26);
+
+  pop(S1,t,.10,90,.07);pop(S1b,t,.52,90,.07);
+
+  pop(S2,t,3.34,60);
+  const p2=el('p2');
+  p2.style.left='936px';p2.style.top='196px';p2.style.width='880px';
+  const k2=seg(t,3.25,3.85);
+  p2.style.transform=`translateY(${(1-back(k2))*70}px) scale(${1+.06*seg(t,3.2,6.4)})`;
+  p2.style.opacity=k2>0?1:0;
+  const k1=seg(t,3.62,3.98),p1=el('p1');
+  p1.style.opacity=k1;el('f1').style.opacity=k1*.85;
+  p1.style.transform=`translateY(${(1-back(k1))*24}px)`;
+
+  pop(S3,t,6.55,60);
+  const p3=el('p3');
+  p3.style.width='380px';p3.style.height='704px';
+  p3.style.objectFit='fill';p3.style.objectPosition='50% 50%';
+  p3.style.left=(880-24*seg(t,6.4,11))+'px';
+  p3.style.top=(252-14*seg(t,6.4,11))+'px';
+  p3.style.transform='none';
+  const sc=document.querySelector('.stickcap');
+
+  /* FIG.3 snap grid */
+  const card=el('ins3'), k3=seg(t,7.05,7.5);
+  card.style.left='1330px';card.style.top='300px';card.style.width='440px';
+  card.style.transform=`scale(${back(k3)})`;card.style.opacity=k3>0?1:0;
+  const keys=['D','F','G','H'];
+  if(!el('ig3').children.length) el('ig3').innerHTML=keys.map(k=>`<div class="cell">${k}</div>`).join('');
+  const hopT0=7.55, hopDur=0.52, n=keys.length;
+  const hop=clamp((t-hopT0)/hopDur,0,n-1);
+  const i0=Math.min(n-2,Math.floor(hop)), frac=hop-i0>0?hop-i0:0;
+  // magnetic: fast approach, tiny overshoot, settle
+  const e=frac<.72? Math.pow(frac/.72,.55) : 1+Math.sin((frac-.72)/.28*Math.PI)*.055;
+  const x0=i0*82, x1=(i0+1)*82;
+  const bx=x0+(x1-x0)*clamp(e,0,1.06);
+  const settle=Math.max(0,1-Math.abs(frac-.80)/.22);
+  const jit=(t>hopT0? (rngJs(Math.round(t*60))()-0.5)*3.2*settle : 0);
+  const ib=el('ib3');
+  ib.style.transform=`translate(${bx+((t>hopT0)?((rngJs(Math.round(t*60)+7)()-0.5)*3.6*settle):0)}px, ${jit}px) scale(${1+0.05*settle})`;
+  ib.firstChild.textContent=keys[Math.min(n-1,Math.round(hop))];
+
+  [].forEach(([id,x,y,t0])=>{
+    const k=seg(t,t0,t0+.3),n2=el(id);
+    n2.style.left=x+'px';n2.style.top=y+'px';
+    n2.style.transform=`scale(${back(k)})`;n2.style.opacity=k>0?1:0;
+  });
+  {const k=seg(t,7.5,7.85);sc.style.left='676px';sc.style.top='474px';
+   sc.style.opacity=k;sc.style.transform=`translateX(${(1-back(k))*20}px)`;}
+
+  pop(S4,t,11.14,60);
+  const ka=seg(t,11.3,11.75), kb=seg(t,12.15,12.6);
+  [['pa','fA',ka],['pb','fB',kb]].forEach(([id,fid,k])=>{
+    const n=el(id), f=el(fid);
+    n.style.opacity=f.style.opacity=k>0?1:0;
+    n.style.transform=f.style.transform=`translateY(${(1-back(k))*36}px)`;
+  });
+
+  pop(S5,t,18.34,60);pop(S5n,t,18.54,300,.05);
+  {const k=seg(t,18.95,19.4);el('st5').style.opacity=k;el('st5').style.transform=`translateX(${(1-back(k))*26}px)`;}
+  el('u5').style.opacity=seg(t,18.9,19.3);
+  el('n5').style.transform=`translateY(${(1-seg(t,18.5,19.2))*-20}px)`;
+
+  pop(S6,t,21.74,60);
+  const st=el('st6'),k=seg(t,22.55,22.65);
+  st.style.transform=`translate(-50%,-50%) rotate(-7deg) scale(${k>0?2.6-1.6*Math.pow(k,.55):2.6})`;
+  st.style.opacity=k>0?1:0;
+
+  const s7=seg(t,26.0,26.9);
+  el('e7').style.top=(540-110*back(s7))+'px';
+  el('e7').style.opacity=seg(t,26.05,26.5);
+  el('e7b').style.opacity=seg(t,26.6,27.2);
+  const sk=seg(t,26.95,27.04), st7=el('st7');
+  st7.style.transform=`rotate(-9deg) scale(${sk>0?2.2-1.2*Math.pow(sk,.55):2.2})`;
+  st7.style.opacity=sk>0?1:0;
+
+  /* wipes */
+  fctx.clearRect(0,0,W,H);
+  for(const c of CUTS){
+    if(t>=c-.22&&t<c){drawSlip((t-(c-.22))/.22);break;}
+    if(t>=c&&t<c+.22){drawSlip(1-(t-c)/.22);break;}
+  }
+  /* grain: deterministic per 2-frame bucket */
+  const fr=Math.round(t*15),r=rng(fr*97+13);
+  for(let i=0;i<160;i++){
+    const x=r()*W,y=r()*H;
+    fctx.fillStyle=r()<.6?'rgba(30,26,20,.28)':'rgba(250,244,230,.5)';
+    fctx.fillRect(x,y,1+r()*1.2,1+r()*1.2);
+  }
+};
+</script>
+</body>
+</html>
